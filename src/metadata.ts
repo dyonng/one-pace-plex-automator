@@ -1,0 +1,142 @@
+import axios from "axios";
+import { getConfig } from "./config";
+import { logger } from "./logger";
+
+interface DataJsonArc {
+  part: number;
+  saga: string;
+  title: string;
+  originaltitle: string;
+  description: string;
+  poster: string;
+}
+
+interface DataJsonEpisode {
+  arc: number; // index into arcs[]
+  episode: number;
+  title: string;
+  originaltitle: string;
+  description: string;
+  chapters: string;
+  episodes: string;
+  released: string;
+  hashes: { crc32: string; blake2: string };
+}
+
+interface DataJson {
+  arcs: DataJsonArc[];
+  episodes: Record<string, DataJsonEpisode>; // key = CRC32 uppercase hex
+}
+
+export interface ResolvedEpisode {
+  crc32: string;
+  arcIndex: number;
+  arcTitle: string;
+  arcPart: number;
+  episodeNum: number;
+  episodeTitle: string;
+  episodeDescription: string;
+  resolution: string;
+}
+
+let _data: DataJson | null = null;
+
+async function getData(): Promise<DataJson> {
+  if (_data) return _data;
+  const url = `${getConfig().METADATA_REPO_RAW_BASE}/data.min.json`;
+  logger.debug("Fetching metadata dataset", { url });
+  const resp = await axios.get<DataJson>(url, { timeout: 15_000 });
+  _data = resp.data;
+  logger.info("Metadata dataset loaded", {
+    arcs: _data.arcs.length,
+    episodes: Object.keys(_data.episodes).length,
+  });
+  return _data;
+}
+
+export function clearMetadataCache(): void {
+  _data = null;
+  logger.debug("Metadata cache cleared");
+}
+
+export async function resolveEpisodeByCrc32(
+  crc32: string,
+  resolution = "1080p"
+): Promise<ResolvedEpisode> {
+  const data = await getData();
+  const key = crc32.toUpperCase();
+  const ep = data.episodes[key];
+  if (!ep) throw new Error(`CRC32 ${key} not found in metadata dataset`);
+  const arc = data.arcs[ep.arc];
+  if (!arc) throw new Error(`Arc index ${ep.arc} not found in metadata dataset`);
+  return {
+    crc32: key,
+    arcIndex: ep.arc,
+    arcTitle: arc.title,
+    arcPart: arc.part,
+    episodeNum: ep.episode,
+    episodeTitle: ep.title,
+    episodeDescription: ep.description,
+    resolution,
+  };
+}
+
+/**
+ * Parses an RSS title like "Little Garden 05" into {arcTitle, epNum}.
+ * Last whitespace-separated token that is purely numeric is the episode number.
+ */
+function parseRssTitle(title: string): { arcTitle: string; epNum: number } | null {
+  const parts = title.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  const last = parts[parts.length - 1];
+  const epNum = parseInt(last, 10);
+  if (isNaN(epNum) || !/^\d+$/.test(last)) return null;
+  return { arcTitle: parts.slice(0, -1).join(" "), epNum };
+}
+
+export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | null> {
+  const parsed = parseRssTitle(rssTitle);
+  if (!parsed) return null;
+
+  const data = await getData();
+  const arcIndex = data.arcs.findIndex(
+    (a) => a.title.toLowerCase() === parsed.arcTitle.toLowerCase()
+  );
+  if (arcIndex === -1) {
+    logger.warn("Arc not found in metadata", { arcTitle: parsed.arcTitle });
+    return null;
+  }
+
+  for (const [crc32, ep] of Object.entries(data.episodes)) {
+    if (ep.arc === arcIndex && ep.episode === parsed.epNum) {
+      return crc32.toUpperCase();
+    }
+  }
+
+  logger.warn("Episode not found in metadata", { arcTitle: parsed.arcTitle, epNum: parsed.epNum });
+  return null;
+}
+
+export function buildPlexFilename(
+  arcTitle: string,
+  arcPart: number,
+  episodeNum: number,
+  resolution: string,
+  crc32: string,
+  ext: string
+): string {
+  const s = String(arcPart).padStart(2, "0");
+  const e = String(episodeNum).padStart(2, "0");
+  return `One Pace - ${arcTitle} - S${s}E${e} [${resolution}][${crc32.toUpperCase()}]${ext}`;
+}
+
+export function extractCrc32FromFilename(filename: string): string | null {
+  // Last bracketed 8-char hex string before the extension: [BE634289]
+  const match = filename.match(/\[([0-9A-Fa-f]{8})\](?:\.\w+)?$/);
+  return match ? match[1].toUpperCase() : null;
+}
+
+export function extractResolutionFromFilename(filename: string): string {
+  const match = filename.match(/\[(\d{3,4}p)\]/i);
+  return match ? match[1] : "1080p";
+}

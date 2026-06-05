@@ -1,0 +1,29 @@
+{
+  "name": "one-pace-plex-automator",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Automates One Pace fan-edit downloads, renaming, and Plex metadata management",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "lint": "eslint src --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "install:dev": "npm install --ignore-scripts"
+  },
+  "dependencies": {
+    "axios": "^1.7.7",
+    "better-sqlite3": "^11.3.0",
+    "node-cron": "^3.0.3",
+    "rss-parser": "^3.13.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.7.5",
+    "@types/node-cron": "^3.0.11",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.6.3"
+  }
+}

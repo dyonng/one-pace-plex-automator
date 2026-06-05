@@ -1,0 +1,32 @@
+services:
+  one-pace-automator:
+    build: .
+    container_name: one-pace-automator
+    restart: unless-stopped
+    environment:
+      - RSS_FEED_URL=${RSS_FEED_URL}
+      - QBIT_URL=${QBIT_URL:-http://qbittorrent:8080}
+      - QBIT_USERNAME=${QBIT_USERNAME:-admin}
+      - QBIT_PASSWORD=${QBIT_PASSWORD}
+      - QBIT_CATEGORY=${QBIT_CATEGORY:-one-pace}
+      - QBIT_DOWNLOAD_PATH=${QBIT_DOWNLOAD_PATH:-/downloads/one-pace}
+      - PLEX_URL=${PLEX_URL:-http://plex:32400}
+      - PLEX_TOKEN=${PLEX_TOKEN}
+      - PLEX_LIBRARY_SECTION_ID=${PLEX_LIBRARY_SECTION_ID}
+      - PLEX_SERIES_RATING_KEY=${PLEX_SERIES_RATING_KEY:-}
+      - MEDIA_PATH=${MEDIA_PATH:-/media/tv}
+      - SERIES_FOLDER_NAME=${SERIES_FOLDER_NAME:-One Pace}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
+      - POLL_INTERVAL_MINUTES=${POLL_INTERVAL_MINUTES:-60}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    volumes:
+      - ./data:/data
+      - ${MEDIA_PATH:-/media/tv}:/media/tv
+      - ${QBIT_DOWNLOAD_PATH:-/downloads/one-pace}:/downloads/one-pace
+    networks:
+      - media-stack
+
+networks:
+  media-stack:
+    external: true
+    name: ${DOCKER_NETWORK:-media-stack}
