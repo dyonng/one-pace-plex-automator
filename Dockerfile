@@ -11,6 +11,10 @@ RUN npm run build
 
 FROM node:22-alpine AS runner
 
+# Runtime shared lib for the better-sqlite3 native addon (musl build links
+# libstdc++/libgcc). Builder had these via g++; the runner needs them too.
+RUN apk add --no-cache libstdc++
+
 WORKDIR /app
 COPY package*.json ./
 COPY --from=builder /app/node_modules ./node_modules

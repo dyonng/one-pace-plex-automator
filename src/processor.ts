@@ -43,7 +43,13 @@ export async function processDownloading(): Promise<void> {
         ext
       );
 
-      const destPath = moveAndRename(sourcePath, finalFilename, ep.arc_title, ep.arc_part);
+      const { replaced } = moveAndRename(
+        sourcePath,
+        finalFilename,
+        ep.arc_title,
+        ep.arc_part,
+        ep.episode_num
+      );
 
       const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);
 
@@ -56,16 +62,16 @@ export async function processDownloading(): Promise<void> {
 
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
 
-      await runMetadataSync();
-
       await sendDiscordNotification({
-        type: "download_complete",
+        type: replaced.length > 0 ? "episode_updated" : "download_complete",
         crc32: ep.crc32,
         arcTitle: ep.arc_title,
         arcPart: ep.arc_part,
         episodeNum: ep.episode_num,
         episodeTitle: epMeta.episodeTitle,
         filename: finalFilename,
+        replacedFilenames: replaced,
+        changelog: ep.changelog,
       });
 
       // Remove torrent from qBit (keep file)

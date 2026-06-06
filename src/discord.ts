@@ -3,13 +3,15 @@ import { getConfig } from "./config";
 import { logger } from "./logger";
 
 export interface DiscordNotification {
-  type: "new_episode" | "download_complete" | "error";
+  type: "new_episode" | "download_complete" | "episode_updated" | "error";
   crc32: string;
   arcTitle?: string;
   arcPart?: number;
   episodeNum?: number;
   episodeTitle?: string;
   filename?: string;
+  replacedFilenames?: string[];
+  changelog?: string[];
   error?: string;
 }
 
@@ -36,6 +38,26 @@ function buildEmbed(n: DiscordNotification) {
         { name: "File", value: n.filename ?? n.crc32, inline: false },
         { name: "CRC32", value: n.crc32, inline: true },
       ],
+      timestamp: new Date().toISOString(),
+    };
+  }
+
+  if (n.type === "episode_updated") {
+    const fields = [
+      { name: "New File", value: n.filename ?? n.crc32, inline: false },
+      { name: "CRC32", value: n.crc32, inline: true },
+    ];
+    if (n.changelog?.length) {
+      fields.push({ name: "Changelog", value: n.changelog.map((c) => `• ${c}`).join("\n"), inline: false });
+    }
+    if (n.replacedFilenames?.length) {
+      fields.push({ name: "Replaced", value: n.replacedFilenames.join("\n"), inline: false });
+    }
+    return {
+      title: `Episode Updated`,
+      description: `**${n.arcTitle ?? "Unknown Arc"}** ${season}${ep}${n.episodeTitle ? ` — ${n.episodeTitle}` : ""}`,
+      color: 0xf39c12,
+      fields,
       timestamp: new Date().toISOString(),
     };
   }

@@ -2,7 +2,7 @@ import Parser from "rss-parser";
 import { getConfig } from "./config";
 import { logger } from "./logger";
 import { getKv, setKv } from "./db";
-import { extractCrc32FromFilename, lookupCrc32ByTitle } from "./metadata";
+import { extractCrc32FromFilename, lookupCrc32ByTitle, refreshMetadata } from "./metadata";
 
 export interface RssEpisode {
   guid: string;
@@ -11,6 +11,7 @@ export interface RssEpisode {
   filename: string;
   crc32: string;
   pubDate: string;
+  changelog: string[];
 }
 
 type RssItem = {
@@ -18,6 +19,7 @@ type RssItem = {
   title?: string;
   link?: string;
   pubDate?: string;
+  content?: string;
   magnetURI?: string;
   torrentFileName?: string;
   infoHash?: string;
@@ -64,9 +66,27 @@ export async function fetchNewEpisodes(
     throw new Error(`RSS fetch failed: ${(err as Error).message}`);
   }
 
+  const items = (feed.items ?? []) as RssItem[];
+
+  // If any unseen item exists, a release (or re-release) just landed — refresh
+  // metadata before resolving so an updated CRC32 resolves correctly.
+  const hasNew = items.some((it) => {
+    const g = it.guid ?? it.link ?? it.title ?? "";
+    return g && !isGuidSeen(g);
+  });
+  if (hasNew) {
+    try {
+      await refreshMetadata();
+    } catch (err) {
+      logger.warn("Metadata refresh failed, resolving against cached data", {
+        error: (err as Error).message,
+      });
+    }
+  }
+
   const newEpisodes: RssEpisode[] = [];
 
-  for (const item of (feed.items ?? []) as RssItem[]) {
+  for (const item of items) {
     const guid = item.guid ?? item.link ?? item.title ?? "";
     if (!guid || isGuidSeen(guid)) continue;
 
@@ -106,6 +126,7 @@ export async function fetchNewEpisodes(
       filename,
       crc32,
       pubDate: item.pubDate ?? new Date().toISOString(),
+      changelog: extractChangelog(item.content),
     });
   }
 
@@ -135,4 +156,28 @@ function extractFilenameFromMagnet(magnet: string): string | null {
 function cleanTorrentFilename(name: string | undefined): string | null {
   if (!name) return null;
   return name.endsWith(".torrent") ? name.slice(0, -".torrent".length) : name;
+}
+
+function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;|&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
+}
+
+/**
+ * Pulls the changelog bullet list out of the RSS description HTML.
+ * Re-releases carry a <details><summary>Changelog</summary><ul><li>…</li></ul></details>
+ * block; first-time releases have none, returning [].
+ */
+export function extractChangelog(html: string | undefined): string[] {
+  if (!html) return [];
+  const block = html.match(/<summary>\s*Changelog\s*<\/summary>(.*?)<\/details>/is);
+  if (!block) return [];
+  return [...block[1].matchAll(/<li[^>]*>(.*?)<\/li>/gis)]
+    .map((m) => decodeEntities(m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim()))
+    .filter(Boolean);
 }

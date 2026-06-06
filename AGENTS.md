@@ -2,124 +2,183 @@
 
 ## What This Project Does
 
-Automates download, renaming, and Plex metadata management for **One Pace** — a fan-edited version of One Piece that removes filler and aligns episodes with manga pacing. The user was previously doing all of this manually after Discord notifications.
+Automates download, renaming, and Plex metadata management for **One Pace** — a fan-edited
+version of One Piece that removes filler and aligns episodes with manga pacing. Replaces a
+manual workflow: Discord notification → download → rename → move to Plex folder → add metadata.
+Also replaces the old `old_scripts/one_pace_sync.py` (full Plex metadata sync) and
+`old_scripts/sync_cast_list.py` (cast actors), which remain in-repo as behavioral reference.
 
 ## Architecture
 
-Single TypeScript/Node.js service running in Docker alongside an existing arr-stack managed via **dockhand**.
+Single TypeScript/Node.js service in Docker, running alongside an existing arr-stack managed
+via **dockhand**. Plex runs on **baremetal**, not in Docker.
 
-### Pipeline (per poll cycle)
+### Schedules
 
-1. **RSS poll** (`src/rss.ts`) — polls One Pace RSS feed, extracts new episodes by GUID
-2. **Metadata lookup** (`src/metadata.ts`) — fetches YAML files from [`ladyisatis/one-pace-metadata`](https://github.com/ladyisatis/one-pace-metadata) repo (branch `v2`) to resolve arc title, season number, episode number, description
-3. **qBittorrent dispatch** (`src/qbittorrent.ts`) — adds magnet to qBittorrent via Web API, stores torrent hash
-4. **Completion monitoring** (`src/processor.ts`) — polls qBit every 5 minutes, detects finished downloads
-5. **File processing** (`src/fileops.ts`) — finds downloaded file by CRC32, renames and moves to Plex library
-6. **Plex update** (`src/plex.ts`) — triggers library scan, finds episode by season/episode number, updates title + summary via Plex API
-7. **Discord notification** (`src/discord.ts`) — sends embed webhook on detection and on completion
+Two independent timers (set up in `src/index.ts`):
+
+- **`POLL_CRON`** (default `*/5 * * * *`) → `runCycle()` = `pollRss` → `dispatchPending` → `processDownloading`
+- **`setInterval(30s)`** → `processDownloading()` only (sub-minute completion check; cron can't go below 1 min)
+
+On startup, `boot()` runs once, then one immediate `runCycle()` + `runMetadataSync()`.
+
+### Pipeline
+
+1. **RSS poll** (`src/rss.ts`) — native `fetch` with `If-Modified-Since`/`304` (last value in `kv`).
+   `rss-parser` `customFields` map the `torrent:` namespace. If any unseen item exists, calls
+   `refreshMetadata()` **before** resolving (a re-release bumps the episode's CRC32). Extracts the
+   changelog from the description CDATA. CRC32 resolution priority:
+   `torrent:fileName` → magnet `dn=` param → `lookupCrc32ByTitle()`.
+2. **Metadata** (`src/metadata.ts`) — single `data.min.json` from
+   [`ladyisatis/one-pace-metadata`](https://github.com/ladyisatis/one-pace-metadata) branch `v2`,
+   cached. `refreshMetadata()` does a conditional GET (ETag → 304, ~free when unchanged). Episode
+   keys are **uppercase hex CRC32**.
+3. **qBittorrent dispatch** (`src/qbittorrent.ts`) — cookie-auth Web API. `addMagnet` sets a
+   category but **no savepath** (qBit writes to its own configured dir; we read that same host dir).
+4. **Completion** (`src/processor.ts`) — on `isComplete`: find file by CRC32 → `moveAndRename` →
+   Plex scan → wait 5s → `syncSingleEpisode` → mark `done` → `runMetadataSync()` (full) →
+   Discord → delete torrent (keep file).
+5. **File ops** (`src/fileops.ts`) — `moveAndRename` deletes any existing file with the same
+   `S##E##` before moving the new one in (handles re-releases and pre-existing library files),
+   returns the replaced names.
+6. **Plex** (`src/plex.ts`) — resolves section + show by name (cached). All edits use
+   `.value`/`.locked` params so the Plex agent can't overwrite custom metadata.
+7. **Discord** (`src/discord.ts`) — embeds: `new_episode`, `download_complete`,
+   `episode_updated` (changelog + replaced file), `error`.
 
 ### State
 
-SQLite at `DATA_DIR/state.db` via `better-sqlite3`. Two tables:
-- `episodes` — tracks each episode through its lifecycle (pending → downloading → processing → done/failed)
-- `rss_seen` — stores seen RSS GUIDs to prevent re-processing
+SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Three tables:
+- `episodes` — lifecycle `pending → downloading → processing → done/failed`; includes `changelog`
+  (JSON array, added via `addColumnIfMissing` migration)
+- `rss_seen` — seen RSS GUIDs
+- `kv` — small key/value (e.g. `rss_last_modified`)
 
-## Key Data Structures
+## Re-release Handling (key feature)
 
-### Metadata Repo (`ladyisatis/one-pace-metadata`, branch `v2`)
+One Pace re-releases episodes with edits/fixes. A re-release has a **new CRC32** (and possibly a
+different resolution) and a **new RSS GUID**, so it passes the seen-check and inserts a fresh
+`episodes` row normally. The swap is **disk-truth based**, keyed on the `S##E##` token — not CRC32:
 
-- `arcs/en/{arcNum}/config.yml` — arc config: `part` (= Plex season number), `title`, `resolution`, `episodes[]` (each with CRC32 hash)
-- `arcs/en/{arcNum}/episode_{nn}.yml` — episode metadata: `title`, `description`
-- `episodes/{CRC32}.yml` — episode file info: `arc`, `episode` (within arc), `file.name` (original filename)
-- `data.json` / `data.min.json` — compiled full dataset (alternative to per-file fetching)
+- `moveAndRename` → `removeExistingEpisodeFiles` deletes any same-`S##E##` file in the season folder
+  (regex `S0*<part>(?!\d)E0*<ep>(?!\d)`, padding-agnostic), then moves the new file in.
+- One code path covers **both** cases: brand-new episode (nothing deleted → green
+  "Download Complete") and re-release (old file deleted → amber "Episode Updated" with changelog).
+- Works for files the service never downloaded itself (the user already has 36 populated seasons).
+- **Changelog** comes from the RSS `<description>` `<details><summary>Changelog</summary>…` block,
+  stored on the `episodes` row at ingestion, rendered at completion.
+- **Metadata staleness** is why `refreshMetadata()` runs when the feed has new items: without it the
+  re-release's new CRC32 wouldn't resolve and the item would be skipped.
 
-### Plex Filename Format
+## Resolution Targeting
 
+No explicit resolution filter needed. The metadata holds **exactly one CRC32 per episode**, so an
+off-resolution torrent's CRC32 simply isn't found and is skipped. The blessed release is 1080p; the
+Plex filename's `[resolution]` tag is read from the torrent filename, defaulting to `1080p`.
+
+## Season Folder Format Detection
+
+`detectSeasonFormat()` (boot) scans `MEDIA_PATH` and builds an `arcPart → folderName` cache from the
+folders already on disk, also detecting zero-padding. `buildSeasonFolder` returns the exact on-disk
+name for known seasons, falling back to the detected padding style for new ones. The user's library
+uses **unpadded** folders (`Season 1 - Romance Dawn`).
+
+## Paths
+
+Hardcoded container constants (`src/constants.ts`) + Docker volume mounts. Not env vars.
+
+| Constant | Value | Mount target (host → container) |
+|----------|-------|----------------------------------|
+| `MEDIA_PATH` | `/media/one-pace` | One Pace **show root** (season folders directly under it) |
+| `DOWNLOAD_PATH` | `/downloads` | qBittorrent's **output dir** (same host dir qBit writes to) |
+| `DATA_DIR` | `/data` | persistent state (SQLite) |
+
+The Plex filename format (`buildPlexFilename`):
 ```
-One Pace - {arc.title} - S{arc.part:02d}E{episode_num:02d} [{resolution}][{CRC32}].mkv
+One Pace - {arcTitle} - S{part:02d}E{ep:02d} [{resolution}][{CRC32}].mkv
 ```
-
-Example: `One Pace - Baratie - S05E01 [1080p][BE634289].mkv`
-
-### CRC32 as the Key
-
-Every One Pace release has a CRC32 hash in its filename `[XXXXXXXX]`. This is the primary key linking:
-- RSS entry filename → `episodes/{CRC32}.yml` → arc/episode numbers → `arcs/en/{arcNum}/`
-
-## Existing Stack (dockhand, same server)
-
-Services available on the shared Docker network:
-- `qbittorrent` — torrent client with Web API at port 8080
-- `plex` — Plex Media Server at port 32400 (running on **baremetal**, not in Docker)
-- `sonarr`, `radarr`, `prowlarr`, `bazarr`, `lidarr`, `flaresolverr`, `gluetun`, `seerr`
-
-> **Note:** Plex runs on baremetal. `PLEX_URL` should point to the host IP or hostname, not a container name.
+Note: the **filename** zero-pads S/E (Plex convention); the **folder** name does not.
 
 ## Configuration
 
-All config via environment variables. See `.env.example` for full list. Key variables:
-- `RSS_FEED_URL` — One Pace RSS feed (URL unknown at project init, needs to be discovered)
-- `PLEX_LIBRARY_SECTION_ID` — find at `http://{plex}:32400/library/sections`
-- `PLEX_SERIES_RATING_KEY` — optional, speeds up episode lookups; find from Plex web UI URL
+Zod-validated env (`src/config.ts`):
+
+| Var | Default | Notes |
+|-----|---------|-------|
+| `RSS_FEED_URL` | — | `https://onepace.net/en/releases/rss.xml` |
+| `QBIT_URL` | `http://qbittorrent:8080` | container name on shared network |
+| `QBIT_USERNAME` / `QBIT_PASSWORD` | `admin` / — | |
+| `QBIT_CATEGORY` | `one-pace` | applied on add, filters on completion |
+| `PLEX_URL` | `http://plex:32400` | **host IP** — Plex is baremetal |
+| `PLEX_TOKEN` | — | |
+| `PLEX_LIBRARY_NAME` | `TV Shows` | library containing the "One Pace" show |
+| `DISCORD_WEBHOOK_URL` | — (optional) | notifications disabled if unset |
+| `POLL_CRON` | `*/5 * * * *` | RSS poll schedule |
+| `METADATA_REPO_RAW_BASE` | ladyisatis v2 raw URL | override only for a mirror |
+
+`LOG_LEVEL` is read directly by pino (`src/logger.ts`), not in the Zod schema.
 
 ## Source Files
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point, cron scheduler, poll cycle orchestration |
+| `src/index.ts` | Entry point, cron + 30s interval, `runCycle`, `dispatchPending` |
+| `src/boot.ts` | Boot sequence: dirs, DB, season-format detect, cache warm, Plex resolve, banner |
 | `src/config.ts` | Zod-validated env config |
-| `src/db.ts` | SQLite state management |
-| `src/rss.ts` | RSS feed polling and parsing |
-| `src/metadata.ts` | Fetches/parses ladyisatis YAML, builds Plex filenames, extracts CRC32 |
+| `src/constants.ts` | Hardcoded container paths |
+| `src/db.ts` | SQLite state + migrations |
+| `src/rss.ts` | RSS poll, CRC32 resolution, changelog extraction |
+| `src/metadata.ts` | `data.min.json` fetch/cache, conditional refresh, lookups, filename build |
 | `src/qbittorrent.ts` | qBittorrent Web API client |
-| `src/fileops.ts` | File rename and move to Plex library |
-| `src/plex.ts` | Plex API client (scan, episode lookup, metadata update) |
-| `src/processor.ts` | Download completion handler (qBit → rename → Plex → notify) |
-| `src/discord.ts` | Discord webhook notifications |
-| `src/logger.ts` | Structured console logger |
+| `src/fileops.ts` | Season-format detection, move/rename, re-release file swap |
+| `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync) |
+| `src/processor.ts` | Completion handler + `runMetadataSync` |
+| `src/discord.ts` | Webhook embeds |
+| `src/logger.ts` | pino wrapper (`logger.info(msg, meta)` shape) |
 
 ## RSS Feed Details
 
-URL: `https://onepace.net/en/releases/rss.xml` (requires `User-Agent` header — returns 403 to default curl/fetch, but Node's rss-parser works fine).
+Item structure (`xmlns:torrent="http://xmlns.ezrss.it/0.1/"`):
+- `guid` = `urn:btih:{infoHash}` — stable per release
+- `torrent:magnetURI` — magnet; `dn=` filename present on **some** items only
+- `torrent:fileName` — `.torrent` name, present on **some** items only:
+  `[One Pace][115-117] Little Garden 01 [1080p][BCE915AA].mkv.torrent`
+- `description` (CDATA HTML) — `<dl>` chapters/episodes + optional `<details>` **Changelog** list
+- `title` — `"Little Garden 05"` (arc name + episode number)
 
-Item structure (namespaced fields via `xmlns:torrent="http://xmlns.ezrss.it/0.1/"`):
-- `guid` = `urn:btih:{infoHash}` — torrent info hash (stable per release)
-- `torrent:magnetURI` — magnet link. Sometimes has full `dn=` param with filename, sometimes minimal (just `xt=urn:btih:...`)
-- `torrent:fileName` — `.torrent` filename, present only on some items: `[One Pace][115-117] Little Garden 01 [1080p][BCE915AA].mkv.torrent`
-- `torrent:infoHash` — bare hex info hash
-- `enclosure` — torrent file download URL (not a magnet)
-- `title` — arc name + episode number: `"Little Garden 05"`
-
-**CRC32 extraction priority** (in `src/rss.ts`):
-1. `torrent:fileName` (strip `.torrent`, extract `[CRC32]`)
-2. `dn=` param in magnet URI (URL-decode, extract `[CRC32]`)
-3. Fallback: `lookupCrc32ByTitle()` in `metadata.ts` — parses "Little Garden 05" → searches `data.min.json` by arc title + episode number
+Filename-less items (no `dn`, no `torrent:fileName`) resolve CRC32 via title → metadata lookup.
 
 ## Known Gaps / TODOs
 
-- [ ] **Plex runs on baremetal** — `PLEX_URL` must be host IP/DNS, not `plex` container name. Confirm network routing from container to host.
-- [ ] **YAML parser is hand-rolled** — `src/metadata.ts` uses a simple custom parser sufficient for the known schema. If the metadata repo schema changes, revisit.
-- [ ] **No retry backoff** — failed episodes are currently just marked `failed`; `retryFailed()` exists but isn't wired into the cron schedule.
-- [ ] **Magnet hash extraction** — `qbittorrent.ts` extracts the info hash from the magnet URI via regex. If a magnet doesn't include `urn:btih:`, the hash will be empty string and completion detection will break.
+- **Plex baremetal routing** — `PLEX_URL` must be host IP/DNS, confirm container→host reachability.
+- **Magnet hash regex** — `qbittorrent.ts` pulls the info hash from `urn:btih:`; if absent the hash
+  is `""` and completion detection breaks. Fallback could derive it from qBit's added-torrent list.
+- **Fixed 5s wait** after Plex scan before `syncSingleEpisode` — may race on slow scans.
+- **`retryFailed()`** exists but isn't wired into any schedule.
+- **No BEP 9** — filename-less magnets aren't probed for their file list pre-download; they rely on
+  the title→metadata lookup instead.
 
 ## Development
 
 ```bash
-npm install
-cp .env.example .env   # fill in values
-npm run dev            # ts-node, hot-ish
-npm run build          # compile to dist/
-npm run typecheck      # type check without emitting
+npm run install:dev    # npm install --ignore-scripts (skips native build on Windows dev)
+cp .env.example .env    # fill in values
+npm run typecheck       # ./node_modules/.bin/tsc --noEmit
+npm run build           # compile to dist/
 ```
+
+> `npm run dev` requires the `better-sqlite3` native binary; with `--ignore-scripts` it isn't built,
+> so real smoke-testing is done by building the Docker image. A pre-commit hook
+> (`.githooks/pre-commit`, wired via the `prepare` script) auto-bumps the patch version.
 
 ## Docker Deployment
 
 ```bash
-# Build and run
 docker compose up -d --build
-
-# Logs
 docker compose logs -f one-pace-automator
 ```
 
-The container needs to share volumes with qBittorrent (`QBIT_DOWNLOAD_PATH`) and Plex (`MEDIA_PATH`). These paths must match what qBittorrent saves to and what Plex reads from — on the host, not inside containers.
+Multi-stage build: the **builder** has `python3 make g++` to compile `better-sqlite3` (musl, no
+prebuilt); the **runner** adds `libstdc++` for the addon's runtime link. The container shares two
+host dirs — qBittorrent's output (`/downloads`) and the One Pace show root (`/media/one-pace`).
+Image is published to GHCR via `.github/workflows/docker.yml`.

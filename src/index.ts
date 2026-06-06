@@ -5,7 +5,7 @@ import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisod
 import { fetchNewEpisodes } from "./rss";
 import { resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getQbitClient } from "./qbittorrent";
-import { processDownloading, runMetadataSync } from "./processor";
+import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
 import { boot } from "./boot";
 
@@ -41,6 +41,7 @@ async function pollRss(): Promise<void> {
         magnet_uri: rssEp.magnet,
         error_message: null,
         rss_guid: rssEp.guid,
+        changelog: rssEp.changelog,
       });
 
       markGuidSeen(rssEp.guid);
@@ -95,6 +96,7 @@ async function dispatchPending(): Promise<void> {
 
 async function runCycle(): Promise<void> {
   await pollRss();
+  await dispatchPending();
   await processDownloading();
 }
 
@@ -104,7 +106,6 @@ async function bootstrap(): Promise<void> {
   const { POLL_CRON } = getConfig();
 
   await runCycle();
-  await runMetadataSync();
 
   cron.schedule(POLL_CRON, async () => {
     try {

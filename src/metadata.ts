@@ -1,4 +1,3 @@
-import axios from "axios";
 import { getConfig } from "./config";
 import { logger } from "./logger";
 
@@ -45,6 +44,7 @@ export interface ResolvedEpisode {
 }
 
 let _data: DataJson | null = null;
+let _etag: string | null = null;
 
 export async function getData(): Promise<{ arcs: number; episodes: number }> {
   const d = await _getData();
@@ -53,19 +53,42 @@ export async function getData(): Promise<{ arcs: number; episodes: number }> {
 
 async function _getData(): Promise<DataJson> {
   if (_data) return _data;
+  await refreshMetadata();
+  if (!_data) throw new Error("Metadata dataset unavailable");
+  return _data;
+}
+
+/**
+ * Conditional GET of data.min.json. Uses the stored ETag so an unchanged dataset
+ * costs a 304 with no body. Returns true if the cache was updated. One Pace bumps
+ * an episode's CRC32 on re-release, so this must run before resolving new feed
+ * items or the new CRC32 won't be found.
+ */
+export async function refreshMetadata(): Promise<boolean> {
   const url = `${getConfig().METADATA_REPO_RAW_BASE}/data.min.json`;
-  logger.debug("Fetching metadata dataset", { url });
-  const resp = await axios.get<DataJson>(url, { timeout: 15_000 });
-  _data = resp.data;
+  const headers: Record<string, string> = {};
+  if (_etag) headers["If-None-Match"] = _etag;
+
+  const resp = await fetch(url, { headers });
+
+  if (resp.status === 304) {
+    logger.debug("Metadata unchanged (304)");
+    return false;
+  }
+  if (!resp.ok) throw new Error(`Metadata fetch failed: HTTP ${resp.status}`);
+
+  _etag = resp.headers.get("etag");
+  _data = (await resp.json()) as DataJson;
   logger.info("Metadata dataset loaded", {
     arcs: _data.arcs.length,
     episodes: Object.keys(_data.episodes).length,
   });
-  return _data;
+  return true;
 }
 
 export function clearMetadataCache(): void {
   _data = null;
+  _etag = null;
   logger.debug("Metadata cache cleared");
 }
 

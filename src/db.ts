@@ -23,8 +23,22 @@ export interface EpisodeRecord {
   magnet_uri: string | null;
   error_message: string | null;
   rss_guid: string;
+  changelog: string[];
   created_at: number;
   updated_at: number;
+}
+
+// Raw row as stored in SQLite: changelog is a JSON-encoded string.
+type EpisodeRow = Omit<EpisodeRecord, "changelog"> & { changelog: string };
+
+function rowToRecord(row: EpisodeRow): EpisodeRecord {
+  let changelog: string[] = [];
+  try {
+    changelog = JSON.parse(row.changelog ?? "[]");
+  } catch {
+    changelog = [];
+  }
+  return { ...row, changelog };
 }
 
 let _db: Database.Database | null = null;
@@ -55,6 +69,7 @@ function migrate(db: Database.Database) {
       magnet_uri        TEXT,
       error_message     TEXT,
       rss_guid          TEXT NOT NULL,
+      changelog         TEXT NOT NULL DEFAULT '[]',
       created_at        INTEGER NOT NULL,
       updated_at        INTEGER NOT NULL
     );
@@ -69,6 +84,20 @@ function migrate(db: Database.Database) {
       value TEXT NOT NULL
     );
   `);
+
+  // Add columns introduced after initial release (no-op on fresh DBs).
+  addColumnIfMissing(db, "episodes", "changelog", "TEXT NOT NULL DEFAULT '[]'");
+}
+
+function addColumnIfMissing(
+  db: Database.Database,
+  table: string,
+  column: string,
+  definition: string
+): void {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (cols.some((c) => c.name === column)) return;
+  db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
 }
 
 export function isGuidSeen(guid: string): boolean {
@@ -91,19 +120,20 @@ export function upsertEpisode(ep: Omit<EpisodeRecord, "created_at" | "updated_at
   db.prepare(`
     INSERT INTO episodes (crc32, arc_num, arc_title, arc_part, episode_num, resolution,
       original_filename, final_filename, status, torrent_hash, magnet_uri, error_message,
-      rss_guid, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rss_guid, changelog, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(crc32) DO UPDATE SET
       status = excluded.status,
       final_filename = excluded.final_filename,
       torrent_hash = excluded.torrent_hash,
       magnet_uri = COALESCE(excluded.magnet_uri, magnet_uri),
       error_message = excluded.error_message,
+      changelog = excluded.changelog,
       updated_at = excluded.updated_at
   `).run(
     ep.crc32, ep.arc_num, ep.arc_title, ep.arc_part, ep.episode_num, ep.resolution,
     ep.original_filename, ep.final_filename, ep.status, ep.torrent_hash, ep.magnet_uri,
-    ep.error_message, ep.rss_guid, now, now
+    ep.error_message, ep.rss_guid, JSON.stringify(ep.changelog ?? []), now, now
   );
 }
 
@@ -125,16 +155,14 @@ export function updateEpisodeStatus(
 }
 
 export function getEpisodesByStatus(status: EpisodeStatus): EpisodeRecord[] {
-  return getDb()
+  return (getDb()
     .prepare("SELECT * FROM episodes WHERE status = ?")
-    .all(status) as EpisodeRecord[];
+    .all(status) as EpisodeRow[]).map(rowToRecord);
 }
 
 export function getEpisodeByCrc32(crc32: string): EpisodeRecord | null {
-  return (
-    (getDb().prepare("SELECT * FROM episodes WHERE crc32 = ?").get(crc32) as EpisodeRecord) ??
-    null
-  );
+  const row = getDb().prepare("SELECT * FROM episodes WHERE crc32 = ?").get(crc32) as EpisodeRow | undefined;
+  return row ? rowToRecord(row) : null;
 }
 
 export function getKv(key: string): string | null {
@@ -147,9 +175,8 @@ export function setKv(key: string, value: string): void {
 }
 
 export function getEpisodeByTorrentHash(hash: string): EpisodeRecord | null {
-  return (
-    (getDb()
-      .prepare("SELECT * FROM episodes WHERE torrent_hash = ?")
-      .get(hash) as EpisodeRecord) ?? null
-  );
+  const row = getDb()
+    .prepare("SELECT * FROM episodes WHERE torrent_hash = ?")
+    .get(hash) as EpisodeRow | undefined;
+  return row ? rowToRecord(row) : null;
 }

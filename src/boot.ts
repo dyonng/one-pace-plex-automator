@@ -1,11 +1,10 @@
 import { getConfig } from "./config";
 import { getData } from "./metadata";
 import { resolvePlexConnection } from "./plex";
-import { ensureDir } from "./fileops";
+import { ensureDir, detectSeasonFormat, buildSeasonFolder } from "./fileops";
 import { getDb } from "./db";
 import { DATA_DIR, DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
-
-const VERSION = "0.1.0";
+import { version as VERSION } from "../package.json";
 const WIDTH = 52;
 
 function row(label: string, value: string): string {
@@ -27,8 +26,8 @@ export async function boot(): Promise<void> {
   const config = getConfig();
 
   ensureDir(DATA_DIR);
-  ensureDir(DOWNLOAD_PATH);
   getDb();
+  detectSeasonFormat();
 
   process.stdout.write("  Fetching One Pace metadata...");
   const meta = await getData();
@@ -60,6 +59,7 @@ export async function boot(): Promise<void> {
     divider(),
     section("Paths"),
     row("Media", MEDIA_PATH),
+    row("Season Format", buildSeasonFolder("Example", 1)),
     row("Downloads", DOWNLOAD_PATH),
     row("Data", DATA_DIR),
     divider(),

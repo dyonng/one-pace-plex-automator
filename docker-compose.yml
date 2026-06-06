@@ -16,8 +16,8 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./data:/data
-      - /path/to/your/tv/library:/media/tv
-      - /path/to/your/downloads:/downloads/one-pace
+      - /path/to/your/one-pace:/media/one-pace
+      - /path/to/your/downloads:/downloads
     networks:
       - media-stack
 

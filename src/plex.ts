@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getConfig } from "./config";
 import { logger } from "./logger";
-import { SERIES_FOLDER_NAME } from "./constants";
+
 import type { ArcSummary, EpisodeSummary } from "./metadata";
 
 interface PlexMetadata {
@@ -72,11 +72,11 @@ async function resolveShowRatingKey(sectionId: string): Promise<string> {
 
   const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, { type: "2" });
   const show = result.MediaContainer.Metadata?.find(
-    (m) => m.title.toLowerCase() === SERIES_FOLDER_NAME.toLowerCase()
+    (m) => m.title.toLowerCase() === "one pace"
   );
-  if (!show) throw new Error(`Show "${SERIES_FOLDER_NAME}" not found in Plex library`);
+  if (!show) throw new Error(`Show "One Pace" not found in Plex library`);
   _showRatingKey = show.ratingKey;
-  logger.info("Resolved Plex show", { name: SERIES_FOLDER_NAME, ratingKey: _showRatingKey });
+  logger.info("Resolved Plex show", { name: "One Pace", ratingKey: _showRatingKey });
   return _showRatingKey;
 }
 
@@ -84,7 +84,7 @@ export async function resolvePlexConnection(): Promise<{ plexUrl: string; librar
   const sectionId = await resolveSectionId();
   await resolveShowRatingKey(sectionId);
   const { PLEX_URL, PLEX_LIBRARY_NAME } = getConfig();
-  return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: SERIES_FOLDER_NAME };
+  return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: "One Pace" };
 }
 
 export async function triggerLibraryScan(): Promise<void> {
@@ -174,7 +174,11 @@ export async function syncSingleEpisode(ep: EpisodeSummary): Promise<void> {
   const sectionId = await resolveSectionId();
   const showKey = await resolveShowRatingKey(sectionId);
 
-  const episodeMap = await buildEpisodeKeyMap(showKey);
+  const [episodeMap, seasonMap] = await Promise.all([
+    buildEpisodeKeyMap(showKey),
+    buildSeasonKeyMap(showKey),
+  ]);
+
   const ratingKey = episodeMap.get(ep.seasonEpisodeId);
   if (!ratingKey) {
     logger.warn("Episode not found in Plex", { id: ep.seasonEpisodeId });
@@ -183,6 +187,24 @@ export async function syncSingleEpisode(ep: EpisodeSummary): Promise<void> {
 
   await updateEpisodeInPlex(ratingKey, ep);
   logger.info("Updated episode metadata", { id: ep.seasonEpisodeId, title: ep.episodeTitle });
+
+  // Also update this episode's season (the full sync used to be the only thing
+  // setting arc title/summary — needed when this is a new season's first episode).
+  const seasonKey = seasonMap.get(ep.arcPart);
+  if (seasonKey) {
+    try {
+      await updateSeasonInPlex(seasonKey, {
+        arcIndex: ep.arcIndex,
+        arcPart: ep.arcPart,
+        arcTitle: ep.arcTitle,
+        arcSaga: ep.arcSaga,
+        arcDescription: ep.arcDescription,
+      });
+      logger.info("Updated season metadata", { part: ep.arcPart, title: ep.arcTitle });
+    } catch (err) {
+      logger.warn("Failed to update season", { part: ep.arcPart, error: (err as Error).message });
+    }
+  }
 }
 
 export async function syncFullLibrary(

@@ -1,6 +1,5 @@
 import axios, { AxiosInstance } from "axios";
 import { getConfig } from "./config";
-import { DOWNLOAD_PATH } from "./constants";
 import { logger } from "./logger";
 
 export type TorrentState =
@@ -96,10 +95,11 @@ class QBittorrentClient {
 
   async addMagnet(magnetUri: string): Promise<string> {
     const { QBIT_CATEGORY } = getConfig();
+    // No savepath — qBittorrent writes to its own configured save dir. Our
+    // container reads that same host dir mounted at DOWNLOAD_PATH (/downloads).
     const params = new URLSearchParams({
       urls: magnetUri,
       category: QBIT_CATEGORY,
-      savepath: DOWNLOAD_PATH,
       paused: "false",
     });
     await this.request<string>("post", "/torrents/add", params);
