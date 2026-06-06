@@ -13,7 +13,6 @@ services:
       - PLEX_LIBRARY_NAME=${PLEX_LIBRARY_NAME:-TV Shows}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - POLL_CRON=${POLL_CRON:-0 * * * *}
-      - SYNC_CRON=${SYNC_CRON:-0 3 * * *}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./data:/data

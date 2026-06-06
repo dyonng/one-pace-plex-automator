@@ -3,10 +3,9 @@ import { getConfig } from "./config";
 import { logger } from "./logger";
 import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus } from "./db";
 import { fetchNewEpisodes } from "./rss";
-import { resolveEpisodeByCrc32, extractResolutionFromFilename, getAllArcs, getAllEpisodes } from "./metadata";
-import { syncFullLibrary } from "./plex";
+import { resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getQbitClient } from "./qbittorrent";
-import { processDownloading } from "./processor";
+import { processDownloading, runMetadataSync } from "./processor";
 import { sendDiscordNotification } from "./discord";
 import { ensureDir } from "./fileops";
 import { DATA_DIR, DOWNLOAD_PATH } from "./constants";
@@ -96,15 +95,6 @@ async function dispatchPending(): Promise<void> {
   }
 }
 
-async function runFullMetadataSync(): Promise<void> {
-  logger.info("Starting full Plex metadata sync");
-  try {
-    const [arcs, episodes] = await Promise.all([getAllArcs(), getAllEpisodes()]);
-    await syncFullLibrary(arcs, episodes);
-  } catch (err) {
-    logger.error("Full metadata sync failed", { error: (err as Error).message });
-  }
-}
 
 async function runCycle(): Promise<void> {
   await pollRss();
@@ -117,14 +107,11 @@ async function bootstrap(): Promise<void> {
   ensureDir(DATA_DIR);
   ensureDir(DOWNLOAD_PATH);
 
-  logger.info("One Pace Plex Automator starting", {
-    pollCron: config.POLL_CRON,
-    syncCron: config.SYNC_CRON,
-  });
+  logger.info("One Pace Plex Automator starting", { pollCron: config.POLL_CRON });
 
   // Run immediately on startup
   await runCycle();
-  await runFullMetadataSync();
+  await runMetadataSync();
 
   cron.schedule(config.POLL_CRON, async () => {
     try {
@@ -142,13 +129,6 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  cron.schedule(config.SYNC_CRON, async () => {
-    try {
-      await runFullMetadataSync();
-    } catch (err) {
-      logger.error("Unhandled error in metadata sync", { error: (err as Error).message });
-    }
-  });
 }
 
 bootstrap().catch((err) => {

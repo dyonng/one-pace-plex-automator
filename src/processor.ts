@@ -4,9 +4,9 @@ import { DOWNLOAD_PATH } from "./constants";
 import { logger } from "./logger";
 import { getEpisodesByStatus, updateEpisodeStatus } from "./db";
 import { getQbitClient } from "./qbittorrent";
-import { resolveEpisodeByCrc32, buildPlexFilename } from "./metadata";
+import { resolveEpisodeByCrc32, buildPlexFilename, getAllArcs, getAllEpisodes } from "./metadata";
 import { findDownloadedFile, moveAndRename } from "./fileops";
-import { triggerLibraryScan, syncSingleEpisode } from "./plex";
+import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 
 export async function processDownloading(): Promise<void> {
@@ -56,6 +56,8 @@ export async function processDownloading(): Promise<void> {
 
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
 
+      await runMetadataSync();
+
       await sendDiscordNotification({
         type: "download_complete",
         crc32: ep.crc32,
@@ -78,6 +80,16 @@ export async function processDownloading(): Promise<void> {
         error: msg,
       });
     }
+  }
+}
+
+export async function runMetadataSync(): Promise<void> {
+  logger.info("Starting full Plex metadata sync");
+  try {
+    const [arcs, episodes] = await Promise.all([getAllArcs(), getAllEpisodes()]);
+    await syncFullLibrary(arcs, episodes);
+  } catch (err) {
+    logger.error("Full metadata sync failed", { error: (err as Error).message });
   }
 }
 
