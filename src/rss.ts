@@ -1,6 +1,7 @@
 import Parser from "rss-parser";
 import { getConfig } from "./config";
 import { logger } from "./logger";
+import { getKv, setKv } from "./db";
 import { extractCrc32FromFilename, lookupCrc32ByTitle } from "./metadata";
 
 export interface RssEpisode {
@@ -40,9 +41,25 @@ export async function fetchNewEpisodes(
   const { RSS_FEED_URL } = getConfig();
   logger.info("Polling RSS feed", { url: RSS_FEED_URL });
 
+  const headers: Record<string, string> = {};
+  const lastModified = getKv("rss_last_modified");
+  if (lastModified) headers["If-Modified-Since"] = lastModified;
+
   let feed;
   try {
-    feed = await parser.parseURL(RSS_FEED_URL);
+    const resp = await fetch(RSS_FEED_URL, { headers });
+
+    if (resp.status === 304) {
+      logger.debug("RSS feed unchanged (304), skipping");
+      return [];
+    }
+
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+    const newLastModified = resp.headers.get("Last-Modified");
+    if (newLastModified) setKv("rss_last_modified", newLastModified);
+
+    feed = await parser.parseString(await resp.text());
   } catch (err) {
     throw new Error(`RSS fetch failed: ${(err as Error).message}`);
   }

@@ -121,13 +121,13 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  cron.schedule("*/5 * * * *", async () => {
+  setInterval(async () => {
     try {
       await processDownloading();
     } catch (err) {
       logger.error("Unhandled error in download check", { error: (err as Error).message });
     }
-  });
+  }, 30_000);
 
 }
 

@@ -63,6 +63,11 @@ function migrate(db: Database.Database) {
       guid       TEXT PRIMARY KEY,
       first_seen INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS kv (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
 
@@ -130,6 +135,15 @@ export function getEpisodeByCrc32(crc32: string): EpisodeRecord | null {
     (getDb().prepare("SELECT * FROM episodes WHERE crc32 = ?").get(crc32) as EpisodeRecord) ??
     null
   );
+}
+
+export function getKv(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setKv(key: string, value: string): void {
+  getDb().prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
 }
 
 export function getEpisodeByTorrentHash(hash: string): EpisodeRecord | null {
