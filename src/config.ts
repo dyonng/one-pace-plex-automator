@@ -22,7 +22,6 @@ const ConfigSchema = z.object({
       "https://raw.githubusercontent.com/ladyisatis/one-pace-metadata/v2"
     ),
   DATA_DIR: z.string().default("/data"),
-  LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

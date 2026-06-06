@@ -1,30 +1,12 @@
-import { getConfig } from "./config";
+import pino from "pino";
 
-type Level = "debug" | "info" | "warn" | "error";
-const LEVELS: Record<Level, number> = { debug: 0, info: 1, warn: 2, error: 3 };
+const _logger = pino({ level: process.env.LOG_LEVEL ?? "info" });
 
-function log(level: Level, message: string, meta?: Record<string, unknown>) {
-  try {
-    const minLevel = LEVELS[getConfig().LOG_LEVEL];
-    if (LEVELS[level] < minLevel) return;
-  } catch {
-    // config not ready yet, always log
-  }
-
-  const ts = new Date().toISOString();
-  const base = `[${ts}] [${level.toUpperCase()}] ${message}`;
-  const output = meta ? `${base} ${JSON.stringify(meta)}` : base;
-
-  if (level === "error" || level === "warn") {
-    console.error(output);
-  } else {
-    console.log(output);
-  }
-}
+type Meta = Record<string, unknown>;
 
 export const logger = {
-  debug: (msg: string, meta?: Record<string, unknown>) => log("debug", msg, meta),
-  info: (msg: string, meta?: Record<string, unknown>) => log("info", msg, meta),
-  warn: (msg: string, meta?: Record<string, unknown>) => log("warn", msg, meta),
-  error: (msg: string, meta?: Record<string, unknown>) => log("error", msg, meta),
+  debug: (msg: string, meta?: Meta) => meta ? _logger.debug(meta, msg) : _logger.debug(msg),
+  info:  (msg: string, meta?: Meta) => meta ? _logger.info(meta, msg)  : _logger.info(msg),
+  warn:  (msg: string, meta?: Meta) => meta ? _logger.warn(meta, msg)  : _logger.warn(msg),
+  error: (msg: string, meta?: Meta) => meta ? _logger.error(meta, msg) : _logger.error(msg),
 };
