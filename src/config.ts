@@ -10,7 +10,8 @@ const ConfigSchema = z.object({
   PLEX_TOKEN: z.string(),
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
-  POLL_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
+  POLL_CRON: z.string().default("0 * * * *"),
+  SYNC_CRON: z.string().default("0 3 * * *"),
   METADATA_REPO_RAW_BASE: z
     .string()
     .url()

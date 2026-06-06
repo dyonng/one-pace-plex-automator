@@ -12,7 +12,8 @@ services:
       - PLEX_TOKEN=${PLEX_TOKEN}
       - PLEX_LIBRARY_NAME=${PLEX_LIBRARY_NAME:-TV Shows}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
-      - POLL_INTERVAL_MINUTES=${POLL_INTERVAL_MINUTES:-60}
+      - POLL_CRON=${POLL_CRON:-0 * * * *}
+      - SYNC_CRON=${SYNC_CRON:-0 3 * * *}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./data:/data
@@ -24,4 +25,4 @@ services:
 networks:
   media-stack:
     external: true
-    name: ${DOCKER_NETWORK:-media-stack}
+    name: media-stack

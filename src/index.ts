@@ -118,16 +118,15 @@ async function bootstrap(): Promise<void> {
   ensureDir(DOWNLOAD_PATH);
 
   logger.info("One Pace Plex Automator starting", {
-    pollIntervalMinutes: config.POLL_INTERVAL_MINUTES,
+    pollCron: config.POLL_CRON,
+    syncCron: config.SYNC_CRON,
   });
 
   // Run immediately on startup
   await runCycle();
   await runFullMetadataSync();
 
-  // Schedule recurring poll
-  const cronExpr = `*/${config.POLL_INTERVAL_MINUTES} * * * *`;
-  cron.schedule(cronExpr, async () => {
+  cron.schedule(config.POLL_CRON, async () => {
     try {
       await runCycle();
     } catch (err) {
@@ -135,7 +134,6 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  // Check in-progress downloads more frequently
   cron.schedule("*/5 * * * *", async () => {
     try {
       await processDownloading();
@@ -144,16 +142,13 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  // Full metadata sync — daily at 3am
-  cron.schedule("0 3 * * *", async () => {
+  cron.schedule(config.SYNC_CRON, async () => {
     try {
       await runFullMetadataSync();
     } catch (err) {
       logger.error("Unhandled error in metadata sync", { error: (err as Error).message });
     }
   });
-
-  logger.info(`Scheduled RSS poll every ${config.POLL_INTERVAL_MINUTES} minutes`);
 }
 
 bootstrap().catch((err) => {
