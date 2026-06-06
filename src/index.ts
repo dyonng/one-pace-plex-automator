@@ -97,10 +97,9 @@ async function dispatchPending(): Promise<void> {
 
 async function runFullMetadataSync(): Promise<void> {
   logger.info("Starting full Plex metadata sync");
-  const { PLEX_LIBRARY_SECTION_ID } = getConfig();
   try {
     const [arcs, episodes] = await Promise.all([getAllArcs(), getAllEpisodes()]);
-    await syncFullLibrary(PLEX_LIBRARY_SECTION_ID, arcs, episodes);
+    await syncFullLibrary(arcs, episodes);
   } catch (err) {
     logger.error("Full metadata sync failed", { error: (err as Error).message });
   }

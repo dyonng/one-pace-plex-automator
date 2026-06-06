@@ -46,31 +46,51 @@ async function plexPost(path: string): Promise<void> {
   });
 }
 
-export async function triggerLibraryScan(sectionId: string): Promise<void> {
+// Resolved once at first use, reused for the lifetime of the process
+let _sectionId: string | null = null;
+let _showRatingKey: string | null = null;
+
+async function resolveSectionId(): Promise<string> {
+  if (_sectionId) return _sectionId;
+  const { PLEX_LIBRARY_NAME } = getConfig();
+
+  const result = await plexGet<{ MediaContainer: { Directory: Array<{ key: string; title: string }> } }>(
+    "/library/sections"
+  );
+  const section = result.MediaContainer.Directory?.find(
+    (d) => d.title.toLowerCase() === PLEX_LIBRARY_NAME.toLowerCase()
+  );
+  if (!section) throw new Error(`Plex library "${PLEX_LIBRARY_NAME}" not found`);
+  _sectionId = section.key;
+  logger.info("Resolved Plex library section", { name: PLEX_LIBRARY_NAME, id: _sectionId });
+  return _sectionId;
+}
+
+async function resolveShowRatingKey(sectionId: string): Promise<string> {
+  if (_showRatingKey) return _showRatingKey;
+  const { SERIES_FOLDER_NAME } = getConfig();
+
+  const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, { type: "2" });
+  const show = result.MediaContainer.Metadata?.find(
+    (m) => m.title.toLowerCase() === SERIES_FOLDER_NAME.toLowerCase()
+  );
+  if (!show) throw new Error(`Show "${SERIES_FOLDER_NAME}" not found in Plex library`);
+  _showRatingKey = show.ratingKey;
+  logger.info("Resolved Plex show", { name: SERIES_FOLDER_NAME, ratingKey: _showRatingKey });
+  return _showRatingKey;
+}
+
+export async function triggerLibraryScan(): Promise<void> {
+  const sectionId = await resolveSectionId();
   logger.info("Triggering Plex library scan", { sectionId });
   await plexGet(`/library/sections/${sectionId}/refresh`);
 }
 
-export async function refreshShow(ratingKey: string): Promise<void> {
-  logger.info("Refreshing Plex show metadata", { ratingKey });
-  await plexPost(`/library/metadata/${ratingKey}/refresh`);
-}
-
-async function getShowRatingKey(sectionId: string): Promise<string | null> {
-  const { PLEX_SERIES_RATING_KEY, SERIES_FOLDER_NAME } = getConfig();
-  if (PLEX_SERIES_RATING_KEY) return PLEX_SERIES_RATING_KEY;
-
-  try {
-    const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, {
-      type: "2",
-    });
-    const show = result.MediaContainer.Metadata?.find((m) =>
-      m.title.toLowerCase().includes(SERIES_FOLDER_NAME.toLowerCase())
-    );
-    return show?.ratingKey ?? null;
-  } catch {
-    return null;
-  }
+export async function refreshShow(): Promise<void> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
+  logger.info("Refreshing Plex show metadata", { ratingKey: showKey });
+  await plexPost(`/library/metadata/${showKey}/refresh`);
 }
 
 // Build a map of seasonEpisodeId ("s01e03") → ratingKey for fast lookups
@@ -143,15 +163,9 @@ export async function updateSeasonInPlex(
   });
 }
 
-export async function syncSingleEpisode(
-  sectionId: string,
-  ep: EpisodeSummary
-): Promise<void> {
-  const showKey = await getShowRatingKey(sectionId);
-  if (!showKey) {
-    logger.warn("Could not find show in Plex", { show: getConfig().SERIES_FOLDER_NAME });
-    return;
-  }
+export async function syncSingleEpisode(ep: EpisodeSummary): Promise<void> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
 
   const episodeMap = await buildEpisodeKeyMap(showKey);
   const ratingKey = episodeMap.get(ep.seasonEpisodeId);
@@ -165,15 +179,11 @@ export async function syncSingleEpisode(
 }
 
 export async function syncFullLibrary(
-  sectionId: string,
   arcs: ArcSummary[],
   episodes: EpisodeSummary[]
 ): Promise<void> {
-  const showKey = await getShowRatingKey(sectionId);
-  if (!showKey) {
-    logger.warn("Could not find show in Plex for full sync");
-    return;
-  }
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
 
   const [seasonMap, episodeMap] = await Promise.all([
     buildSeasonKeyMap(showKey),
@@ -206,6 +216,6 @@ export async function syncFullLibrary(
     }
   }
 
-  await refreshShow(showKey);
+  await refreshShow();
   logger.info("Full library sync complete", { updated, skipped });
 }

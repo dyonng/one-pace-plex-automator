@@ -13,7 +13,7 @@ export async function processDownloading(): Promise<void> {
   if (downloading.length === 0) return;
 
   const qbit = getQbitClient();
-  const { QBIT_DOWNLOAD_PATH, PLEX_LIBRARY_SECTION_ID } = getConfig();
+  const { QBIT_DOWNLOAD_PATH } = getConfig();
 
   for (const ep of downloading) {
     if (!ep.torrent_hash) continue;
@@ -47,9 +47,9 @@ export async function processDownloading(): Promise<void> {
 
       const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);
 
-      await triggerLibraryScan(PLEX_LIBRARY_SECTION_ID);
+      await triggerLibraryScan();
       await new Promise((resolve) => setTimeout(resolve, 5000));
-      await syncSingleEpisode(PLEX_LIBRARY_SECTION_ID, {
+      await syncSingleEpisode({
         ...epMeta,
         seasonEpisodeId: `s${String(ep.arc_part).padStart(2, "0")}e${String(ep.episode_num).padStart(2, "0")}`,
       });
