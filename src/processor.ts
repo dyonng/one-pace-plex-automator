@@ -9,7 +9,21 @@ import { findDownloadedFile, moveAndRename } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 
+let _processing = false;
+
 export async function processDownloading(): Promise<void> {
+  // The 30s interval and the cron cycle can both call this; never run two at once
+  // (would double-process the same episode if one run exceeds the interval).
+  if (_processing) return;
+  _processing = true;
+  try {
+    await _processDownloading();
+  } finally {
+    _processing = false;
+  }
+}
+
+async function _processDownloading(): Promise<void> {
   const downloading = getEpisodesByStatus("downloading");
   if (downloading.length === 0) return;
 

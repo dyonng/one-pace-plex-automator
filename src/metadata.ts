@@ -69,7 +69,7 @@ export async function refreshMetadata(): Promise<boolean> {
   const headers: Record<string, string> = {};
   if (_etag) headers["If-None-Match"] = _etag;
 
-  const resp = await fetch(url, { headers });
+  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
 
   if (resp.status === 304) {
     logger.debug("Metadata unchanged (304)");

@@ -15,12 +15,17 @@ via **dockhand**. Plex runs on **baremetal**, not in Docker.
 
 ### Schedules
 
-Two independent timers (set up in `src/index.ts`):
+Two independent timers (set up in `src/index.ts`). The cycle logic lives in `src/cycle.ts`
+(`pollRss` → `dispatchPending` → `processDownloading`); `src/index.ts` only wires schedules
+and the dashboard.
 
-- **`POLL_CRON`** (default `*/5 * * * *`) → `runCycle()` = `pollRss` → `dispatchPending` → `processDownloading`
-- **`setInterval(30s)`** → `processDownloading()` only (sub-minute completion check; cron can't go below 1 min)
+- **`POLL_CRON`** (default `*/5 * * * *`) → routed through `runAction("poll")` so the cron
+  never overlaps a manual dashboard trigger (shared action lock in `src/controls.ts`).
+- **`setInterval(30s)`** → `processDownloading()` only (sub-minute completion check; cron can't
+  go below 1 min). Skips the tick while a heavier action holds the lock.
 
-On startup, `boot()` runs once, then one immediate `runCycle()` + `runMetadataSync()`.
+On startup, `boot()` runs once, the dashboard starts, then one immediate `runCycle()`. There is
+**no** full metadata sync on boot — sync is download-driven (see Pipeline step 4).
 
 ### Pipeline
 
@@ -36,8 +41,9 @@ On startup, `boot()` runs once, then one immediate `runCycle()` + `runMetadataSy
 3. **qBittorrent dispatch** (`src/qbittorrent.ts`) — cookie-auth Web API. `addMagnet` sets a
    category but **no savepath** (qBit writes to its own configured dir; we read that same host dir).
 4. **Completion** (`src/processor.ts`) — on `isComplete`: find file by CRC32 → `moveAndRename` →
-   Plex scan → wait 5s → `syncSingleEpisode` → mark `done` → `runMetadataSync()` (full) →
-   Discord → delete torrent (keep file).
+   Plex scan → wait 5s → `syncSingleEpisode` (updates the episode **and** its season) → mark
+   `done` → Discord → delete torrent (keep file). Sync is download-driven; the full-library
+   `runMetadataSync()` is **not** auto-called — it's manual only (dashboard "Full Plex sync").
 5. **File ops** (`src/fileops.ts`) — `moveAndRename` deletes any existing file with the same
    `S##E##` before moving the new one in (handles re-releases and pre-existing library files),
    returns the replaced names.
@@ -48,11 +54,12 @@ On startup, `boot()` runs once, then one immediate `runCycle()` + `runMetadataSy
 
 ### State
 
-SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Three tables:
+SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Four tables:
 - `episodes` — lifecycle `pending → downloading → processing → done/failed`; includes `changelog`
   (JSON array, added via `addColumnIfMissing` migration)
 - `rss_seen` — seen RSS GUIDs
 - `kv` — small key/value (e.g. `rss_last_modified`)
+- `logs` — dashboard log history; `insertLog` auto-prunes to the newest 1000 rows
 
 ## Re-release Handling (key feature)
 
@@ -82,6 +89,41 @@ Plex filename's `[resolution]` tag is read from the torrent filename, defaulting
 folders already on disk, also detecting zero-padding. `buildSeasonFolder` returns the exact on-disk
 name for known seasons, falling back to the detected padding style for new ones. The user's library
 uses **unpadded** folders (`Season 1 - Romance Dawn`).
+
+## Dashboard
+
+Single-page web UI on port `8282` (config `DASHBOARD_PORT`), for viewing logs and triggering
+stages without logging into dockhand.
+
+- **Server** (`src/web/server.ts`) — native Node `http` (no express). HTTP **Basic auth** on every
+  route (any username). Auth (`src/web/auth.ts`) prefers `DASHBOARD_TOKEN_HASH` (scrypt salted hash,
+  no plaintext at rest — generate via `npm run hash-token -- <pw>`); falls back to plaintext
+  `DASHBOARD_TOKEN` with a warning. scrypt verify is cached by password fingerprint so the slow hash
+  runs once, not per request. If neither secret is set the server does **not** start (fail-safe — no
+  unauthenticated controls). Routes: `GET /api/status`, `GET /api/logs`, `GET /api/logs/stream`
+  (SSE), `POST /api/actions/<id>`, plus static files from `public/`. **Basic auth is base64, not
+  encrypted in transit** — front with TLS if exposed beyond LAN.
+- **Actions** (`src/controls.ts`) — `poll`, `sync`, `refresh-metadata`, `retry-failed`, serialized
+  behind one lock (`isBusy`/`withLock`) so manual triggers never overlap the cron cycle. Tracks
+  last-run timestamps in `runtime`. `sync` is the home of the otherwise-unwired `runMetadataSync`.
+- **Logs** — `logger.ts` emits every line on an `EventEmitter` (`logBus`). `boot.ts` subscribes to
+  persist into the `logs` table; the server subscribes to broadcast over SSE. The page loads history
+  from `GET /api/logs`, then live-tails via SSE.
+
+### Frontend (`frontend/`)
+
+Svelte 5 + Vite, daisyUI (Tailwind v4 via `@tailwindcss/vite`). Build-time only — the runtime image
+ships just the compiled static output.
+
+- `vite build` compiles `frontend/` → `public/` (hashed `assets/` + `index.html`). The Node server
+  serves `public/` via `serveStatic`. `public/` is **generated and gitignored**.
+- Config files are `.mts`/`.mjs` (`vite.config.mts`, `svelte.config.mjs`) so the ESM frontend
+  tooling coexists with the CommonJS backend without setting `"type": "module"`.
+- Components: `frontend/src/App.svelte` + `lib/` (`Navbar`, `Controls`, `Stats`, `InfoCards`,
+  `Episodes`, `Logs`, `Toasts`); `lib/api.ts` (typed fetchers), `lib/stores.ts` (status/logs/toasts
+  stores + SSE), `lib/util.ts`. Backend API is framework-agnostic — the frontend can be swapped
+  without backend changes.
+- `npm run dev:web` runs Vite HMR, proxying `/api` → `:8282`.
 
 ## Paths
 
@@ -114,6 +156,9 @@ Zod-validated env (`src/config.ts`):
 | `PLEX_LIBRARY_NAME` | `TV Shows` | library containing the "One Pace" show |
 | `DISCORD_WEBHOOK_URL` | — (optional) | notifications disabled if unset |
 | `POLL_CRON` | `*/5 * * * *` | RSS poll schedule |
+| `DASHBOARD_TOKEN_HASH` | — (preferred) | scrypt hash of the password (`npm run hash-token`) |
+| `DASHBOARD_TOKEN` | — (fallback) | plaintext password; used only if no hash. **Dashboard off if neither set** |
+| `DASHBOARD_PORT` | `8282` | dashboard listen + published port |
 | `METADATA_REPO_RAW_BASE` | ladyisatis v2 raw URL | override only for a mirror |
 
 `LOG_LEVEL` is read directly by pino (`src/logger.ts`), not in the Zod schema.
@@ -122,19 +167,23 @@ Zod-validated env (`src/config.ts`):
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point, cron + 30s interval, `runCycle`, `dispatchPending` |
-| `src/boot.ts` | Boot sequence: dirs, DB, season-format detect, cache warm, Plex resolve, banner |
+| `src/index.ts` | Entry point: `boot`, dashboard, cron + 30s interval (delegates to `cycle`/`controls`) |
+| `src/boot.ts` | Boot: dirs, DB, log persistence, season-format detect, cache warm, Plex resolve, banner |
+| `src/cycle.ts` | `pollRss`, `dispatchPending`, `runCycle` (extracted so the server can trigger them) |
+| `src/controls.ts` | Manual dashboard actions behind a serialization lock + runtime timestamps |
 | `src/config.ts` | Zod-validated env config |
 | `src/constants.ts` | Hardcoded container paths |
-| `src/db.ts` | SQLite state + migrations |
+| `src/db.ts` | SQLite state + migrations; episode/log/count queries |
 | `src/rss.ts` | RSS poll, CRC32 resolution, changelog extraction |
 | `src/metadata.ts` | `data.min.json` fetch/cache, conditional refresh, lookups, filename build |
 | `src/qbittorrent.ts` | qBittorrent Web API client |
 | `src/fileops.ts` | Season-format detection, move/rename, re-release file swap |
 | `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync) |
-| `src/processor.ts` | Completion handler + `runMetadataSync` |
+| `src/processor.ts` | Completion handler; `runMetadataSync`/`retryFailed` (manual-only) |
 | `src/discord.ts` | Webhook embeds |
-| `src/logger.ts` | pino wrapper (`logger.info(msg, meta)` shape) |
+| `src/logger.ts` | pino wrapper (`logger.info(msg, meta)` shape) + `logBus` emitter |
+| `src/web/server.ts` | Dashboard HTTP server (Basic auth, status API, SSE logs, action endpoints) |
+| `frontend/` | Svelte 5 + Vite dashboard UI (builds to `public/`) |
 
 ## RSS Feed Details
 
@@ -154,7 +203,8 @@ Filename-less items (no `dn`, no `torrent:fileName`) resolve CRC32 via title →
 - **Magnet hash regex** — `qbittorrent.ts` pulls the info hash from `urn:btih:`; if absent the hash
   is `""` and completion detection breaks. Fallback could derive it from qBit's added-torrent list.
 - **Fixed 5s wait** after Plex scan before `syncSingleEpisode` — may race on slow scans.
-- **`retryFailed()`** exists but isn't wired into any schedule.
+- **`retryFailed()` / `runMetadataSync()`** are manual-only (dashboard buttons), not scheduled — by
+  design, but there's no automatic retry/backoff for failed episodes.
 - **No BEP 9** — filename-less magnets aren't probed for their file list pre-download; they rely on
   the title→metadata lookup instead.
 
@@ -163,13 +213,23 @@ Filename-less items (no `dn`, no `torrent:fileName`) resolve CRC32 via title →
 ```bash
 npm run install:dev    # npm install --ignore-scripts (skips native build on Windows dev)
 cp .env.example .env    # fill in values
-npm run typecheck       # ./node_modules/.bin/tsc --noEmit
-npm run build           # compile to dist/
+npm run typecheck       # backend: ./node_modules/.bin/tsc --noEmit
+npm run build           # backend tsc -> dist/  +  vite build -> public/
+npm run dev:web         # frontend HMR (proxies /api -> :8282)
+npm run mock            # mock backend on :8282 (no sqlite/Plex/qBit, no auth) for frontend dev
 ```
 
-> `npm run dev` requires the `better-sqlite3` native binary; with `--ignore-scripts` it isn't built,
-> so real smoke-testing is done by building the Docker image. A pre-commit hook
-> (`.githooks/pre-commit`, wired via the `prepare` script) auto-bumps the patch version.
+> Frontend can be developed/tested without the real backend: run `npm run mock`
+> (`scripts/mock-server.mjs` — canned API + live fake logs + interactive actions) then
+> `npm run dev:web`. Lets the whole dashboard be exercised on Windows despite the
+> `better-sqlite3` blocker.
+
+> `npm run dev` (the backend) requires the `better-sqlite3` native binary; with `--ignore-scripts`
+> it isn't built, so real smoke-testing is done by building the Docker image. Frontend builds/HMR
+> work fine on Windows (no native deps). A pre-commit hook (`.githooks/pre-commit`, wired via the
+> `prepare` script) auto-bumps the patch version — note it cannot spawn under Git for Windows
+> (shell-hook spawn issue), so on Windows the bump must be done manually (`npm version patch
+> --no-git-tag-version`).
 
 ## Docker Deployment
 
@@ -179,6 +239,8 @@ docker compose logs -f one-pace-automator
 ```
 
 Multi-stage build: the **builder** has `python3 make g++` to compile `better-sqlite3` (musl, no
-prebuilt); the **runner** adds `libstdc++` for the addon's runtime link. The container shares two
-host dirs — qBittorrent's output (`/downloads`) and the One Pace show root (`/media/one-pace`).
+prebuilt) and runs `npm run build` (tsc + vite, producing `dist/` and `public/`); the **runner**
+adds `libstdc++` for the addon's runtime link and copies `dist/`, `public/`, and `node_modules`.
+Exposes `8282` (dashboard). The container shares two host dirs — qBittorrent's output
+(`/downloads`) and the One Pace show root (`/media/one-pace`) — and publishes `DASHBOARD_PORT`.
 Image is published to GHCR via `.github/workflows/docker.yml`.

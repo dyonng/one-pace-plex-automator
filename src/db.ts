@@ -53,6 +53,13 @@ export function getDb(): Database.Database {
   return _db;
 }
 
+export function closeDb(): void {
+  if (_db) {
+    _db.close();
+    _db = null;
+  }
+}
+
 function migrate(db: Database.Database) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS episodes (
@@ -82,6 +89,14 @@ function migrate(db: Database.Database) {
     CREATE TABLE IF NOT EXISTS kv (
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS logs (
+      id    INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts    INTEGER NOT NULL,
+      level TEXT NOT NULL,
+      msg   TEXT NOT NULL,
+      meta  TEXT
     );
   `);
 
@@ -165,6 +180,19 @@ export function getEpisodeByCrc32(crc32: string): EpisodeRecord | null {
   return row ? rowToRecord(row) : null;
 }
 
+export function listEpisodes(): EpisodeRecord[] {
+  return (getDb()
+    .prepare("SELECT * FROM episodes ORDER BY arc_part, episode_num")
+    .all() as EpisodeRow[]).map(rowToRecord);
+}
+
+export function countByStatus(): Record<string, number> {
+  const rows = getDb()
+    .prepare("SELECT status, COUNT(*) AS n FROM episodes GROUP BY status")
+    .all() as { status: string; n: number }[];
+  return Object.fromEntries(rows.map((r) => [r.status, r.n]));
+}
+
 export function getKv(key: string): string | null {
   const row = getDb().prepare("SELECT value FROM kv WHERE key = ?").get(key) as { value: string } | undefined;
   return row?.value ?? null;
@@ -172,6 +200,38 @@ export function getKv(key: string): string | null {
 
 export function setKv(key: string, value: string): void {
   getDb().prepare("INSERT INTO kv (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(key, value);
+}
+
+export interface LogRow {
+  id: number;
+  ts: number;
+  level: string;
+  msg: string;
+  meta: string | null;
+}
+
+const LOG_RETENTION = 1000;
+
+export function insertLog(entry: { ts: number; level: string; msg: string; meta?: unknown }): LogRow {
+  const db = getDb();
+  const metaStr = entry.meta ? JSON.stringify(entry.meta) : null;
+  const info = db
+    .prepare("INSERT INTO logs (ts, level, msg, meta) VALUES (?, ?, ?, ?)")
+    .run(entry.ts, entry.level, entry.msg, metaStr);
+  const id = Number(info.lastInsertRowid);
+  // Prune to the newest LOG_RETENTION rows.
+  db.prepare(
+    "DELETE FROM logs WHERE id <= (SELECT MAX(id) FROM logs) - ?"
+  ).run(LOG_RETENTION);
+  return { id, ts: entry.ts, level: entry.level, msg: entry.msg, meta: metaStr };
+}
+
+export function getRecentLogs(limit = 200): LogRow[] {
+  const n = Math.max(1, Math.min(limit, LOG_RETENTION));
+  const rows = getDb()
+    .prepare("SELECT * FROM logs ORDER BY id DESC LIMIT ?")
+    .all(n) as LogRow[];
+  return rows.reverse(); // chronological order for display
 }
 
 export function getEpisodeByTorrentHash(hash: string): EpisodeRecord | null {

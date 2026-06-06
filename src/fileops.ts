@@ -80,6 +80,29 @@ export interface MoveResult {
   replaced: string[];
 }
 
+/**
+ * Moves a file, handling the case where source and destination are on different
+ * filesystems (qBittorrent's download volume vs the Plex media volume), where a
+ * plain rename throws EXDEV. Falls back to copy-to-temp + atomic rename + unlink
+ * so the destination never sees a partially written file.
+ */
+function moveFile(src: string, dest: string): void {
+  try {
+    fs.renameSync(src, dest);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    const tmp = `${dest}.tmp-${process.pid}-${Date.now()}`;
+    fs.copyFileSync(src, tmp);
+    try {
+      fs.renameSync(tmp, dest); // same filesystem now — atomic
+    } catch (e) {
+      fs.rmSync(tmp, { force: true });
+      throw e;
+    }
+    fs.rmSync(src, { force: true });
+  }
+}
+
 export function moveAndRename(
   sourcePath: string,
   finalFilename: string,
@@ -91,14 +114,16 @@ export function moveAndRename(
   const destDir = path.join(MEDIA_PATH, seasonFolder);
   ensureDir(destDir);
 
-  const replaced = removeExistingEpisodeFiles(destDir, arcPart, episodeNum, finalFilename);
-
   const destPath = path.join(destDir, finalFilename);
   if (fs.existsSync(destPath)) {
     logger.warn("Destination file already exists, overwriting", { destPath });
   }
 
-  fs.renameSync(sourcePath, destPath);
+  // Move the new file into place FIRST, then remove any superseded copies — so a
+  // failed move never leaves the episode missing from the library.
+  moveFile(sourcePath, destPath);
+  const replaced = removeExistingEpisodeFiles(destDir, arcPart, episodeNum, finalFilename);
+
   logger.info("Moved file to Plex library", { from: sourcePath, to: destPath, replaced: replaced.length });
   return { destPath, replaced };
 }

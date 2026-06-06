@@ -11,6 +11,13 @@ const ConfigSchema = z.object({
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   POLL_CRON: z.string().default("*/5 * * * *"),
+  // Dashboard: enabled when a secret is configured, otherwise the web server does
+  // not start (fail-safe — no unauthenticated controls exposed). Prefer
+  // DASHBOARD_TOKEN_HASH (scrypt hash, no plaintext at rest); DASHBOARD_TOKEN is a
+  // plaintext fallback. Generate a hash with `npm run hash-token -- <password>`.
+  DASHBOARD_TOKEN_HASH: z.string().min(1).optional(),
+  DASHBOARD_TOKEN: z.string().min(1).optional(),
+  DASHBOARD_PORT: z.coerce.number().int().positive().default(8282),
   METADATA_REPO_RAW_BASE: z
     .string()
     .url()

@@ -2,9 +2,48 @@ import { getConfig } from "./config";
 import { getData } from "./metadata";
 import { resolvePlexConnection } from "./plex";
 import { ensureDir, detectSeasonFormat, buildSeasonFolder } from "./fileops";
-import { getDb } from "./db";
+import { getDb, insertLog, getKv, setKv, markGuidSeen } from "./db";
+import { logBus, LogEntry, logger } from "./logger";
+import { seedSeenGuids } from "./rss";
 import { DATA_DIR, DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { version as VERSION } from "../package.json";
+
+type PlexConn = { plexUrl: string; libraryName: string; showTitle: string };
+
+async function connectPlexWithRetry(attempts = 3): Promise<PlexConn | null> {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await resolvePlexConnection();
+    } catch (err) {
+      logger.warn("Plex connection failed", { attempt: i, error: (err as Error).message });
+      if (i < attempts) await new Promise((r) => setTimeout(r, i * 2000));
+    }
+  }
+  return null;
+}
+
+async function seedOnFirstRun(): Promise<void> {
+  if (getKv("rss_seeded") === "1") return;
+  try {
+    const count = await seedSeenGuids(markGuidSeen);
+    setKv("rss_seeded", "1");
+    logger.info("First run: seeded feed GUIDs without downloading", { count });
+  } catch (err) {
+    // Leave the flag unset so it retries next boot rather than mass-downloading.
+    logger.warn("First-run seed failed; will retry next boot", { error: (err as Error).message });
+  }
+}
+
+function initLogPersistence(): void {
+  logBus.on("log", (entry: LogEntry) => {
+    try {
+      insertLog(entry);
+    } catch (err) {
+      // Never log via logger here — would recurse through logBus.
+      console.error("Failed to persist log:", (err as Error).message);
+    }
+  });
+}
 const WIDTH = 52;
 
 function row(label: string, value: string): string {
@@ -27,15 +66,20 @@ export async function boot(): Promise<void> {
 
   ensureDir(DATA_DIR);
   getDb();
+  initLogPersistence();
   detectSeasonFormat();
+
+  await seedOnFirstRun();
 
   process.stdout.write("  Fetching One Pace metadata...");
   const meta = await getData();
   process.stdout.write(` ${meta.episodes} episodes, ${meta.arcs} arcs\n`);
 
   process.stdout.write("  Connecting to Plex...");
-  const plex = await resolvePlexConnection();
-  process.stdout.write(` "${plex.showTitle}" in "${plex.libraryName}"\n\n`);
+  // Don't crash-loop if Plex is briefly unreachable (e.g. baremetal restart) —
+  // continue without it; later syncs re-resolve the connection on demand.
+  const plex = await connectPlexWithRetry();
+  process.stdout.write(plex ? ` "${plex.showTitle}" in "${plex.libraryName}"\n\n` : " unreachable\n\n");
 
   const top    = `┌${"─".repeat(WIDTH)}┐`;
   const bottom = `└${"─".repeat(WIDTH)}┘`;
@@ -46,9 +90,9 @@ export async function boot(): Promise<void> {
     title,
     divider(),
     section("Plex"),
-    row("URL", plex.plexUrl),
-    row("Library", plex.libraryName),
-    row("Show", plex.showTitle),
+    row("URL", plex?.plexUrl ?? config.PLEX_URL),
+    row("Library", plex?.libraryName ?? config.PLEX_LIBRARY_NAME),
+    row("Show", plex?.showTitle ?? "(unreachable)"),
     divider(),
     section("qBittorrent"),
     row("URL", config.QBIT_URL),

@@ -49,7 +49,7 @@ export async function fetchNewEpisodes(
 
   let feed;
   try {
-    const resp = await fetch(RSS_FEED_URL, { headers });
+    const resp = await fetch(RSS_FEED_URL, { headers, signal: AbortSignal.timeout(20_000) });
 
     if (resp.status === 304) {
       logger.debug("RSS feed unchanged (304), skipping");
@@ -132,6 +132,32 @@ export async function fetchNewEpisodes(
 
   logger.info(`Found ${newEpisodes.length} new episode(s) in RSS feed`);
   return newEpisodes;
+}
+
+/**
+ * First-run seed: marks every GUID currently in the feed as seen WITHOUT
+ * downloading. Prevents a fresh install (empty rss_seen) from mass-downloading
+ * and replacing files the user already has on disk. Genuinely new releases that
+ * appear after seeding are picked up normally.
+ */
+export async function seedSeenGuids(markSeen: (guid: string) => void): Promise<number> {
+  const { RSS_FEED_URL } = getConfig();
+  const resp = await fetch(RSS_FEED_URL, { signal: AbortSignal.timeout(20_000) });
+  if (!resp.ok) throw new Error(`RSS seed fetch failed: HTTP ${resp.status}`);
+
+  const lastModified = resp.headers.get("Last-Modified");
+  if (lastModified) setKv("rss_last_modified", lastModified);
+
+  const feed = await parser.parseString(await resp.text());
+  let count = 0;
+  for (const item of (feed.items ?? []) as RssItem[]) {
+    const guid = item.guid ?? item.link ?? item.title ?? "";
+    if (guid) {
+      markSeen(guid);
+      count++;
+    }
+  }
+  return count;
 }
 
 function extractMagnet(item: RssItem): string | null {

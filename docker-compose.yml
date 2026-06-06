@@ -14,6 +14,11 @@ services:
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - POLL_CRON=${POLL_CRON:-*/5 * * * *}
       - LOG_LEVEL=${LOG_LEVEL:-info}
+      - DASHBOARD_TOKEN_HASH=${DASHBOARD_TOKEN_HASH:-}
+      - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}
+      - DASHBOARD_PORT=${DASHBOARD_PORT:-8282}
+    ports:
+      - "${DASHBOARD_PORT:-8282}:${DASHBOARD_PORT:-8282}"
     volumes:
       - ./data:/data
       - /path/to/your/one-pace:/media/one-pace

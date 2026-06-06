@@ -104,9 +104,15 @@ class QBittorrentClient {
     });
     await this.request<string>("post", "/torrents/add", params);
 
-    // Extract info hash from magnet URI
+    // Extract info hash from magnet URI (v1 SHA-1, 40-char hex)
     const hashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i);
     const hash = hashMatch ? hashMatch[1].toLowerCase() : "";
+    if (!hash) {
+      // Base32 btih or v2 btmh — completion detection keys off this hash, so flag it.
+      logger.warn("Could not extract 40-hex info hash from magnet; completion detection may fail", {
+        magnet: magnetUri.slice(0, 64),
+      });
+    }
     logger.info("Added magnet to qBittorrent", { hash, category: QBIT_CATEGORY });
     return hash;
   }
