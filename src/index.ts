@@ -7,8 +7,7 @@ import { resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading, runMetadataSync } from "./processor";
 import { sendDiscordNotification } from "./discord";
-import { ensureDir } from "./fileops";
-import { DATA_DIR, DOWNLOAD_PATH } from "./constants";
+import { boot } from "./boot";
 
 async function pollRss(): Promise<void> {
   logger.info("Starting RSS poll cycle");
@@ -46,7 +45,6 @@ async function pollRss(): Promise<void> {
 
       markGuidSeen(rssEp.guid);
 
-      // Dispatch to qBittorrent immediately
       const qbit = getQbitClient();
       const torrentHash = await qbit.addMagnet(rssEp.magnet);
       updateEpisodeStatus(rssEp.crc32, "downloading", { torrent_hash: torrentHash });
@@ -95,25 +93,20 @@ async function dispatchPending(): Promise<void> {
   }
 }
 
-
 async function runCycle(): Promise<void> {
   await pollRss();
   await processDownloading();
 }
 
 async function bootstrap(): Promise<void> {
-  const config = getConfig(); // validates config, throws if invalid
+  await boot();
 
-  ensureDir(DATA_DIR);
-  ensureDir(DOWNLOAD_PATH);
+  const { POLL_CRON } = getConfig();
 
-  logger.info("One Pace Plex Automator starting", { pollCron: config.POLL_CRON });
-
-  // Run immediately on startup
   await runCycle();
   await runMetadataSync();
 
-  cron.schedule(config.POLL_CRON, async () => {
+  cron.schedule(POLL_CRON, async () => {
     try {
       await runCycle();
     } catch (err) {
@@ -128,7 +121,6 @@ async function bootstrap(): Promise<void> {
       logger.error("Unhandled error in download check", { error: (err as Error).message });
     }
   }, 30_000);
-
 }
 
 bootstrap().catch((err) => {

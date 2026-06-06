@@ -80,6 +80,13 @@ async function resolveShowRatingKey(sectionId: string): Promise<string> {
   return _showRatingKey;
 }
 
+export async function resolvePlexConnection(): Promise<{ plexUrl: string; libraryName: string; showTitle: string }> {
+  const sectionId = await resolveSectionId();
+  await resolveShowRatingKey(sectionId);
+  const { PLEX_URL, PLEX_LIBRARY_NAME } = getConfig();
+  return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: SERIES_FOLDER_NAME };
+}
+
 export async function triggerLibraryScan(): Promise<void> {
   const sectionId = await resolveSectionId();
   logger.info("Triggering Plex library scan", { sectionId });

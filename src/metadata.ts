@@ -46,7 +46,12 @@ export interface ResolvedEpisode {
 
 let _data: DataJson | null = null;
 
-async function getData(): Promise<DataJson> {
+export async function getData(): Promise<{ arcs: number; episodes: number }> {
+  const d = await _getData();
+  return { arcs: d.arcs.length, episodes: Object.keys(d.episodes).length };
+}
+
+async function _getData(): Promise<DataJson> {
   if (_data) return _data;
   const url = `${getConfig().METADATA_REPO_RAW_BASE}/data.min.json`;
   logger.debug("Fetching metadata dataset", { url });
@@ -68,7 +73,7 @@ export async function resolveEpisodeByCrc32(
   crc32: string,
   resolution = "1080p"
 ): Promise<ResolvedEpisode> {
-  const data = await getData();
+  const data = await _getData();
   const key = crc32.toUpperCase();
   const ep = data.episodes[key];
   if (!ep) throw new Error(`CRC32 ${key} not found in metadata dataset`);
@@ -108,7 +113,7 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
   const parsed = parseRssTitle(rssTitle);
   if (!parsed) return null;
 
-  const data = await getData();
+  const data = await _getData();
   const arcIndex = data.arcs.findIndex(
     (a) => a.title.toLowerCase() === parsed.arcTitle.toLowerCase()
   );
@@ -140,7 +145,7 @@ export interface EpisodeSummary extends ResolvedEpisode {
 }
 
 export async function getAllArcs(): Promise<ArcSummary[]> {
-  const data = await getData();
+  const data = await _getData();
   return data.arcs
     .filter((a) => a.part > 0)
     .map((a, i) => ({
@@ -153,7 +158,7 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
 }
 
 export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
-  const data = await getData();
+  const data = await _getData();
   const results: EpisodeSummary[] = [];
 
   for (const [crc32, ep] of Object.entries(data.episodes)) {
