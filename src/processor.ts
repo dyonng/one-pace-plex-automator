@@ -5,11 +5,7 @@ import { getEpisodesByStatus, updateEpisodeStatus } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { resolveEpisodeByCrc32, buildPlexFilename } from "./metadata";
 import { findDownloadedFile, moveAndRename } from "./fileops";
-import {
-  triggerLibraryScan,
-  findEpisodeRatingKey,
-  updateEpisodeMetadata,
-} from "./plex";
+import { triggerLibraryScan, syncSingleEpisode } from "./plex";
 import { sendDiscordNotification } from "./discord";
 
 export async function processDownloading(): Promise<void> {
@@ -17,7 +13,7 @@ export async function processDownloading(): Promise<void> {
   if (downloading.length === 0) return;
 
   const qbit = getQbitClient();
-  const { QBIT_DOWNLOAD_PATH, PLEX_LIBRARY_SECTION_ID, PLEX_SERIES_RATING_KEY } = getConfig();
+  const { QBIT_DOWNLOAD_PATH, PLEX_LIBRARY_SECTION_ID } = getConfig();
 
   for (const ep of downloading) {
     if (!ep.torrent_hash) continue;
@@ -49,31 +45,14 @@ export async function processDownloading(): Promise<void> {
 
       const destPath = moveAndRename(sourcePath, finalFilename, ep.arc_title, ep.arc_part);
 
-      // Plex: scan library then update metadata
-      await triggerLibraryScan(PLEX_LIBRARY_SECTION_ID);
-
-      // Wait briefly for Plex to index the new file before updating metadata
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-
-      const ratingKey = await findEpisodeRatingKey(
-        PLEX_LIBRARY_SECTION_ID,
-        PLEX_SERIES_RATING_KEY,
-        ep.arc_part,
-        ep.episode_num
-      );
-
       const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);
 
-      if (ratingKey) {
-        await updateEpisodeMetadata(ratingKey, epMeta.episodeTitle, epMeta.episodeDescription);
-        logger.info("Plex metadata updated", { ratingKey, title: epMeta.episodeTitle });
-      } else {
-        logger.warn("Could not find episode in Plex to update metadata", {
-          crc32: ep.crc32,
-          season: ep.arc_part,
-          episode: ep.episode_num,
-        });
-      }
+      await triggerLibraryScan(PLEX_LIBRARY_SECTION_ID);
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      await syncSingleEpisode(PLEX_LIBRARY_SECTION_ID, {
+        ...epMeta,
+        seasonEpisodeId: `s${String(ep.arc_part).padStart(2, "0")}e${String(ep.episode_num).padStart(2, "0")}`,
+      });
 
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
 

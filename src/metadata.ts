@@ -32,10 +32,15 @@ export interface ResolvedEpisode {
   crc32: string;
   arcIndex: number;
   arcTitle: string;
+  arcSaga: string;
   arcPart: number;
+  arcDescription: string;
   episodeNum: number;
   episodeTitle: string;
   episodeDescription: string;
+  chapters: string;
+  originalEpisodes: string;
+  released: string;
   resolution: string;
 }
 
@@ -73,10 +78,15 @@ export async function resolveEpisodeByCrc32(
     crc32: key,
     arcIndex: ep.arc,
     arcTitle: arc.title,
+    arcSaga: arc.saga,
     arcPart: arc.part,
+    arcDescription: arc.description,
     episodeNum: ep.episode,
     episodeTitle: ep.title,
     episodeDescription: ep.description,
+    chapters: ep.chapters,
+    originalEpisodes: ep.episodes,
+    released: ep.released,
     resolution,
   };
 }
@@ -115,6 +125,64 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
 
   logger.warn("Episode not found in metadata", { arcTitle: parsed.arcTitle, epNum: parsed.epNum });
   return null;
+}
+
+export interface ArcSummary {
+  arcIndex: number;
+  arcPart: number;
+  arcTitle: string;
+  arcSaga: string;
+  arcDescription: string;
+}
+
+export interface EpisodeSummary extends ResolvedEpisode {
+  seasonEpisodeId: string; // e.g. "s01e03"
+}
+
+export async function getAllArcs(): Promise<ArcSummary[]> {
+  const data = await getData();
+  return data.arcs
+    .filter((a) => a.part > 0)
+    .map((a, i) => ({
+      arcIndex: i,
+      arcPart: a.part,
+      arcTitle: a.title,
+      arcSaga: a.saga,
+      arcDescription: a.description,
+    }));
+}
+
+export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
+  const data = await getData();
+  const results: EpisodeSummary[] = [];
+
+  for (const [crc32, ep] of Object.entries(data.episodes)) {
+    if (ep.arc === 0) continue; // skip specials
+    const arc = data.arcs[ep.arc];
+    if (!arc) continue;
+
+    const season = String(arc.part).padStart(2, "0");
+    const episode = String(ep.episode).padStart(2, "0");
+
+    results.push({
+      crc32: crc32.toUpperCase(),
+      arcIndex: ep.arc,
+      arcTitle: arc.title,
+      arcSaga: arc.saga,
+      arcPart: arc.part,
+      arcDescription: arc.description,
+      episodeNum: ep.episode,
+      episodeTitle: ep.title,
+      episodeDescription: ep.description,
+      chapters: ep.chapters,
+      originalEpisodes: ep.episodes,
+      released: ep.released,
+      resolution: "1080p",
+      seasonEpisodeId: `s${season}e${episode}`,
+    });
+  }
+
+  return results;
 }
 
 export function buildPlexFilename(

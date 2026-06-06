@@ -3,7 +3,8 @@ import { getConfig } from "./config";
 import { logger } from "./logger";
 import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus } from "./db";
 import { fetchNewEpisodes } from "./rss";
-import { resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
+import { resolveEpisodeByCrc32, extractResolutionFromFilename, getAllArcs, getAllEpisodes } from "./metadata";
+import { syncFullLibrary } from "./plex";
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
@@ -94,6 +95,17 @@ async function dispatchPending(): Promise<void> {
   }
 }
 
+async function runFullMetadataSync(): Promise<void> {
+  logger.info("Starting full Plex metadata sync");
+  const { PLEX_LIBRARY_SECTION_ID } = getConfig();
+  try {
+    const [arcs, episodes] = await Promise.all([getAllArcs(), getAllEpisodes()]);
+    await syncFullLibrary(PLEX_LIBRARY_SECTION_ID, arcs, episodes);
+  } catch (err) {
+    logger.error("Full metadata sync failed", { error: (err as Error).message });
+  }
+}
+
 async function runCycle(): Promise<void> {
   await pollRss();
   await processDownloading();
@@ -112,6 +124,7 @@ async function bootstrap(): Promise<void> {
 
   // Run immediately on startup
   await runCycle();
+  await runFullMetadataSync();
 
   // Schedule recurring poll
   const cronExpr = `*/${config.POLL_INTERVAL_MINUTES} * * * *`;
@@ -129,6 +142,15 @@ async function bootstrap(): Promise<void> {
       await processDownloading();
     } catch (err) {
       logger.error("Unhandled error in download check", { error: (err as Error).message });
+    }
+  });
+
+  // Full metadata sync — daily at 3am
+  cron.schedule("0 3 * * *", async () => {
+    try {
+      await runFullMetadataSync();
+    } catch (err) {
+      logger.error("Unhandled error in metadata sync", { error: (err as Error).message });
     }
   });
 
