@@ -8,20 +8,16 @@ services:
       - QBIT_URL=${QBIT_URL:-http://qbittorrent:8080}
       - QBIT_USERNAME=${QBIT_USERNAME:-admin}
       - QBIT_PASSWORD=${QBIT_PASSWORD}
-      - QBIT_CATEGORY=${QBIT_CATEGORY:-one-pace}
-      - QBIT_DOWNLOAD_PATH=${QBIT_DOWNLOAD_PATH:-/downloads/one-pace}
-      - PLEX_URL=${PLEX_URL:-http://plex:32400}
+      - PLEX_URL=${PLEX_URL}
       - PLEX_TOKEN=${PLEX_TOKEN}
       - PLEX_LIBRARY_NAME=${PLEX_LIBRARY_NAME:-TV Shows}
-      - MEDIA_PATH=${MEDIA_PATH:-/media/tv}
-      - SERIES_FOLDER_NAME=${SERIES_FOLDER_NAME:-One Pace}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL:-}
       - POLL_INTERVAL_MINUTES=${POLL_INTERVAL_MINUTES:-60}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     volumes:
       - ./data:/data
-      - ${MEDIA_PATH:-/media/tv}:/media/tv
-      - ${QBIT_DOWNLOAD_PATH:-/downloads/one-pace}:/downloads/one-pace
+      - /path/to/your/tv/library:/media/tv
+      - /path/to/your/downloads:/downloads/one-pace
     networks:
       - media-stack
 

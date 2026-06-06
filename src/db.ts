@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import path from "path";
-import { getConfig } from "./config";
+import { DATA_DIR } from "./constants";
 
 export type EpisodeStatus =
   | "pending"
@@ -31,7 +31,7 @@ let _db: Database.Database | null = null;
 
 export function getDb(): Database.Database {
   if (_db) return _db;
-  const dbPath = path.join(getConfig().DATA_DIR, "state.db");
+  const dbPath = path.join(DATA_DIR, "state.db");
   _db = new Database(dbPath);
   _db.pragma("journal_mode = WAL");
   _db.pragma("foreign_keys = ON");

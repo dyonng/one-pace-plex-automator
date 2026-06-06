@@ -9,6 +9,7 @@ import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
 import { ensureDir } from "./fileops";
+import { DATA_DIR, DOWNLOAD_PATH } from "./constants";
 
 async function pollRss(): Promise<void> {
   logger.info("Starting RSS poll cycle");
@@ -113,12 +114,11 @@ async function runCycle(): Promise<void> {
 async function bootstrap(): Promise<void> {
   const config = getConfig(); // validates config, throws if invalid
 
-  ensureDir(config.DATA_DIR);
-  ensureDir(config.QBIT_DOWNLOAD_PATH);
+  ensureDir(DATA_DIR);
+  ensureDir(DOWNLOAD_PATH);
 
   logger.info("One Pace Plex Automator starting", {
     pollIntervalMinutes: config.POLL_INTERVAL_MINUTES,
-    mediaPath: config.MEDIA_PATH,
   });
 
   // Run immediately on startup

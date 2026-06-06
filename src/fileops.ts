@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { getConfig } from "./config";
+import { MEDIA_PATH, SERIES_FOLDER_NAME } from "./constants";
 import { logger } from "./logger";
 
 export function buildSeasonFolder(arcTitle: string, arcPart: number): string {
@@ -16,7 +16,6 @@ export function ensureDir(dirPath: string): void {
 }
 
 export function moveAndRename(sourcePath: string, finalFilename: string, arcTitle: string, arcPart: number): string {
-  const { MEDIA_PATH, SERIES_FOLDER_NAME } = getConfig();
   const seasonFolder = buildSeasonFolder(arcTitle, arcPart);
   const destDir = path.join(MEDIA_PATH, SERIES_FOLDER_NAME, seasonFolder);
   ensureDir(destDir);

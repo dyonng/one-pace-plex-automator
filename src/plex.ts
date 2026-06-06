@@ -1,6 +1,7 @@
 import axios from "axios";
 import { getConfig } from "./config";
 import { logger } from "./logger";
+import { SERIES_FOLDER_NAME } from "./constants";
 import type { ArcSummary, EpisodeSummary } from "./metadata";
 
 interface PlexMetadata {
@@ -68,7 +69,6 @@ async function resolveSectionId(): Promise<string> {
 
 async function resolveShowRatingKey(sectionId: string): Promise<string> {
   if (_showRatingKey) return _showRatingKey;
-  const { SERIES_FOLDER_NAME } = getConfig();
 
   const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, { type: "2" });
   const show = result.MediaContainer.Metadata?.find(

@@ -1,5 +1,6 @@
 import path from "path";
 import { getConfig } from "./config";
+import { DOWNLOAD_PATH } from "./constants";
 import { logger } from "./logger";
 import { getEpisodesByStatus, updateEpisodeStatus } from "./db";
 import { getQbitClient } from "./qbittorrent";
@@ -13,7 +14,6 @@ export async function processDownloading(): Promise<void> {
   if (downloading.length === 0) return;
 
   const qbit = getQbitClient();
-  const { QBIT_DOWNLOAD_PATH } = getConfig();
 
   for (const ep of downloading) {
     if (!ep.torrent_hash) continue;
@@ -28,9 +28,9 @@ export async function processDownloading(): Promise<void> {
       logger.info("Download complete, processing", { crc32: ep.crc32 });
       updateEpisodeStatus(ep.crc32, "processing");
 
-      const sourcePath = findDownloadedFile(QBIT_DOWNLOAD_PATH, ep.crc32);
+      const sourcePath = findDownloadedFile(DOWNLOAD_PATH, ep.crc32);
       if (!sourcePath) {
-        throw new Error(`Downloaded file not found in ${QBIT_DOWNLOAD_PATH} for CRC32 ${ep.crc32}`);
+        throw new Error(`Downloaded file not found in ${DOWNLOAD_PATH} for CRC32 ${ep.crc32}`);
       }
 
       const ext = path.extname(sourcePath);

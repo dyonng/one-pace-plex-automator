@@ -6,12 +6,9 @@ const ConfigSchema = z.object({
   QBIT_USERNAME: z.string().default("admin"),
   QBIT_PASSWORD: z.string(),
   QBIT_CATEGORY: z.string().default("one-pace"),
-  QBIT_DOWNLOAD_PATH: z.string().default("/downloads/one-pace"),
   PLEX_URL: z.string().url().default("http://plex:32400"),
   PLEX_TOKEN: z.string(),
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
-  MEDIA_PATH: z.string(),
-  SERIES_FOLDER_NAME: z.string().default("One Pace"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   POLL_INTERVAL_MINUTES: z.coerce.number().int().min(5).default(60),
   METADATA_REPO_RAW_BASE: z
@@ -20,7 +17,6 @@ const ConfigSchema = z.object({
     .default(
       "https://raw.githubusercontent.com/ladyisatis/one-pace-metadata/v2"
     ),
-  DATA_DIR: z.string().default("/data"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
