@@ -1,6 +1,6 @@
 services:
   one-pace-automator:
-    build: .
+    image: ghcr.io/dyonng/one-pace-plex-automator:latest
     container_name: one-pace-automator
     restart: unless-stopped
     environment:
