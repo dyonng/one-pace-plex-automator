@@ -4,6 +4,9 @@ services:
     container_name: one-pace-automator
     restart: unless-stopped
     environment:
+      # Container timezone — makes cron schedules (POLL_CRON) run in your local
+      # time instead of UTC. e.g. America/Toronto, Europe/London.
+      - TZ=${TZ:-UTC}
       - RSS_FEED_URL=${RSS_FEED_URL}
       - QBIT_URL=${QBIT_URL:-http://qbittorrent:8080}
       - QBIT_USERNAME=${QBIT_USERNAME:-admin}
