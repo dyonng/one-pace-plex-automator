@@ -25,4 +25,7 @@ COPY --from=builder /app/public ./public
 ENV NODE_ENV=production
 EXPOSE 8282
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+  CMD wget -q -O- "http://localhost:${DASHBOARD_PORT:-8282}/api/health" || exit 1
+
 CMD ["node", "dist/index.js"]

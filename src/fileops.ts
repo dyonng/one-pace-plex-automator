@@ -128,6 +128,17 @@ export function moveAndRename(
   return { destPath, replaced };
 }
 
+/** Deletes a moved episode file from the Plex library, if it exists. */
+export function deleteEpisodeFile(arcTitle: string, arcPart: number, finalFilename: string): boolean {
+  const full = path.join(MEDIA_PATH, buildSeasonFolder(arcTitle, arcPart), finalFilename);
+  if (fs.existsSync(full)) {
+    fs.rmSync(full, { force: true });
+    logger.info("Deleted episode file", { path: full });
+    return true;
+  }
+  return false;
+}
+
 export function findDownloadedFile(downloadDir: string, crc32: string): string | null {
   if (!fs.existsSync(downloadDir)) return null;
 

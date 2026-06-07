@@ -1,7 +1,7 @@
 import Parser from "rss-parser";
-import { getConfig } from "./config";
 import { logger } from "./logger";
 import { getKv, setKv } from "./db";
+import { getSettingValue } from "./settings";
 import { extractCrc32FromFilename, lookupCrc32ByTitle, refreshMetadata } from "./metadata";
 
 export interface RssEpisode {
@@ -40,7 +40,7 @@ const parser = new Parser<Record<string, unknown>, RssItem>({
 export async function fetchNewEpisodes(
   isGuidSeen: (guid: string) => boolean
 ): Promise<RssEpisode[]> {
-  const { RSS_FEED_URL } = getConfig();
+  const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
   logger.info("Polling RSS feed", { url: RSS_FEED_URL });
 
   const headers: Record<string, string> = {};
@@ -141,7 +141,7 @@ export async function fetchNewEpisodes(
  * appear after seeding are picked up normally.
  */
 export async function seedSeenGuids(markSeen: (guid: string) => void): Promise<number> {
-  const { RSS_FEED_URL } = getConfig();
+  const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
   const resp = await fetch(RSS_FEED_URL, { signal: AbortSignal.timeout(20_000) });
   if (!resp.ok) throw new Error(`RSS seed fetch failed: HTTP ${resp.status}`);
 

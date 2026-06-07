@@ -3,10 +3,10 @@
   import { postAction } from "./api";
 
   const buttons = [
-    { id: "poll", label: "Poll RSS now", cls: "btn-primary" },
+    { id: "poll", label: "Poll RSS", cls: "btn-primary" },
     { id: "sync", label: "Full Plex sync", cls: "btn-secondary" },
-    { id: "refresh-metadata", label: "Refresh metadata", cls: "btn-accent" },
-    { id: "retry-failed", label: "Retry failed", cls: "btn-warning" },
+    { id: "refresh-metadata", label: "Refresh metadata", cls: "btn-outline" },
+    { id: "retry-failed", label: "Retry failed", cls: "btn-outline btn-warning" },
   ];
 
   let pending = $state<string | null>(null);
@@ -25,13 +25,13 @@
   }
 </script>
 
-<div class="card bg-base-100 shadow">
-  <div class="card-body py-4">
-    <h2 class="card-title text-base">Controls</h2>
+<section class="deck-card card bg-base-100/70">
+  <div class="card-body py-4 gap-3">
+    <div class="eyebrow">Operations</div>
     <div class="flex flex-wrap gap-2">
       {#each buttons as b}
         <button
-          class="btn btn-sm {b.cls}"
+          class="btn btn-sm {b.cls} gap-1.5"
           disabled={$status?.busy || pending !== null}
           onclick={() => run(b.id)}
         >
@@ -41,4 +41,4 @@
       {/each}
     </div>
   </div>
-</div>
+</section>

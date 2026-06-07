@@ -11,6 +11,10 @@ const ConfigSchema = z.object({
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   POLL_CRON: z.string().default("*/5 * * * *"),
+  DOWNLOAD_CHECK_SECONDS: z.coerce.number().int().min(5).max(3600).default(30),
+  // When true, discovered releases are queued immediately; when false they wait
+  // in the dashboard as "available" until the user clicks Download.
+  AUTO_DOWNLOAD: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   // Dashboard: enabled when a secret is configured, otherwise the web server does
   // not start (fail-safe — no unauthenticated controls exposed). Prefer
   // DASHBOARD_TOKEN_HASH (scrypt hash, no plaintext at rest); DASHBOARD_TOKEN is a

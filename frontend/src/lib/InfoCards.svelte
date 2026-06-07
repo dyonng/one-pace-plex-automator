@@ -1,51 +1,52 @@
 <script lang="ts">
   import { status } from "./stores";
-  import { fmtTime } from "./util";
+  import { fmtTime, humanCron } from "./util";
 </script>
+
+{#snippet card(title: string, rows: [string, string | number | null][])}
+  <div class="deck-card card bg-base-100/60">
+    <div class="card-body py-4 gap-2">
+      <div class="eyebrow">{title}</div>
+      <div class="flex flex-col gap-1.5 text-sm">
+        {#each rows as [label, value]}
+          <div class="flex justify-between gap-4">
+            <span class="opacity-50">{label}</span>
+            <span class="font-mono text-right truncate">{value ?? "—"}</span>
+          </div>
+        {/each}
+      </div>
+    </div>
+  </div>
+{/snippet}
 
 {#if $status}
   {@const s = $status}
-  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
-    <div class="card bg-base-100 shadow">
-      <div class="card-body py-4">
-        <h2 class="card-title text-base">Plex</h2>
-        <div class="text-sm font-mono break-all flex flex-col gap-1">
-          {#if s.plex}
-            <div class="flex justify-between gap-4"><span class="opacity-60">URL</span><span>{s.plex.plexUrl}</span></div>
-            <div class="flex justify-between gap-4"><span class="opacity-60">Library</span><span>{s.plex.libraryName}</span></div>
-            <div class="flex justify-between gap-4"><span class="opacity-60">Show</span><span>{s.plex.showTitle}</span></div>
-          {:else}
-            <span class="text-error">Not connected</span>
-          {/if}
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+    {#if s.plex}
+      {@render card("Plex", [["URL", s.plex.plexUrl], ["Library", s.plex.libraryName], ["Show", s.plex.showTitle]])}
+    {:else}
+      <div class="deck-card card bg-base-100/60">
+        <div class="card-body py-4 gap-2">
+          <div class="eyebrow">Plex</div>
+          <span class="text-error text-sm">Not connected</span>
         </div>
       </div>
-    </div>
+    {/if}
 
-    <div class="card bg-base-100 shadow">
-      <div class="card-body py-4">
-        <h2 class="card-title text-base">qBittorrent &amp; Feed</h2>
-        <div class="text-sm font-mono break-all flex flex-col gap-1">
-          <div class="flex justify-between gap-4"><span class="opacity-60">qBit URL</span><span>{s.config.qbitUrl}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Category</span><span>{s.config.qbitCategory}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">RSS feed</span><span>{s.config.rssFeedUrl}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Discord</span><span>{s.config.discordConfigured ? "configured" : "off"}</span></div>
-        </div>
-      </div>
-    </div>
+    {@render card("qBittorrent · Feed", [
+      ["qBit URL", s.config.qbitUrl],
+      ["Category", s.config.qbitCategory],
+      ["RSS feed", s.config.rssFeedUrl],
+      ["Discord", s.config.discordConfigured ? "configured" : "off"],
+    ])}
 
-    <div class="card bg-base-100 shadow">
-      <div class="card-body py-4">
-        <h2 class="card-title text-base">Metadata &amp; Schedule</h2>
-        <div class="text-sm font-mono break-all flex flex-col gap-1">
-          <div class="flex justify-between gap-4"><span class="opacity-60">Arcs</span><span>{s.metadata?.arcs ?? "—"}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Episodes (meta)</span><span>{s.metadata?.episodes ?? "—"}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Poll cron</span><span>{s.schedule.pollCron}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">DL check</span><span>{s.schedule.downloadCheck}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Last poll</span><span>{fmtTime(s.runtime.lastPollAt)}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Last full sync</span><span>{fmtTime(s.runtime.lastSyncAt)}</span></div>
-          <div class="flex justify-between gap-4"><span class="opacity-60">Last meta refresh</span><span>{fmtTime(s.runtime.lastRefreshAt)}</span></div>
-        </div>
-      </div>
-    </div>
+    {@render card("Metadata · Schedule", [
+      ["Arcs", s.metadata?.arcs ?? "—"],
+      ["Episodes (meta)", s.metadata?.episodes ?? "—"],
+      ["Poll", humanCron(s.schedule.pollCron)],
+      ["DL check", s.schedule.downloadCheck],
+      ["Last poll", fmtTime(s.runtime.lastPollAt)],
+      ["Last full sync", fmtTime(s.runtime.lastSyncAt)],
+    ])}
   </div>
 {/if}

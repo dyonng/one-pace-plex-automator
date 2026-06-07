@@ -1,0 +1,16 @@
+node_modules
+dist
+public
+data
+.git
+.github
+.githooks
+*.db
+*.db-shm
+*.db-wal
+.env
+.env.*
+!.env.example
+npm-debug.log*
+old_scripts
+*.md

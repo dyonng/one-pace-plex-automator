@@ -1,8 +1,20 @@
 import { writable } from "svelte/store";
-import { fetchStatus, fetchLogs, type Status, type LogEntry } from "./api";
+import {
+  fetchStatus,
+  fetchLogs,
+  fetchSettings,
+  fetchAuth,
+  episodeAction,
+  type Status,
+  type LogEntry,
+  type SettingView,
+  type AuthState,
+} from "./api";
 
 export const status = writable<Status | null>(null);
 export const logs = writable<LogEntry[]>([]);
+export const settings = writable<SettingView[]>([]);
+export const auth = writable<AuthState | null>(null);
 export const toasts = writable<{ id: number; ok: boolean; msg: string }[]>([]);
 
 let _toastId = 0;
@@ -17,6 +29,38 @@ export async function refreshStatus(): Promise<void> {
     status.set(await fetchStatus());
   } catch {
     /* transient — keep last status */
+  }
+}
+
+export async function doEpisodeAction(
+  crc32: string,
+  action: "download" | "retry" | "resync" | "remove",
+  body?: Record<string, unknown>
+): Promise<{ ok: boolean; message: string }> {
+  let r: { ok: boolean; message: string };
+  try {
+    r = await episodeAction(crc32, action, body);
+  } catch {
+    r = { ok: false, message: "Request failed" };
+  }
+  toast(r.message, r.ok);
+  await refreshStatus();
+  return r;
+}
+
+export async function loadSettings(): Promise<void> {
+  try {
+    settings.set(await fetchSettings());
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function loadAuth(): Promise<void> {
+  try {
+    auth.set(await fetchAuth());
+  } catch {
+    /* ignore */
   }
 }
 

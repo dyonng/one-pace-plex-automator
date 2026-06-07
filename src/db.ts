@@ -3,6 +3,7 @@ import path from "path";
 import { DATA_DIR } from "./constants";
 
 export type EpisodeStatus =
+  | "available" // discovered but not yet queued (manual-download mode)
   | "pending"
   | "downloading"
   | "processing"
@@ -98,6 +99,11 @@ function migrate(db: Database.Database) {
       msg   TEXT NOT NULL,
       meta  TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 
   // Add columns introduced after initial release (no-op on fresh DBs).
@@ -180,6 +186,10 @@ export function getEpisodeByCrc32(crc32: string): EpisodeRecord | null {
   return row ? rowToRecord(row) : null;
 }
 
+export function deleteEpisode(crc32: string): void {
+  getDb().prepare("DELETE FROM episodes WHERE crc32 = ?").run(crc32);
+}
+
 export function listEpisodes(): EpisodeRecord[] {
   return (getDb()
     .prepare("SELECT * FROM episodes ORDER BY arc_part, episode_num")
@@ -191,6 +201,22 @@ export function countByStatus(): Record<string, number> {
     .prepare("SELECT status, COUNT(*) AS n FROM episodes GROUP BY status")
     .all() as { status: string; n: number }[];
   return Object.fromEntries(rows.map((r) => [r.status, r.n]));
+}
+
+// Runtime setting overrides (dashboard-editable). Absence = use env/default.
+export function getSettingOverride(key: string): string | null {
+  const row = getDb().prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSettingOverride(key: string, value: string): void {
+  getDb()
+    .prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(key, value);
+}
+
+export function deleteSettingOverride(key: string): void {
+  getDb().prepare("DELETE FROM settings WHERE key = ?").run(key);
 }
 
 export function getKv(key: string): string | null {

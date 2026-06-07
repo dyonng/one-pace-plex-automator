@@ -15,25 +15,31 @@ via **dockhand**. Plex runs on **baremetal**, not in Docker.
 
 ### Schedules
 
-Two independent timers (set up in `src/index.ts`). The cycle logic lives in `src/cycle.ts`
-(`pollRss` → `dispatchPending` → `processDownloading`); `src/index.ts` only wires schedules
-and the dashboard.
+Two independent timers, owned by `src/scheduler.ts` (so they can be re-applied live when settings
+change). The cycle logic lives in `src/cycle.ts` (`pollRss` → `dispatchPending` →
+`processDownloading`); `src/index.ts` only wires boot/dashboard/scheduler/shutdown.
 
-- **`POLL_CRON`** (default `*/5 * * * *`) → routed through `runAction("poll")` so the cron
-  never overlaps a manual dashboard trigger (shared action lock in `src/controls.ts`).
-- **`setInterval(30s)`** → `processDownloading()` only (sub-minute completion check; cron can't
-  go below 1 min). Skips the tick while a heavier action holds the lock.
+- **`POLL_CRON`** (default `*/5 * * * *`, dashboard-editable) → routed through `runAction("poll")`
+  so the cron never overlaps a manual dashboard trigger (shared action lock in `src/controls.ts`).
+  Invalid cron falls back to the default.
+- **download-check interval** (`DOWNLOAD_CHECK_SECONDS`, default 30, dashboard-editable) →
+  `processDownloading()` only (sub-minute completion check; cron can't go below 1 min). Skips the
+  tick while a heavier action holds the lock.
 
-On startup, `boot()` runs once, the dashboard starts, then one immediate `runCycle()`. There is
-**no** full metadata sync on boot — sync is download-driven (see Pipeline step 4).
+Both reschedule live via `settingsBus` when changed from the dashboard. On startup, `boot()` runs
+once, the dashboard + scheduler start, then one immediate `runCycle()`. There is **no** full
+metadata sync on boot — sync is download-driven (see Pipeline step 4).
 
 ### Pipeline
 
-1. **RSS poll** (`src/rss.ts`) — native `fetch` with `If-Modified-Since`/`304` (last value in `kv`).
-   `rss-parser` `customFields` map the `torrent:` namespace. If any unseen item exists, calls
-   `refreshMetadata()` **before** resolving (a re-release bumps the episode's CRC32). Extracts the
-   changelog from the description CDATA. CRC32 resolution priority:
+1. **RSS poll** (`src/rss.ts` + `src/cycle.ts`) — native `fetch` with `If-Modified-Since`/`304` (last
+   value in `kv`). `rss-parser` `customFields` map the `torrent:` namespace. If any unseen item
+   exists, calls `refreshMetadata()` **before** resolving (a re-release bumps the episode's CRC32).
+   Extracts the changelog from the description CDATA. CRC32 resolution priority:
    `torrent:fileName` → magnet `dn=` param → `lookupCrc32ByTitle()`.
+   **Download mode** (`AUTO_DOWNLOAD` setting, default on): when on, a discovered release is queued
+   immediately (`pending` → qBit → `downloading`); when off, it's stored as **`available`** and
+   waits for a manual Download from the dashboard. Either way a `new_episode` Discord ping fires.
 2. **Metadata** (`src/metadata.ts`) — single `data.min.json` from
    [`ladyisatis/one-pace-metadata`](https://github.com/ladyisatis/one-pace-metadata) branch `v2`,
    cached. `refreshMetadata()` does a conditional GET (ETag → 304, ~free when unchanged). Episode
@@ -54,12 +60,14 @@ On startup, `boot()` runs once, the dashboard starts, then one immediate `runCyc
 
 ### State
 
-SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Four tables:
-- `episodes` — lifecycle `pending → downloading → processing → done/failed`; includes `changelog`
-  (JSON array, added via `addColumnIfMissing` migration)
+SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Five tables:
+- `episodes` — lifecycle `available → pending → downloading → processing → done/failed`
+  (`available` = discovered but awaiting manual download); includes `changelog` (JSON array, added
+  via `addColumnIfMissing` migration)
 - `rss_seen` — seen RSS GUIDs
-- `kv` — small key/value (e.g. `rss_last_modified`)
+- `kv` — small key/value (e.g. `rss_last_modified`, `rss_seeded`)
 - `logs` — dashboard log history; `insertLog` auto-prunes to the newest 1000 rows
+- `settings` — runtime setting overrides (dashboard edits; see Runtime Settings)
 
 ## Re-release Handling (key feature)
 
@@ -95,20 +103,61 @@ uses **unpadded** folders (`Season 1 - Romance Dawn`).
 Single-page web UI on port `8282` (config `DASHBOARD_PORT`), for viewing logs and triggering
 stages without logging into dockhand.
 
-- **Server** (`src/web/server.ts`) — native Node `http` (no express). HTTP **Basic auth** on every
-  route (any username). Auth (`src/web/auth.ts`) prefers `DASHBOARD_TOKEN_HASH` (scrypt salted hash,
-  no plaintext at rest — generate via `npm run hash-token -- <pw>`); falls back to plaintext
-  `DASHBOARD_TOKEN` with a warning. scrypt verify is cached by password fingerprint so the slow hash
-  runs once, not per request. If neither secret is set the server does **not** start (fail-safe — no
-  unauthenticated controls). Routes: `GET /api/status`, `GET /api/logs`, `GET /api/logs/stream`
-  (SSE), `POST /api/actions/<id>`, plus static files from `public/`. **Basic auth is base64, not
-  encrypted in transit** — front with TLS if exposed beyond LAN.
+- **Server** (`src/web/server.ts`) — native Node `http` (no express). The dashboard **always
+  starts**; auth is checked **per request** via `checkRequestAuth` so changes apply live. Routes:
+  `GET /api/status`, `GET /api/logs`, `GET /api/logs/stream` (SSE), `POST /api/actions/<id>`,
+  `POST /api/episodes/<crc32>/<action>`, settings + auth endpoints, plus static files from `public/`.
+- **Auth** (`src/web/auth.ts`) — runtime-managed, stored in `kv` (`auth_hash`, `auth_enabled`):
+  - Password is set/changed from the dashboard (UI → `POST /api/auth/password` → `hashToken`
+    scrypt salted hash; plaintext never stored). `npm run hash-token` + env are an optional bootstrap.
+  - **Precedence:** DB hash (UI) > env `DASHBOARD_TOKEN_HASH` > env `DASHBOARD_TOKEN`.
+  - `auth_enabled` toggle (`POST /api/auth/toggle`); enabling is rejected without a password.
+    Default: enabled iff a secret exists. With no secret the dashboard runs **open** (logged loud).
+  - scrypt verify is cached by password fingerprint (slow hash runs once, not per request). HTTP
+    **Basic auth — base64, not encrypted in transit**; front with TLS if exposed beyond LAN.
 - **Actions** (`src/controls.ts`) — `poll`, `sync`, `refresh-metadata`, `retry-failed`, serialized
   behind one lock (`isBusy`/`withLock`) so manual triggers never overlap the cron cycle. Tracks
   last-run timestamps in `runtime`. `sync` is the home of the otherwise-unwired `runMetadataSync`.
 - **Logs** — `logger.ts` emits every line on an `EventEmitter` (`logBus`). `boot.ts` subscribes to
   persist into the `logs` table; the server subscribes to broadcast over SSE. The page loads history
   from `GET /api/logs`, then live-tails via SSE.
+
+### Runtime Settings (`src/settings.ts`)
+
+A few settings are editable live from the dashboard without a redeploy: **POLL_CRON**,
+**DOWNLOAD_CHECK_SECONDS**, **AUTO_DOWNLOAD** (bool), **DISCORD_WEBHOOK_URL**, **RSS_FEED_URL**.
+(Secrets and volume paths stay env-only by design.)
+
+- **Precedence: DB override > env > default.** Env is the seed; a dashboard edit writes a `settings`
+  table row that wins. "Reset" deletes the override (reverts to env). `describeSettings()` reports
+  `overridden` + the env value so the UI can badge it.
+- Each setting has a **validator** (cron via `cron.validate`, int range, URL) — invalid input is
+  rejected at `POST /api/settings` (400) and never reaches the running config, so a typo can't break
+  the loop.
+- **Live apply:** `settings.ts` emits on `settingsBus`; `src/scheduler.ts` (which owns the cron task
+  + the download-check interval) re-applies POLL_CRON / DOWNLOAD_CHECK_SECONDS on change. RSS URL and
+  Discord webhook are read per-use via `getSettingValue`, so they take effect immediately.
+- API: `GET /api/settings`, `POST /api/settings` `{key,value}`, `POST /api/settings/reset` `{key}`.
+
+### Per-episode actions
+
+Each episode row has controls, served by `POST /api/episodes/<crc32>/<action>` →
+`runEpisodeAction` in `src/controls.ts` (lock-aware):
+- `download` / `retry` — `addMagnet` the stored magnet → `downloading` (download on `available`,
+  retry on `failed`)
+- `resync` — re-push that one episode's metadata to Plex (`syncSingleEpisode`)
+- `remove` — delete the DB row; body `{deleteFile:true}` also removes the media file
+  (`deleteEpisodeFile`)
+
+### Frontend design
+
+"Command deck" aesthetic (`frontend/src/app.css`): custom daisyUI theme `onepace` — deep slate base,
+warm amber-gold primary (One Piece sunset), sea-cyan secondary, coral accent. Self-hosted fonts via
+`@fontsource` (bundled, no CDN): **Chakra Petch** (display) + **IBM Plex Sans/Mono** (body/data).
+Layered radial-gradient background, `.deck-card` hairline+shadow, `.eyebrow` section labels.
+Components: `NewReleases` (hero — `available` releases with changelog + Download), `Episodes` (table
++ per-row actions + remove-confirm modal), `Stats`, `Controls`, `InfoCards`, `Settings`, `Logs`,
+`Toasts`.
 
 ### Frontend (`frontend/`)
 
@@ -155,9 +204,11 @@ Zod-validated env (`src/config.ts`):
 | `PLEX_TOKEN` | — | |
 | `PLEX_LIBRARY_NAME` | `TV Shows` | library containing the "One Pace" show |
 | `DISCORD_WEBHOOK_URL` | — (optional) | notifications disabled if unset |
-| `POLL_CRON` | `*/5 * * * *` | RSS poll schedule |
-| `DASHBOARD_TOKEN_HASH` | — (preferred) | scrypt hash of the password (`npm run hash-token`) |
-| `DASHBOARD_TOKEN` | — (fallback) | plaintext password; used only if no hash. **Dashboard off if neither set** |
+| `POLL_CRON` | `*/5 * * * *` | RSS poll schedule (dashboard-editable) |
+| `DOWNLOAD_CHECK_SECONDS` | `30` | qBit completion check interval (dashboard-editable) |
+| `AUTO_DOWNLOAD` | `true` | auto-queue discovered releases; off = manual download (dashboard-editable) |
+| `DASHBOARD_TOKEN_HASH` | — (optional bootstrap) | scrypt hash; password is normally set in the UI |
+| `DASHBOARD_TOKEN` | — (optional bootstrap) | plaintext password fallback; used only if no hash |
 | `DASHBOARD_PORT` | `8282` | dashboard listen + published port |
 | `METADATA_REPO_RAW_BASE` | ladyisatis v2 raw URL | override only for a mirror |
 
@@ -167,9 +218,11 @@ Zod-validated env (`src/config.ts`):
 
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point: `boot`, dashboard, cron + 30s interval (delegates to `cycle`/`controls`) |
-| `src/boot.ts` | Boot: dirs, DB, log persistence, season-format detect, cache warm, Plex resolve, banner |
-| `src/cycle.ts` | `pollRss`, `dispatchPending`, `runCycle` (extracted so the server can trigger them) |
+| `src/index.ts` | Entry point: wires `boot`, dashboard, scheduler, graceful shutdown + error handlers |
+| `src/boot.ts` | Boot: dirs, DB, log persistence, first-run seed, season-format detect, cache warm, Plex resolve, banner |
+| `src/cycle.ts` | `pollRss`, `dispatchPending`, `runCycle` (extracted so server/scheduler can trigger them) |
+| `src/scheduler.ts` | Owns the cron task + download-check interval; re-applies them on settings change |
+| `src/settings.ts` | Runtime-editable settings (DB override > env > default), validation, change bus |
 | `src/controls.ts` | Manual dashboard actions behind a serialization lock + runtime timestamps |
 | `src/config.ts` | Zod-validated env config |
 | `src/constants.ts` | Hardcoded container paths |
@@ -182,7 +235,8 @@ Zod-validated env (`src/config.ts`):
 | `src/processor.ts` | Completion handler; `runMetadataSync`/`retryFailed` (manual-only) |
 | `src/discord.ts` | Webhook embeds |
 | `src/logger.ts` | pino wrapper (`logger.info(msg, meta)` shape) + `logBus` emitter |
-| `src/web/server.ts` | Dashboard HTTP server (Basic auth, status API, SSE logs, action endpoints) |
+| `src/web/server.ts` | Dashboard HTTP server (status API, SSE logs, action + settings endpoints) |
+| `src/web/auth.ts` | Basic-auth verifier (scrypt hash preferred; cached per password) |
 | `frontend/` | Svelte 5 + Vite dashboard UI (builds to `public/`) |
 
 ## RSS Feed Details

@@ -6,8 +6,10 @@ import { logger, logBus, LogEntry } from "../logger";
 import { getRecentLogs, listEpisodes, countByStatus } from "../db";
 import { getData } from "../metadata";
 import { resolvePlexConnection } from "../plex";
-import { runtime, isBusy, busyLabel, runAction, ActionId } from "../controls";
-import { buildAuth, type Verifier } from "./auth";
+import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
+import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
+import { checkRequestAuth, getAuthState, setPassword, setAuthEnabled, isAuthEnabled } from "./auth";
+import { Router } from "./router";
 import { version } from "../../package.json";
 
 const PUBLIC_DIR = path.join(__dirname, "..", "..", "public");
@@ -17,23 +19,16 @@ const MIME: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".woff": "font/woff",
+  ".svg": "image/svg+xml",
 };
 
-function authorized(req: http.IncomingMessage, verify: Verifier): boolean {
-  const header = req.headers.authorization ?? "";
-  if (!header.startsWith("Basic ")) return false;
-  const decoded = Buffer.from(header.slice(6), "base64").toString("utf8");
-  const pass = decoded.slice(decoded.indexOf(":") + 1);
-  return verify(pass);
-}
+const ACTION_IDS: ActionId[] = ["poll", "sync", "refresh-metadata", "retry-failed"];
+const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove"];
 
-function sendJson(res: http.ServerResponse, status: number, body: unknown): void {
-  const json = JSON.stringify(body);
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
-  res.end(json);
-}
-
-function serveStatic(res: http.ServerResponse, file: string): void {
+function serveStatic(res: http.ServerResponse, urlPath: string): void {
+  const file = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
   const full = path.join(PUBLIC_DIR, file);
   // Prevent path traversal — resolved path must stay under PUBLIC_DIR.
   if (!full.startsWith(PUBLIC_DIR)) {
@@ -71,7 +66,10 @@ async function buildStatus() {
     uptimeSec: Math.floor(process.uptime()),
     busy: isBusy(),
     busyLabel: busyLabel(),
-    schedule: { pollCron: cfg.POLL_CRON, downloadCheck: "30s" },
+    schedule: {
+      pollCron: getSettingValue("POLL_CRON"),
+      downloadCheck: `${getSettingValue("DOWNLOAD_CHECK_SECONDS")}s`,
+    },
     runtime,
     metadata: meta,
     plex,
@@ -95,11 +93,8 @@ function streamLogs(req: http.IncomingMessage, res: http.ServerResponse): void {
   });
   res.write("retry: 3000\n\n");
 
-  const onLog = (entry: LogEntry) => {
-    res.write(`data: ${JSON.stringify(entry)}\n\n`);
-  };
+  const onLog = (entry: LogEntry) => res.write(`data: ${JSON.stringify(entry)}\n\n`);
   logBus.on("log", onLog);
-
   const heartbeat = setInterval(() => res.write(": ping\n\n"), 25_000);
 
   const cleanup = () => {
@@ -110,70 +105,110 @@ function streamLogs(req: http.IncomingMessage, res: http.ServerResponse): void {
   res.on("error", cleanup);
 }
 
-async function readActionId(req: http.IncomingMessage): Promise<ActionId | null> {
-  // Action id comes from the URL path: /api/actions/<id>
-  const url = req.url ?? "";
-  const id = url.split("/").pop()?.split("?")[0] ?? "";
-  const valid: ActionId[] = ["poll", "sync", "refresh-metadata", "retry-failed"];
-  return valid.includes(id as ActionId) ? (id as ActionId) : null;
+function buildRouter(): Router {
+  const r = new Router();
+
+  r.get("/api/status", async (c) => c.json(200, await buildStatus()));
+  r.get("/api/logs", (c) => c.json(200, getRecentLogs(500)));
+  r.get("/api/logs/stream", (c) => streamLogs(c.req, c.res));
+
+  r.post("/api/actions/:id", async (c) => {
+    const id = c.params.id as ActionId;
+    if (!ACTION_IDS.includes(id)) return c.json(404, { ok: false, message: "Unknown action" });
+    try {
+      c.json(200, await runAction(id));
+    } catch (err) {
+      c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  r.post("/api/episodes/:crc32/:action", async (c) => {
+    const action = c.params.action as EpisodeActionId;
+    if (!EPISODE_ACTIONS.includes(action)) return c.json(404, { ok: false, message: "Unknown episode action" });
+    const body = action === "remove" ? await c.body() : {};
+    try {
+      const result = await runEpisodeAction(action, c.params.crc32.toUpperCase(), {
+        deleteFile: Boolean(body?.deleteFile),
+      });
+      c.json(result.ok ? 200 : 409, result);
+    } catch (err) {
+      c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  r.get("/api/auth", (c) => c.json(200, getAuthState()));
+  r.post("/api/auth/password", async (c) => {
+    const body = await c.body();
+    const password = typeof body?.password === "string" ? body.password : "";
+    if (password.length < 6) return c.json(400, { ok: false, message: "Password must be at least 6 characters" });
+    setPassword(password);
+    c.json(200, { ok: true, message: "Password updated" });
+  });
+  r.post("/api/auth/toggle", async (c) => {
+    const body = await c.body();
+    const result = setAuthEnabled(Boolean(body?.enabled));
+    c.json(result.ok ? 200 : 400, result);
+  });
+
+  r.get("/api/settings", (c) => c.json(200, describeSettings()));
+  r.post("/api/settings", async (c) => {
+    const body = await c.body();
+    if (!body || typeof body.key !== "string") return c.json(400, { ok: false, message: "Missing key" });
+    const result = applySetting(body.key, String(body.value ?? ""));
+    c.json(result.ok ? 200 : 400, result);
+  });
+  r.post("/api/settings/reset", async (c) => {
+    const body = await c.body();
+    if (!body || typeof body.key !== "string") return c.json(400, { ok: false, message: "Missing key" });
+    c.json(200, resetSetting(body.key));
+  });
+
+  return r;
 }
 
-export function startDashboard(): http.Server | null {
+export function startDashboard(): http.Server {
   const cfg = getConfig();
-  const verify = buildAuth();
+  const router = buildRouter();
 
-  if (!verify) {
-    logger.warn("Dashboard disabled — set DASHBOARD_TOKEN_HASH (or DASHBOARD_TOKEN) to enable it");
-    return null;
+  if (!isAuthEnabled()) {
+    logger.warn("Dashboard is UNAUTHENTICATED — set a password in the dashboard (Auth section) to secure it");
   }
 
   const server = http.createServer(async (req, res) => {
     try {
-      const url = req.url ?? "/";
-      const method = req.method ?? "GET";
+      const reqPath = (req.url ?? "/").split("?")[0];
 
-      if (!authorized(req, verify)) {
-        res.writeHead(401, {
-          "WWW-Authenticate": 'Basic realm="One Pace Automator", charset="UTF-8"',
-        });
+      // Health check — unauthenticated, so Docker HEALTHCHECK works regardless of auth.
+      if (reqPath === "/api/health") {
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: true, version, uptimeSec: Math.floor(process.uptime()) }));
+        return;
+      }
+
+      if (!checkRequestAuth(req)) {
+        res.writeHead(401, { "WWW-Authenticate": 'Basic realm="One Pace Automator", charset="UTF-8"' });
         res.end("Authentication required");
         return;
       }
 
-      // API routes
-      if (url.startsWith("/api/")) {
-        if (method === "GET" && url.startsWith("/api/status")) {
-          return sendJson(res, 200, await buildStatus());
-        }
-        if (method === "GET" && url.startsWith("/api/logs/stream")) {
-          return streamLogs(req, res);
-        }
-        if (method === "GET" && url.startsWith("/api/logs")) {
-          return sendJson(res, 200, getRecentLogs(500));
-        }
-        if (method === "POST" && url.startsWith("/api/actions/")) {
-          const id = await readActionId(req);
-          if (!id) return sendJson(res, 404, { ok: false, message: "Unknown action" });
-          try {
-            const result = await runAction(id);
-            return sendJson(res, 200, result);
-          } catch (err) {
-            return sendJson(res, 409, { ok: false, message: (err as Error).message });
-          }
-        }
-        return sendJson(res, 404, { ok: false, message: "Not found" });
-      }
+      if (await router.handle(req, res)) return;
 
-      // Static files
-      if (method === "GET") {
-        const file = url === "/" ? "index.html" : url.replace(/^\//, "").split("?")[0];
-        return serveStatic(res, file);
+      // Unmatched /api/* is a 404; everything else falls through to static files.
+      if (reqPath.startsWith("/api/")) {
+        res.writeHead(404, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, message: "Not found" }));
+        return;
       }
-
+      if ((req.method ?? "GET") === "GET") {
+        return serveStatic(res, reqPath);
+      }
       res.writeHead(405).end("Method not allowed");
     } catch (err) {
       logger.error("Dashboard request error", { error: (err as Error).message });
-      if (!res.headersSent) sendJson(res, 500, { ok: false, message: "Internal error" });
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "application/json; charset=utf-8" });
+        res.end(JSON.stringify({ ok: false, message: "Internal error" }));
+      }
     }
   });
 

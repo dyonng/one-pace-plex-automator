@@ -5,6 +5,7 @@ import { resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
+import { getAutoDownload } from "./settings";
 
 export async function pollRss(): Promise<void> {
   logger.info("Starting RSS poll cycle");
@@ -16,6 +17,8 @@ export async function pollRss(): Promise<void> {
     logger.error("RSS poll failed", { error: (err as Error).message });
     return;
   }
+
+  const autoDownload = getAutoDownload();
 
   for (const rssEp of newEpisodes) {
     try {
@@ -33,7 +36,7 @@ export async function pollRss(): Promise<void> {
         resolution: ep.resolution,
         original_filename: rssEp.filename,
         final_filename: null,
-        status: "pending",
+        status: autoDownload ? "pending" : "available",
         torrent_hash: null,
         magnet_uri: rssEp.magnet,
         error_message: null,
@@ -43,15 +46,23 @@ export async function pollRss(): Promise<void> {
 
       markGuidSeen(rssEp.guid);
 
-      const qbit = getQbitClient();
-      const torrentHash = await qbit.addMagnet(rssEp.magnet);
-      updateEpisodeStatus(rssEp.crc32, "downloading", { torrent_hash: torrentHash });
-      logger.info("Episode queued for download", {
-        crc32: rssEp.crc32,
-        arc: ep.arcTitle,
-        episode: ep.episodeNum,
-        torrentHash,
-      });
+      if (autoDownload) {
+        const qbit = getQbitClient();
+        const torrentHash = await qbit.addMagnet(rssEp.magnet);
+        updateEpisodeStatus(rssEp.crc32, "downloading", { torrent_hash: torrentHash });
+        logger.info("Episode queued for download", {
+          crc32: rssEp.crc32,
+          arc: ep.arcTitle,
+          episode: ep.episodeNum,
+          torrentHash,
+        });
+      } else {
+        logger.info("New release available — awaiting manual download", {
+          crc32: rssEp.crc32,
+          arc: ep.arcTitle,
+          episode: ep.episodeNum,
+        });
+      }
 
       await sendDiscordNotification({
         type: "new_episode",

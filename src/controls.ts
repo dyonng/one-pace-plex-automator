@@ -1,6 +1,11 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
-import { refreshMetadata, clearMetadataCache } from "./metadata";
+import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32 } from "./metadata";
+import { getEpisodeByCrc32, updateEpisodeStatus, deleteEpisode } from "./db";
+import { getQbitClient } from "./qbittorrent";
+import { syncSingleEpisode } from "./plex";
+import { deleteEpisodeFile } from "./fileops";
+import { logger } from "./logger";
 
 export interface Runtime {
   startedAt: number;
@@ -84,5 +89,58 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
 
     default:
       throw new Error(`Unknown action: ${id}`);
+  }
+}
+
+// ---- per-episode actions ----
+
+function seasonEpisodeId(arcPart: number, episodeNum: number): string {
+  return `s${String(arcPart).padStart(2, "0")}e${String(episodeNum).padStart(2, "0")}`;
+}
+
+export type EpisodeActionId = "download" | "retry" | "resync" | "remove";
+
+export async function runEpisodeAction(
+  action: EpisodeActionId,
+  crc32: string,
+  opts: { deleteFile?: boolean } = {}
+): Promise<ActionResult> {
+  const ep = getEpisodeByCrc32(crc32);
+  if (!ep) return { ok: false, message: `Episode ${crc32} not found` };
+
+  switch (action) {
+    case "download":
+    case "retry":
+      return withLock(action === "retry" ? "Retry episode" : "Download episode", async () => {
+        if (!ep.magnet_uri) return { ok: false, message: "No magnet stored for this episode" };
+        if (ep.status === "downloading" || ep.status === "processing") {
+          return { ok: false, message: `Already ${ep.status}` };
+        }
+        const torrentHash = await getQbitClient().addMagnet(ep.magnet_uri);
+        updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+        logger.info("Episode download started from dashboard", { crc32, torrentHash });
+        return { ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` };
+      });
+
+    case "resync":
+      return withLock("Re-sync episode", async () => {
+        const meta = await resolveEpisodeByCrc32(crc32, ep.resolution);
+        await syncSingleEpisode({ ...meta, seasonEpisodeId: seasonEpisodeId(ep.arc_part, ep.episode_num) });
+        return { ok: true, message: `Re-synced S${ep.arc_part}E${ep.episode_num} to Plex` };
+      });
+
+    case "remove":
+      return withLock("Remove episode", async () => {
+        let deletedFile = false;
+        if (opts.deleteFile && ep.final_filename) {
+          deletedFile = deleteEpisodeFile(ep.arc_title, ep.arc_part, ep.final_filename);
+        }
+        deleteEpisode(crc32);
+        logger.info("Episode removed from dashboard", { crc32, deletedFile });
+        return { ok: true, message: `Removed S${ep.arc_part}E${ep.episode_num}${deletedFile ? " + file" : ""}` };
+      });
+
+    default:
+      return { ok: false, message: `Unknown episode action: ${action}` };
   }
 }

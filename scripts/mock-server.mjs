@@ -37,15 +37,16 @@ const state = {
   },
 };
 
-const episodes = [
+let episodes = [
+  mkEp("AB12CD34", 12, 6, "Little Garden", "available", null, ["Changed ED to Shochi no Suke.", "Added Turkish subtitles."]),
+  mkEp("99EE77FF", 13, 1, "Drum Island", "available", null, []),
   mkEp("BCE915AA", 12, 1, "Little Garden", "done", "[1080p][BCE915AA]"),
   mkEp("CA509241", 12, 4, "Little Garden", "done", "[1080p][CA509241]"),
   mkEp("15344804", 31, 45, "Dressrosa", "downloading", null),
   mkEp("DEADBEEF", 19, 10, "Enies Lobby", "failed", null),
-  mkEp("F00DCAFE", 12, 5, "Little Garden", "pending", null),
 ];
 
-function mkEp(crc32, part, ep, arc, status, tag) {
+function mkEp(crc32, part, ep, arc, status, tag, changelog = []) {
   const file = tag ? `One Pace - ${arc} - S${part}E${ep} ${tag}.mkv` : null;
   return {
     crc32,
@@ -56,6 +57,8 @@ function mkEp(crc32, part, ep, arc, status, tag) {
     resolution: "1080p",
     final_filename: file,
     original_filename: file ?? `[One Pace] ${arc} ${ep} [1080p][${crc32}].mkv`,
+    changelog,
+    error_message: status === "failed" ? "Downloaded file not found" : null,
     updated_at: Date.now() - Math.floor(Math.random() * 1000 * 60 * 60),
   };
 }
@@ -123,6 +126,71 @@ setInterval(() => {
   emitLog(lvl, msg, meta);
 }, 3000);
 
+// ---- settings (mock) ----
+const SETTING_ENV = {
+  POLL_CRON: "*/5 * * * *",
+  DOWNLOAD_CHECK_SECONDS: "30",
+  AUTO_DOWNLOAD: "false",
+  DISCORD_WEBHOOK_URL: "",
+  RSS_FEED_URL: "https://onepace.net/en/releases/rss.xml",
+};
+const SETTING_LABEL = {
+  POLL_CRON: "RSS poll schedule (cron)",
+  DOWNLOAD_CHECK_SECONDS: "Download check interval (seconds)",
+  AUTO_DOWNLOAD: "Auto-download new releases",
+  DISCORD_WEBHOOK_URL: "Discord webhook URL (blank = off)",
+  RSS_FEED_URL: "RSS feed URL",
+};
+const SETTING_TYPE = {
+  POLL_CRON: "cron",
+  DOWNLOAD_CHECK_SECONDS: "int",
+  AUTO_DOWNLOAD: "bool",
+  DISCORD_WEBHOOK_URL: "url_or_empty",
+  RSS_FEED_URL: "url",
+};
+const settingOverrides = {};
+
+function describeSettings() {
+  return Object.keys(SETTING_ENV).map((key) => ({
+    key,
+    label: SETTING_LABEL[key],
+    type: SETTING_TYPE[key],
+    value: settingOverrides[key] ?? SETTING_ENV[key],
+    envValue: SETTING_ENV[key],
+    overridden: key in settingOverrides,
+  }));
+}
+
+function applySetting(key, value) {
+  if (!(key in SETTING_ENV)) return { ok: false, message: `Unknown setting: ${key}` };
+  if (SETTING_TYPE[key] === "int" && !Number.isInteger(Number(value)))
+    return { ok: false, message: "Must be a whole number" };
+  settingOverrides[key] = String(value);
+  emitLog("info", `Setting updated: ${SETTING_LABEL[key]}`, { value });
+  return { ok: true, message: `${SETTING_LABEL[key]} updated` };
+}
+
+function resetSetting(key) {
+  if (!(key in SETTING_ENV)) return { ok: false, message: `Unknown setting: ${key}` };
+  delete settingOverrides[key];
+  return { ok: true, message: `${SETTING_LABEL[key]} reset to env default` };
+}
+
+// ---- auth (mock, in-memory) ----
+const authState = { enabled: false, hasPassword: false };
+
+function setMockPassword(pw) {
+  if (!pw || pw.length < 6) return { ok: false, message: "Password must be at least 6 characters" };
+  authState.hasPassword = true;
+  return { ok: true, message: "Password updated" };
+}
+
+function setMockAuthEnabled(enabled) {
+  if (enabled && !authState.hasPassword) return { ok: false, message: "Set a password before enabling authentication" };
+  authState.enabled = enabled;
+  return { ok: true, message: enabled ? "Authentication enabled" : "Authentication disabled" };
+}
+
 // ---- actions ----
 const ACTION_MSG = {
   poll: "RSS poll cycle complete",
@@ -161,6 +229,21 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function readBody(req) {
+  return new Promise((resolve) => {
+    let d = "";
+    req.on("data", (c) => (d += c));
+    req.on("end", () => {
+      try {
+        resolve(d ? JSON.parse(d) : {});
+      } catch {
+        resolve(null);
+      }
+    });
+    req.on("error", () => resolve(null));
+  });
+}
+
 function serveStatic(res, file) {
   const full = path.join(PUBLIC_DIR, file);
   if (!full.startsWith(PUBLIC_DIR)) return res.writeHead(403).end();
@@ -176,6 +259,8 @@ const server = http.createServer(async (req, res) => {
   const method = req.method ?? "GET";
 
   if (url.startsWith("/api/")) {
+    if (method === "GET" && url.startsWith("/api/health"))
+      return sendJson(res, 200, { ok: true, version: "0.1.2-mock", uptimeSec: Math.floor(process.uptime()) });
     if (method === "GET" && url.startsWith("/api/status")) return sendJson(res, 200, buildStatus());
     if (method === "GET" && url.startsWith("/api/logs/stream")) {
       res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
@@ -189,6 +274,48 @@ const server = http.createServer(async (req, res) => {
       const id = url.split("/").pop().split("?")[0];
       const { status, body } = await runMockAction(id);
       return sendJson(res, status, body);
+    }
+    if (method === "POST" && url.startsWith("/api/episodes/")) {
+      const [crc32, action] = url.replace(/^\/api\/episodes\//, "").split("?")[0].split("/");
+      const ep = episodes.find((e) => e.crc32 === crc32);
+      if (!ep || !["download", "retry", "resync", "remove"].includes(action))
+        return sendJson(res, 404, { ok: false, message: "Unknown episode action" });
+      if (action === "download" || action === "retry") {
+        ep.status = "downloading";
+        ep.updated_at = Date.now();
+        emitLog("info", `Episode download started: S${ep.arc_part}E${ep.episode_num}`, { crc32 });
+        return sendJson(res, 200, { ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` });
+      }
+      if (action === "resync") {
+        emitLog("info", `Re-synced S${ep.arc_part}E${ep.episode_num} to Plex`);
+        return sendJson(res, 200, { ok: true, message: `Re-synced S${ep.arc_part}E${ep.episode_num} to Plex` });
+      }
+      if (action === "remove") {
+        const b = await readBody(req);
+        episodes = episodes.filter((e) => e.crc32 !== crc32);
+        return sendJson(res, 200, { ok: true, message: `Removed S${ep.arc_part}E${ep.episode_num}${b?.deleteFile ? " + file" : ""}` });
+      }
+    }
+    if (method === "GET" && url.startsWith("/api/auth")) return sendJson(res, 200, authState);
+    if (method === "POST" && url.startsWith("/api/auth/password")) {
+      const b = await readBody(req);
+      const r = setMockPassword(b?.password ?? "");
+      return sendJson(res, r.ok ? 200 : 400, r);
+    }
+    if (method === "POST" && url.startsWith("/api/auth/toggle")) {
+      const b = await readBody(req);
+      const r = setMockAuthEnabled(Boolean(b?.enabled));
+      return sendJson(res, r.ok ? 200 : 400, r);
+    }
+    if (method === "GET" && url.startsWith("/api/settings")) return sendJson(res, 200, describeSettings());
+    if (method === "POST" && url.startsWith("/api/settings/reset")) {
+      const b = await readBody(req);
+      return sendJson(res, 200, resetSetting(b?.key));
+    }
+    if (method === "POST" && url.startsWith("/api/settings")) {
+      const b = await readBody(req);
+      const r = applySetting(b?.key, b?.value ?? "");
+      return sendJson(res, r.ok ? 200 : 400, r);
     }
     return sendJson(res, 404, { ok: false, message: "Not found" });
   }

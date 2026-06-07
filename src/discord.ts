@@ -1,6 +1,6 @@
 import axios from "axios";
-import { getConfig } from "./config";
 import { logger } from "./logger";
+import { getSettingValue } from "./settings";
 
 export interface DiscordNotification {
   type: "new_episode" | "download_complete" | "episode_updated" | "error";
@@ -72,7 +72,7 @@ function buildEmbed(n: DiscordNotification) {
 }
 
 export async function sendDiscordNotification(n: DiscordNotification): Promise<void> {
-  const { DISCORD_WEBHOOK_URL } = getConfig();
+  const DISCORD_WEBHOOK_URL = getSettingValue("DISCORD_WEBHOOK_URL");
   if (!DISCORD_WEBHOOK_URL) return;
 
   try {
