@@ -95,28 +95,60 @@ class QBittorrentClient {
     }
   }
 
-  async addMagnet(magnetUri: string): Promise<string> {
+  /**
+   * Adds a download source to qBittorrent and returns its 40-hex info hash.
+   * Accepts a magnet URI **or** an http(s) `.torrent` URL (qBit's add endpoint
+   * takes either in `urls`). For magnets the hash is read straight from the
+   * `urn:btih:` token; otherwise (torrent URL, or a base32/v2 magnet) the hash
+   * is resolved by diffing the category's torrent list after the add, since
+   * completion detection keys off this hash.
+   */
+  async addMagnet(source: string): Promise<string> {
     const { QBIT_CATEGORY } = getConfig();
+
+    // Fast path: a v1 magnet carries its SHA-1 infohash inline.
+    const hashMatch = source.match(/urn:btih:([a-fA-F0-9]{40})/i);
+
+    // Otherwise snapshot the current hashes so we can spot the new torrent.
+    const before = hashMatch
+      ? null
+      : new Set((await this.getTorrents()).map((t) => t.hash.toLowerCase()));
+
     // No savepath — qBittorrent writes to its own configured save dir. Our
     // container reads that same host dir mounted at DOWNLOAD_PATH (/downloads).
     const params = new URLSearchParams({
-      urls: magnetUri,
+      urls: source,
       category: QBIT_CATEGORY,
       paused: "false",
     });
     await this.request<string>("post", "/torrents/add", params);
 
-    // Extract info hash from magnet URI (v1 SHA-1, 40-char hex)
-    const hashMatch = magnetUri.match(/urn:btih:([a-fA-F0-9]{40})/i);
-    const hash = hashMatch ? hashMatch[1].toLowerCase() : "";
-    if (!hash) {
-      // Base32 btih or v2 btmh — completion detection keys off this hash, so flag it.
-      logger.warn("Could not extract 40-hex info hash from magnet; completion detection may fail", {
-        magnet: magnetUri.slice(0, 64),
-      });
+    if (hashMatch) {
+      const hash = hashMatch[1].toLowerCase();
+      logger.info("Added magnet to qBittorrent", { hash, category: QBIT_CATEGORY });
+      return hash;
     }
-    logger.info("Added magnet to qBittorrent", { hash, category: QBIT_CATEGORY });
+
+    const hash = await this.resolveNewHash(before!);
+    if (!hash) {
+      logger.warn("Added torrent but could not resolve its info hash; completion detection may fail", {
+        source: source.slice(0, 80),
+      });
+    } else {
+      logger.info("Added torrent to qBittorrent", { hash, category: QBIT_CATEGORY });
+    }
     return hash;
+  }
+
+  /** Polls the category's torrent list for a hash not present in `before`. */
+  private async resolveNewHash(before: Set<string>): Promise<string> {
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 500));
+      const now = await this.getTorrents();
+      const fresh = now.find((t) => !before.has(t.hash.toLowerCase()));
+      if (fresh) return fresh.hash.toLowerCase();
+    }
+    return "";
   }
 
   /** Cheap reachability probe for health checks — authenticates then reads the app version. */

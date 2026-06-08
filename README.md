@@ -155,11 +155,13 @@ Open Plex web UI, browse to any media item, open browser devtools → Network ta
 
 ## Download sources
 
-Downloads come from **magnet links in the RSS feed only** — each release's
-`magnet:` URI is pulled straight from its RSS item and handed to qBittorrent.
-There's no direct/HTTP file download. Support for `.torrent` URLs (if they ever
-appear in the feed) would be a small addition, since qBittorrent can add a torrent
-URL too, but it isn't implemented yet.
+Downloads come from the **RSS feed**: each release's `magnet:` URI is pulled from
+its RSS item and handed to qBittorrent. If an item has **no magnet** but does
+provide an http(s) `.torrent` URL (in its `<enclosure>` or `<link>`), that's used
+as a fallback — qBittorrent accepts either. Magnets are preferred because they
+carry the info hash inline; for a `.torrent` URL the hash is resolved from
+qBittorrent right after adding. There's no plain direct/HTTP *file* download
+(only torrents/magnets).
 
 ## Metadata source
 

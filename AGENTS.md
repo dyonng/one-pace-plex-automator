@@ -61,10 +61,13 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
    flag. Episode keys are **uppercase hex CRC32**.
 3. **qBittorrent dispatch** (`src/qbittorrent.ts`) — cookie-auth Web API. `addMagnet` sets a
    category but **no savepath** (qBit writes to its own configured dir; we read that same host dir).
-   **Download sources are magnet links from the RSS feed only** — `extractMagnet` reads
-   `torrent:magnetURI` / `link` / `enclosure` for a `magnet:` URI. There is **no** direct/HTTP file
-   download. `.torrent` *URL* support would be a small add (qBit accepts a torrent URL too), gated on
-   such links actually appearing in the feed; the changelog/CRC plumbing wouldn't change.
+   **Download sources come from the RSS feed.** `extractMagnet` prefers a `magnet:` URI
+   (`torrent:magnetURI` / `link` / `enclosure`); when none exists it falls back to an http(s)
+   `.torrent` URL (enclosure type `application/x-bittorrent` or a `.torrent` link), which qBit's add
+   endpoint accepts in the same `urls` field. For magnets the info hash is read inline from
+   `urn:btih:`; for a torrent URL (or base32/v2 magnet) `addMagnet` resolves the hash by diffing the
+   category's torrent list after the add (completion detection keys off that hash). No plain
+   direct/HTTP *file* download.
 4. **Completion** (`src/processor.ts`) — on `isComplete`: resolve metadata → build filename
    (`buildPlexFilename` with the resolved arc title + `extended` flag) → find file by CRC32 →
    `moveAndRename` → Plex scan → wait 5s → `syncSingleEpisode` (updates the episode **and** its
@@ -351,13 +354,14 @@ Filename-less items (no `dn`, no `torrent:fileName`) resolve CRC32 via title →
 
 ## Known Gaps / TODOs
 
-- **Download source is magnet-only, from the RSS feed** — the only thing we ingest is a `magnet:`
-  URI parsed out of each RSS item. No direct/HTTP file downloads. Supporting `.torrent` **URLs**
-  (when present in the feed) is feasible — qBittorrent's add endpoint takes a torrent URL as well as
-  a magnet — but isn't implemented yet.
+- **Download sources are RSS magnets/torrents only** — a `magnet:` URI (preferred) or an http(s)
+  `.torrent` URL fallback from each RSS item. No plain direct/HTTP file download. For torrent-URL
+  adds the info hash is resolved by diffing qBit's torrent list (no `urn:btih:` to read), which
+  assumes adds are serialized (they are — behind the action lock / sequential poll loop).
 - **Plex baremetal routing** — `PLEX_URL` must be host IP/DNS, confirm container→host reachability.
-- **Magnet hash regex** — `qbittorrent.ts` pulls the info hash from `urn:btih:`; if absent the hash
-  is `""` and completion detection breaks. Fallback could derive it from qBit's added-torrent list.
+- **Info hash resolution** — `qbittorrent.ts` reads the hash from `urn:btih:` for magnets; for
+  torrent URLs / base32 magnets it diffs the category's torrent list after adding. If that diff finds
+  nothing within ~5s the hash is `""` and completion detection for that item won't fire.
 - **Fixed 5s wait** after Plex scan before `syncSingleEpisode` — may race on slow scans.
 - **`retryFailed()` / `runMetadataSync()`** are manual-only (dashboard buttons), not scheduled — by
   design, but there's no automatic retry/backoff for failed episodes.
