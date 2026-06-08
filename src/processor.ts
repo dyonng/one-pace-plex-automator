@@ -10,6 +10,7 @@ import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
 import { getAutoPosters } from "./settings";
+import { scanCoverage, getStoredCoverage } from "./coverage";
 
 let _processing = false;
 
@@ -30,6 +31,7 @@ async function _processDownloading(): Promise<void> {
   if (downloading.length === 0) return;
 
   const qbit = getQbitClient();
+  let completed = 0;
 
   for (const ep of downloading) {
     if (!ep.torrent_hash) continue;
@@ -77,6 +79,7 @@ async function _processDownloading(): Promise<void> {
       });
 
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
+      completed++;
 
       // Auto-apply this season's poster if it's a newly-created season (no-op if
       // already covered or seeded). Never let a poster hiccup fail the ingest.
@@ -105,6 +108,18 @@ async function _processDownloading(): Promise<void> {
         crc32: ep.crc32,
         error: msg,
       });
+    }
+  }
+
+  // Refresh the stored coverage report so the dashboard reflects newly-ingested
+  // episodes without a manual re-scan. Only when something finished and a scan
+  // has been run before — no work on idle cycles.
+  if (completed > 0 && getStoredCoverage()) {
+    try {
+      await scanCoverage();
+      logger.info("Coverage report refreshed after ingest", { completed });
+    } catch (err) {
+      logger.warn("Coverage refresh after ingest failed", { error: (err as Error).message });
     }
   }
 }

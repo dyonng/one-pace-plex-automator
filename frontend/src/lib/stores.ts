@@ -43,6 +43,7 @@ export function toast(msg: string, ok: boolean): void {
 // restarted (e.g. a redeploy), so reload the page — that reconnects the SSE
 // stream and pulls the freshly built UI bundle (its asset hash changes).
 let seenStartedAt: number | null = null;
+let lastCoverageScannedAt: number | null = null;
 
 export async function refreshStatus(): Promise<void> {
   try {
@@ -57,6 +58,20 @@ export async function refreshStatus(): Promise<void> {
       }
     }
     status.set(s);
+
+    // The backend re-scans coverage after ingesting an episode (and on RSS
+    // changes). When its report timestamp advances, pull the fresh report so
+    // the Coverage section updates on its own — but only if one is loaded.
+    const scannedAt = s.coverageScannedAt ?? null;
+    if (
+      scannedAt !== null &&
+      lastCoverageScannedAt !== null &&
+      scannedAt !== lastCoverageScannedAt &&
+      get(coverage) !== null
+    ) {
+      loadCoverage();
+    }
+    lastCoverageScannedAt = scannedAt;
   } catch {
     /* transient — keep last status */
   }

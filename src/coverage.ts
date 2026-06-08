@@ -9,6 +9,9 @@ import { getRssMagnetMap } from "./rss";
 // Latest report only — a single upserted kv row, so it never grows and survives
 // restarts. The dashboard reads this; a scan overwrites it.
 const KV_KEY = "coverage_report";
+// Lightweight companion to KV_KEY so the status endpoint can report freshness
+// without parsing the full report on every poll.
+const KV_SCANNED_AT = "coverage_scanned_at";
 
 const VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
 
@@ -197,7 +200,14 @@ export async function scanCoverage(): Promise<CoverageReport> {
   };
 
   setKv(KV_KEY, JSON.stringify(report));
+  setKv(KV_SCANNED_AT, String(report.scannedAt));
   return report;
+}
+
+/** Timestamp of the last stored scan, or null if none has run. Cheap to read. */
+export function getCoverageScannedAt(): number | null {
+  const raw = getKv(KV_SCANNED_AT);
+  return raw ? Number(raw) : null;
 }
 
 /** Returns the last scan from the kv store, or null if no scan has run yet. */
