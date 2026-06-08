@@ -14,15 +14,43 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 8. Sends Discord webhook notifications
 
 A web dashboard (port `8282`) provides live logs, manual controls, editable
-settings, a library coverage report, and a system health panel.
+settings, a **library coverage report**, **live download progress**, and a system
+health panel.
+
+### Library coverage & upgrades
+
+The dashboard scans your media folder and diffs it against the One Pace catalog,
+classifying every episode as **present**, **upgradeable** (an out-of-date CRC32 —
+a newer release exists), **downloading** (the new release is in the pipeline), or
+**missing**. Upgradeable episodes split into **Upgrade Now** (a download link is
+available — click to compare old vs new and queue the upgrade, individually or in
+a batch) and **Cannot Upgrade Automatically** (no link in the feed yet). The
+coverage report refreshes itself when an episode finishes or a pipeline action runs.
+
+### Extended cuts
+
+Some episodes have both a **standard** and an **extended** cut. By default the
+extended cut is treated as the one to have (`PREFER_EXTENDED`): it's the canonical
+release in coverage, the RSS poll won't replace an extended cut on disk with a
+standard re-release, and extended files are tagged `[Extended]` in the filename.
+
+### Normalize file naming
+
+The **Normalize File Naming** operation scans the library for files whose names
+don't match the canonical scheme (old arc titles, raw source names, a missing
+`[Extended]` tag, etc.), previews the old → new name for each, and batch-renames
+the selected ones.
 
 ## Plex filename format
 
 ```
 One Pace - {Arc Title} - S{season}E{episode} [{resolution}][{CRC32}].mkv
+One Pace - {Arc Title} - S{season}E{episode} [{resolution}][{CRC32}][Extended].mkv   # extended cut
 ```
 
-Example: `One Pace - Baratie - S05E01 [1080p][BE634289].mkv`
+Examples:
+- `One Pace - Baratie - S05E01 [1080p][BE634289].mkv`
+- `One Pace - Reverse Mountain - S09E02 [1080p][3B7CBD0F][Extended].mkv`
 
 ## Requirements
 
@@ -104,23 +132,41 @@ rest fall back to the defaults shown.
 | `QBIT_CATEGORY` | | Category applied to added torrents (default `one-pace`) |
 | `PLEX_LIBRARY_NAME` | | Plex library holding One Pace (default `TV Shows`) |
 | `POLL_CRON` | | RSS poll schedule (default `*/5 * * * *`) |
+| `POLL_ENABLED` | | Gate the scheduled RSS poll; `false` = manual-only (default `true`) |
+| `DOWNLOAD_CHECK_SECONDS` | | qBittorrent completion-check interval (default `30`) |
 | `AUTO_DOWNLOAD` | | Auto-download discovered releases (default `true`) |
 | `AUTO_POSTERS` | | Auto-apply posters to new seasons (default `true`) |
+| `PREFER_EXTENDED` | | Prefer the extended cut when an episode has both (default `true`) |
+| `PREFER_ARABASTA` | | Render arc 14's title as "Arabasta" instead of the dataset's "Alabasta" (default `true`) |
 | `POSTER_REPO_RAW_BASE` | | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
 | `DISCORD_WEBHOOK_URL` | | Discord webhook URL for notifications |
 | `TZ` | | Timezone for cron schedules (default `UTC`) |
 
 Two host paths are bound as volumes: your One Pace show root → `/media/one-pace`,
 and qBittorrent's output folder → `/downloads` (set these on the `volumes:` mounts
-in the compose example above). The dashboard can edit `POLL_CRON`, `AUTO_DOWNLOAD`,
-`AUTO_POSTERS`, and a few others live, and a dashboard override wins over the env value.
+in the compose example above). The dashboard's **Settings** panel is split into
+**System & Services** (polling, intervals, feed/integration URLs) and
+**Preferences** (`AUTO_DOWNLOAD`, `AUTO_POSTERS`, `PREFER_EXTENDED`,
+`PREFER_ARABASTA`); these can be edited live, and a dashboard override wins over
+the env value.
 
 **Finding your Plex token:**
 Open Plex web UI, browse to any media item, open browser devtools → Network tab, look for `X-Plex-Token` in any request.
 
+## Download sources
+
+Downloads come from **magnet links in the RSS feed only** — each release's
+`magnet:` URI is pulled straight from its RSS item and handed to qBittorrent.
+There's no direct/HTTP file download. Support for `.torrent` URLs (if they ever
+appear in the feed) would be a small addition, since qBittorrent can add a torrent
+URL too, but it isn't implemented yet.
+
 ## Metadata source
 
-Episode metadata (titles, descriptions, arc mappings) sourced from [ladyisatis/one-pace-metadata](https://github.com/ladyisatis/one-pace-metadata).
+Episode metadata (titles, descriptions, arc mappings, and the standard/extended
+CRC32 for every episode) is sourced from
+[ladyisatis/one-pace-metadata](https://github.com/ladyisatis/one-pace-metadata)
+(`v2/metadata/data.min.json`).
 
 ## Posters
 
