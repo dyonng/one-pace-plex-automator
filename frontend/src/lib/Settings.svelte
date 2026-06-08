@@ -1,10 +1,11 @@
 <script lang="ts">
   import { settings, loadSettings, toast, refreshStatus } from "./stores";
-  import { saveSetting, resetSettingReq } from "./api";
+  import { saveSetting, resetSettingReq, testDiscordReq } from "./api";
   import { humanCron } from "./util";
 
   let edited = $state<Record<string, string>>({});
   let saving = $state<string | null>(null);
+  let testing = $state(false);
 
   $effect(() => {
     for (const s of $settings) {
@@ -23,6 +24,16 @@
       }
     } finally {
       saving = null;
+    }
+  }
+
+  async function testDiscord() {
+    testing = true;
+    try {
+      const r = await testDiscordReq();
+      toast(r.message, r.ok);
+    } finally {
+      testing = false;
     }
   }
 
@@ -88,7 +99,17 @@
             <div class="flex gap-1">
               <button class="btn btn-primary btn-sm" disabled={saving === s.key} onclick={() => persist(s.key, edited[s.key] ?? "")}>Save</button>
               <button class="btn btn-ghost btn-sm" disabled={saving === s.key || !s.overridden} onclick={() => reset(s.key)}>Reset</button>
+              {#if s.key === "DISCORD_WEBHOOK_URL"}
+                <button
+                  class="btn btn-secondary btn-sm"
+                  disabled={testing || !s.value}
+                  title={s.value ? "Sends a test message to the saved webhook" : "Save a webhook URL first"}
+                  onclick={testDiscord}>{testing ? "Testing…" : "Test"}</button>
+              {/if}
             </div>
+            {#if s.key === "DISCORD_WEBHOOK_URL" && (edited[s.key] ?? "") !== s.value}
+              <div class="basis-full text-xs opacity-55">↳ Test uses the saved value — Save first to test your edit.</div>
+            {/if}
             {#if s.type === "cron"}
               <div class="basis-full text-xs text-primary/80 font-display tracking-wide">↳ {humanCron(edited[s.key])}</div>
             {/if}

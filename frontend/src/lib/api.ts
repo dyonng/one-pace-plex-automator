@@ -121,6 +121,11 @@ export async function resetSettingReq(key: string): Promise<{ ok: boolean; messa
   return r.json();
 }
 
+export async function testDiscordReq(): Promise<{ ok: boolean; message: string }> {
+  const r = await fetch("/api/discord/test", { method: "POST" });
+  return r.json();
+}
+
 export type HealthStatus = "ok" | "warn" | "error";
 
 export interface HealthCheck {

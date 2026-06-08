@@ -81,3 +81,35 @@ export async function sendDiscordNotification(n: DiscordNotification): Promise<v
     logger.warn("Discord notification failed", { error: (err as Error).message });
   }
 }
+
+/**
+ * Posts a test embed to the configured webhook. Unlike `sendDiscordNotification`,
+ * this surfaces the outcome so the dashboard can show success/failure.
+ */
+export async function sendDiscordTest(): Promise<{ ok: boolean; message: string }> {
+  const url = getSettingValue("DISCORD_WEBHOOK_URL");
+  if (!url) return { ok: false, message: "No Discord webhook configured" };
+
+  try {
+    await axios.post(
+      url,
+      {
+        embeds: [
+          {
+            title: "One Pace Automator — Test",
+            description: "✅ Your Discord webhook is working.",
+            color: 0x2ecc71,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      },
+      { timeout: 10_000 }
+    );
+    return { ok: true, message: "Test message sent to Discord" };
+  } catch (err) {
+    const e = err as { response?: { status?: number }; message?: string };
+    const detail = e.response?.status ? `HTTP ${e.response.status}` : (e.message ?? "request failed");
+    logger.warn("Discord test failed", { error: detail });
+    return { ok: false, message: `Discord test failed: ${detail}` };
+  }
+}

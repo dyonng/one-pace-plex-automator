@@ -50,9 +50,18 @@ function validateUrl(raw: string): ValidateResult {
   }
 }
 
-function validateUrlOrEmpty(raw: string): ValidateResult {
-  if (raw.trim() === "") return { ok: true, value: "" };
-  return validateUrl(raw);
+function validateDiscordWebhook(raw: string): ValidateResult {
+  if (raw.trim() === "") return { ok: true, value: "" }; // empty = notifications off
+  const base = validateUrl(raw);
+  if (!base.ok) return base;
+  const u = new URL(base.value);
+  if (u.protocol !== "https:") return { ok: false, error: "Discord webhooks must use https" };
+  // Expect a real webhook path: .../webhooks/{id}/{token} (host kept flexible to
+  // allow official discord.com/discordapp.com hosts and webhook proxies).
+  if (!/\/webhooks\/\d+\/[\w-]+/.test(u.pathname)) {
+    return { ok: false, error: "Not a Discord webhook URL (expected .../webhooks/{id}/{token})" };
+  }
+  return { ok: true, value: base.value };
 }
 
 function validateBool(raw: string): ValidateResult {
@@ -95,7 +104,7 @@ const DEFS: Record<SettingKey, SettingDef> = {
     label: "Discord webhook URL (blank = off)",
     type: "url_or_empty",
     envValue: () => getConfig().DISCORD_WEBHOOK_URL ?? "",
-    validate: validateUrlOrEmpty,
+    validate: validateDiscordWebhook,
   },
   RSS_FEED_URL: {
     key: "RSS_FEED_URL",

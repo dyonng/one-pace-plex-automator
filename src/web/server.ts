@@ -8,6 +8,7 @@ import { getData } from "../metadata";
 import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
+import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage } from "../coverage";
 import { getStoredHealth, runHealthCheck } from "../health";
 import { checkRequestAuth, getAuthState, setPassword, setAuthEnabled, isAuthEnabled } from "./auth";
@@ -191,6 +192,12 @@ function buildRouter(): Router {
     const body = await c.body();
     if (!body || typeof body.key !== "string") return c.json(400, { ok: false, message: "Missing key" });
     c.json(200, resetSetting(body.key));
+  });
+
+  // Sends a test embed to the configured Discord webhook so users can verify it.
+  r.post("/api/discord/test", async (c) => {
+    const result = await sendDiscordTest();
+    c.json(result.ok ? 200 : 400, result);
   });
 
   return r;
