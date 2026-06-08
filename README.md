@@ -65,13 +65,17 @@ the `.env` value.
 **Finding your Plex token:**
 Open Plex web UI, browse to any media item, open browser devtools → Network tab, look for `X-Plex-Token` in any request.
 
-### 2. Deploy via Dockhand (or docker compose)
+### 2. Deploy
 
-Paste `docker-compose.yml` into Dockhand and upload your `.env` file, or:
+With `docker-compose.yml` and your `.env` in the same directory:
 
 ```bash
 docker compose up -d
 ```
+
+The compose file works with any Docker Compose-based stack manager (Portainer,
+Dockge, Komodo, or plain `docker compose`) — paste in the compose file and supply
+the environment values however your tool expects.
 
 ## Metadata source
 

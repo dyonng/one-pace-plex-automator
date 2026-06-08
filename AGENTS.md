@@ -10,8 +10,8 @@ Also replaces the old `old_scripts/one_pace_sync.py` (full Plex metadata sync) a
 
 ## Architecture
 
-Single TypeScript/Node.js service in Docker, running alongside an existing arr-stack managed
-via **dockhand**. Plex runs on **baremetal**, not in Docker.
+Single TypeScript/Node.js service in Docker, running alongside an existing arr-stack
+deployed as a Docker Compose stack. Plex runs on **baremetal**, not in Docker.
 
 ### Schedules
 
@@ -101,7 +101,7 @@ uses **unpadded** folders (`Season 1 - Romance Dawn`).
 ## Dashboard
 
 Single-page web UI on port `8282` (config `DASHBOARD_PORT`), for viewing logs and triggering
-stages without logging into dockhand.
+stages without touching the deployment stack manager.
 
 - **Server** (`src/web/server.ts`) — native Node `http` (no express). The dashboard **always
   starts**; auth is checked **per request** via `checkRequestAuth` so changes apply live. Routes:
