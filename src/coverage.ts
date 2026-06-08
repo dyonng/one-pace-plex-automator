@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
-import { getKv, setKv, getEpisodeByCrc32 } from "./db";
+import { getKv, setKv, getEpisodeByCrc32, getEpisodesByStatus } from "./db";
 import { getAllEpisodes, extractCrc32FromFilename } from "./metadata";
 import { getRssMagnetMap } from "./rss";
 
@@ -19,6 +19,7 @@ export type CoverageStatus =
   | "present"         // on disk, CRC32 matches the dataset's current release
   | "present_unknown" // on disk, but filename has no CRC32 so we can't verify
   | "upgradeable"     // on disk with old CRC32 — a newer version exists
+  | "downloading"     // the canonical release is in the pipeline right now
   | "missing";        // not on disk
 
 export interface CoverageEpisode {
@@ -42,6 +43,7 @@ export interface CoverageArc {
   present: number;
   missing: number;
   upgradeable: number;
+  downloading: number;
   seasonFolder: string | null; // actual on-disk folder name, if any files were found
   episodes: CoverageEpisode[];
 }
@@ -50,7 +52,7 @@ export interface CoverageReport {
   scannedAt: number;
   mediaPath: string;
   mediaPathExists: boolean;
-  totals: { episodes: number; present: number; missing: number; upgradeable: number };
+  totals: { episodes: number; present: number; missing: number; upgradeable: number; downloading: number };
   arcs: CoverageArc[];
   extras: string[]; // video files on disk that map to no dataset episode
 }
@@ -108,6 +110,14 @@ export async function scanCoverage(): Promise<CoverageReport> {
   const disk = scanDisk();
   const [dataset, rssMagnets] = await Promise.all([getAllEpisodes(), getRssMagnetMap()]);
 
+  // CRC32s currently moving through the pipeline — an episode being downloaded
+  // (e.g. an upgrade in progress) should show as "downloading", not offered
+  // again as missing or upgradeable.
+  const inFlight = new Set<string>();
+  for (const st of ["pending", "downloading", "processing"] as const) {
+    for (const e of getEpisodesByStatus(st)) inFlight.add(e.crc32.toUpperCase());
+  }
+
   const arcMap = new Map<number, CoverageArc>();
 
   for (const ep of dataset) {
@@ -131,6 +141,12 @@ export async function scanCoverage(): Promise<CoverageReport> {
       }
     }
 
+    // The canonical release is already in the pipeline — surface that instead of
+    // missing/upgradeable so it isn't offered as a (re)download.
+    if ((status === "missing" || status === "upgradeable") && inFlight.has(ep.crc32.toUpperCase())) {
+      status = "downloading";
+    }
+
     let arc = arcMap.get(ep.arcPart);
     if (!arc) {
       arc = {
@@ -141,6 +157,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
         present: 0,
         missing: 0,
         upgradeable: 0,
+        downloading: 0,
         seasonFolder: null,
         episodes: [],
       };
@@ -152,6 +169,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
     arc.total++;
     if (status === "missing") arc.missing++;
     else if (status === "upgradeable") arc.upgradeable++;
+    else if (status === "downloading") arc.downloading++;
     else arc.present++; // present + present_unknown
 
     arc.episodes.push({
@@ -177,8 +195,9 @@ export async function scanCoverage(): Promise<CoverageReport> {
       present: t.present + a.present,
       missing: t.missing + a.missing,
       upgradeable: t.upgradeable + a.upgradeable,
+      downloading: t.downloading + a.downloading,
     }),
-    { episodes: 0, present: 0, missing: 0, upgradeable: 0 }
+    { episodes: 0, present: 0, missing: 0, upgradeable: 0, downloading: 0 }
   );
 
   const extras = [...disk.values()].map((f) => f.filename).sort();
@@ -208,6 +227,20 @@ export async function scanCoverage(): Promise<CoverageReport> {
 export function getCoverageScannedAt(): number | null {
   const raw = getKv(KV_SCANNED_AT);
   return raw ? Number(raw) : null;
+}
+
+/**
+ * Re-scan and store coverage, but only if a report already exists — so pipeline
+ * changes (downloads, upgrades, removals) reflect in the dashboard without a
+ * manual re-scan, and nothing runs for users who've never scanned. Never throws.
+ */
+export async function refreshCoverageIfPresent(): Promise<void> {
+  if (getCoverageScannedAt() === null) return;
+  try {
+    await scanCoverage();
+  } catch (err) {
+    logger.warn("Coverage refresh failed", { error: (err as Error).message });
+  }
 }
 
 /** Returns the last scan from the kv store, or null if no scan has run yet. */

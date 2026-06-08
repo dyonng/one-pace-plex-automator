@@ -169,7 +169,7 @@ export async function runHealthCheckReq(): Promise<HealthReport> {
   return r.json();
 }
 
-export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "missing";
+export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "downloading" | "missing";
 
 export interface CoverageEpisode {
   arcPart: number;
@@ -192,6 +192,7 @@ export interface CoverageArc {
   present: number;
   missing: number;
   upgradeable: number;
+  downloading: number;
   seasonFolder: string | null;
   episodes: CoverageEpisode[];
 }
@@ -200,7 +201,7 @@ export interface CoverageReport {
   scannedAt: number;
   mediaPath: string;
   mediaPathExists: boolean;
-  totals: { episodes: number; present: number; missing: number; upgradeable: number };
+  totals: { episodes: number; present: number; missing: number; upgradeable: number; downloading: number };
   arcs: CoverageArc[];
   extras: string[];
 }
