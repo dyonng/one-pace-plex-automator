@@ -15,7 +15,7 @@
     missing: "bg-error/10 text-error/80 border-error/30 border-dashed",
   };
 
-  const CHIP_UPGRADEABLE_WITH_MAGNET = "bg-primary/20 text-primary border-primary/30";
+  const CHIP_UPGRADEABLE_WITH_MAGNET = "bg-info/20 text-info border-info/40";
 
   const LABEL: Record<CoverageStatus, string> = {
     present: "present",
@@ -264,7 +264,7 @@
       <!-- Legend + extras -->
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-primary/40"></span> upgradeable (link ready)</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-info/50"></span> upgradeable (link ready)</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> upgradeable (no link)</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
@@ -345,7 +345,7 @@
               <td class="font-mono text-xs opacity-60">{ep.diskCrc32 ?? "—"}</td>
               <td class="font-mono text-xs">
                 {#if ep.hasMagnet}
-                  <span class="text-primary">{ep.datasetCrc32}</span>
+                  <span class="text-info">{ep.datasetCrc32}</span>
                 {:else}
                   <span class="opacity-50">{ep.datasetCrc32}</span>
                 {/if}
