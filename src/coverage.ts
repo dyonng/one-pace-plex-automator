@@ -4,7 +4,7 @@ import { MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getKv, setKv, getEpisodeByCrc32 } from "./db";
 import { getAllEpisodes, extractCrc32FromFilename } from "./metadata";
-import { getRssCrc32Set } from "./rss";
+import { getRssMagnetMap } from "./rss";
 
 // Latest report only — a single upserted kv row, so it never grows and survives
 // restarts. The dashboard reads this; a scan overwrites it.
@@ -102,7 +102,7 @@ function scanDisk(): Map<string, DiskFile> {
 export async function scanCoverage(): Promise<CoverageReport> {
   const mediaPathExists = fs.existsSync(MEDIA_PATH);
   const disk = scanDisk();
-  const [dataset, rssCrc32s] = await Promise.all([getAllEpisodes(), getRssCrc32Set()]);
+  const [dataset, rssMagnets] = await Promise.all([getAllEpisodes(), getRssMagnetMap()]);
 
   const arcMap = new Map<number, CoverageArc>();
 
@@ -118,9 +118,13 @@ export async function scanCoverage(): Promise<CoverageReport> {
     else if (onDisk.crc32.toUpperCase() === ep.crc32.toUpperCase()) status = "present";
     else {
       status = "upgradeable";
-      hasMagnet =
-        Boolean(getEpisodeByCrc32(ep.crc32.toUpperCase())?.magnet_uri) ||
-        rssCrc32s.has(ep.crc32.toUpperCase());
+      const rssEntry = rssMagnets.get(ep.crc32.toUpperCase());
+      hasMagnet = Boolean(getEpisodeByCrc32(ep.crc32.toUpperCase())?.magnet_uri) || Boolean(rssEntry);
+      // Store the magnet in KV so the upgrade action can use it without a live
+      // RSS lookup, even across restarts.
+      if (rssEntry) {
+        setKv(`magnet:${ep.crc32.toUpperCase()}`, JSON.stringify(rssEntry));
+      }
     }
 
     let arc = arcMap.get(ep.arcPart);
