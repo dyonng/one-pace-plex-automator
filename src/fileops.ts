@@ -131,12 +131,32 @@ export function moveAndRename(
 /** Deletes a moved episode file from the Plex library, if it exists. */
 export function deleteEpisodeFile(arcTitle: string, arcPart: number, finalFilename: string): boolean {
   const full = path.join(MEDIA_PATH, buildSeasonFolder(arcTitle, arcPart), finalFilename);
+  _fileSizeCache.delete(full);
   if (fs.existsSync(full)) {
     fs.rmSync(full, { force: true });
     logger.info("Deleted episode file", { path: full });
     return true;
   }
   return false;
+}
+
+// Moved library files are immutable once placed, so cache their sizes to avoid
+// a statSync on every status poll.
+const _fileSizeCache = new Map<string, number>();
+
+/** Returns the on-disk size in bytes of a moved episode file, or null if absent. */
+export function getEpisodeFileSize(arcTitle: string, arcPart: number, finalFilename: string | null): number | null {
+  if (!finalFilename) return null;
+  const full = path.join(MEDIA_PATH, buildSeasonFolder(arcTitle, arcPart), finalFilename);
+  const cached = _fileSizeCache.get(full);
+  if (cached !== undefined) return cached;
+  try {
+    const size = fs.statSync(full).size;
+    _fileSizeCache.set(full, size);
+    return size;
+  } catch {
+    return null;
+  }
 }
 
 export function findDownloadedFile(downloadDir: string, crc32: string): string | null {

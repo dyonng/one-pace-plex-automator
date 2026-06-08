@@ -190,6 +190,11 @@ export function deleteEpisode(crc32: string): void {
   getDb().prepare("DELETE FROM episodes WHERE crc32 = ?").run(crc32);
 }
 
+/** Removes all completed episodes from tracking. Returns the number cleared. */
+export function clearDoneEpisodes(): number {
+  return getDb().prepare("DELETE FROM episodes WHERE status = 'done'").run().changes;
+}
+
 export function listEpisodes(): EpisodeRecord[] {
   return (getDb()
     .prepare("SELECT * FROM episodes ORDER BY arc_part, episode_num")
