@@ -92,22 +92,20 @@
     )
   );
 
-  const upgradeableWithMagnet = $derived(allUpgradeable.filter(ep => ep.hasMagnet));
-
   const allSelected = $derived(
-    upgradeableWithMagnet.length > 0 &&
-    upgradeableWithMagnet.every(ep => batchSelected.has(ep.datasetCrc32))
+    allUpgradeable.length > 0 &&
+    allUpgradeable.every(ep => batchSelected.has(ep.datasetCrc32))
   );
 
   const someSelected = $derived(
-    upgradeableWithMagnet.some(ep => batchSelected.has(ep.datasetCrc32))
+    allUpgradeable.some(ep => batchSelected.has(ep.datasetCrc32))
   );
 
   function toggleAll() {
     if (allSelected) {
       batchSelected = new Set();
     } else {
-      batchSelected = new Set(upgradeableWithMagnet.map(ep => ep.datasetCrc32));
+      batchSelected = new Set(allUpgradeable.map(ep => ep.datasetCrc32));
     }
   }
 
@@ -118,7 +116,7 @@
   }
 
   function openBatchModal() {
-    batchSelected = new Set(upgradeableWithMagnet.map(ep => ep.datasetCrc32));
+    batchSelected = new Set(allUpgradeable.map(ep => ep.datasetCrc32));
     batchOpen = true;
   }
 
@@ -315,7 +313,7 @@
                 checked={allSelected}
                 indeterminate={someSelected && !allSelected}
                 onchange={toggleAll}
-                disabled={upgradeableWithMagnet.length === 0}
+                disabled={allUpgradeable.length === 0}
               />
             </th>
             <th>Arc</th>
@@ -327,16 +325,13 @@
         </thead>
         <tbody>
           {#each allUpgradeable as ep (ep.datasetCrc32)}
-            {@const selectable = ep.hasMagnet}
-            <tr class="hover:bg-base-200/40 {!selectable ? 'opacity-40' : ''}">
+            <tr class="hover:bg-base-200/40">
               <td>
                 <input
                   type="checkbox"
                   class="checkbox checkbox-xs"
                   checked={batchSelected.has(ep.datasetCrc32)}
                   onchange={() => toggleOne(ep.datasetCrc32)}
-                  disabled={!selectable}
-                  title={selectable ? undefined : "No download link available yet"}
                 />
               </td>
               <td class="whitespace-nowrap">
