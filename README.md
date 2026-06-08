@@ -79,9 +79,11 @@ Episode metadata (titles, descriptions, arc mappings) sourced from [ladyisatis/o
 
 ## Posters
 
-Season and show posters are the fan-made artwork from
-[SpykerNZ/one-pace-for-plex](https://github.com/SpykerNZ/one-pace-for-plex) — full
-credit to **SpykerNZ** for the poster set. When a brand-new season first appears,
+Season and show posters are the fan-made artwork by
+[**/u/piratezekk**](https://www.reddit.com/user/piratezekk) — full credit for the
+poster set goes to them. The images are pulled from the
+[SpykerNZ/one-pace-for-plex](https://github.com/SpykerNZ/one-pace-for-plex) repo,
+which distributes them. When a brand-new season first appears,
 its poster is applied automatically (`AUTO_POSTERS`, on by default); existing
 seasons are left untouched so any art you set manually is preserved. Use **Sync
 posters** in the dashboard to fill gaps, or **Force re-sync posters** to re-apply
