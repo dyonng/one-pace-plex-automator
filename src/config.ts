@@ -45,6 +45,10 @@ const ConfigSchema = z.object({
   // that have both. Affects which release is treated as canonical in coverage
   // and which variant the RSS poll downloads.
   PREFER_EXTENDED: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  // When true, the arc 14 title "Alabasta" is rendered as "Arabasta" everywhere
+  // (coverage, filenames, Plex). The metadata uses "Alabasta"; this is a spelling
+  // preference.
+  PREFER_ARABASTA: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

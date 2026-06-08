@@ -1,6 +1,16 @@
 import { getConfig } from "./config";
 import { logger } from "./logger";
-import { getPreferExtended } from "./settings";
+import { getPreferExtended, getPreferArabasta } from "./settings";
+
+/**
+ * The dataset spells arc 14 "Alabasta"; some users prefer "Arabasta". When the
+ * preference is on, apply that spelling wherever an arc title is surfaced
+ * (coverage, filenames, Plex). Saga is already "Arabasta" in the dataset.
+ */
+function displayArcTitle(raw: string): string {
+  if (getPreferArabasta() && raw) return raw.replace(/Alabasta/g, "Arabasta");
+  return raw;
+}
 
 // ── Richer v2 metadata schema (metadata/data.min.json) ───────────────────────
 // arcs.en[]            — one entry per arc; episodes[] maps each episode to its
@@ -83,8 +93,8 @@ let _etag: string | null = null;
 let _arcByPart: Map<number, { arc: DataJsonArc; index: number }> | null = null;
 let _descByKey: Map<string, DataJsonDescription> | null = null;
 let _variantByKey: Map<string, { standard: string; extended: string }> | null = null;
-// getAllEpisodes() output, cached per prefer-extended value (cleared on reload).
-let _episodesCache: { pref: boolean; list: EpisodeSummary[] } | null = null;
+// getAllEpisodes() output, cached per preference combination (cleared on reload).
+let _episodesCache: { pref: string; list: EpisodeSummary[] } | null = null;
 
 const epKey = (arcPart: number, episodeNum: number): string => `${arcPart}-${episodeNum}`;
 
@@ -181,7 +191,7 @@ export async function resolveEpisodeByCrc32(
   return {
     crc32: key,
     arcIndex: arcEntry.index,
-    arcTitle: arcEntry.arc.title,
+    arcTitle: displayArcTitle(arcEntry.arc.title),
     arcSaga: arcEntry.arc.saga,
     arcPart: arcEntry.arc.part,
     arcDescription: arcEntry.arc.description,
@@ -279,7 +289,7 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
     .map(({ a, index }) => ({
       arcIndex: index,
       arcPart: a.part,
-      arcTitle: a.title,
+      arcTitle: displayArcTitle(a.title),
       arcSaga: a.saga,
       arcDescription: a.description,
     }));
@@ -288,7 +298,8 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
 export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
   const data = await _getData();
   const preferExtended = getPreferExtended();
-  if (_episodesCache && _episodesCache.pref === preferExtended) return _episodesCache.list;
+  const cacheKey = `${preferExtended}|${getPreferArabasta()}`;
+  if (_episodesCache && _episodesCache.pref === cacheKey) return _episodesCache.list;
 
   // The arc episode list gives the current canonical standard + extended CRC32
   // per (arc, episode). Pick the preferred variant; everything else (titles,
@@ -310,7 +321,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
       list.push({
         crc32: crc,
         arcIndex: index,
-        arcTitle: arc.title,
+        arcTitle: displayArcTitle(arc.title),
         arcSaga: arc.saga,
         arcPart: arc.part,
         arcDescription: arc.description,
@@ -327,7 +338,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
     }
   }
 
-  _episodesCache = { pref: preferExtended, list };
+  _episodesCache = { pref: cacheKey, list };
   return list;
 }
 

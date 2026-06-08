@@ -10,6 +10,7 @@ export type SettingKey =
   | "AUTO_DOWNLOAD"
   | "AUTO_POSTERS"
   | "PREFER_EXTENDED"
+  | "PREFER_ARABASTA"
   | "DISCORD_WEBHOOK_URL"
   | "RSS_FEED_URL"
   | "POSTER_REPO_RAW_BASE";
@@ -115,6 +116,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().PREFER_EXTENDED),
     validate: validateBool,
   },
+  PREFER_ARABASTA: {
+    key: "PREFER_ARABASTA",
+    label: "Prefer 'Arabasta' over 'Alabasta'",
+    type: "bool",
+    envValue: () => String(getConfig().PREFER_ARABASTA),
+    validate: validateBool,
+  },
   DISCORD_WEBHOOK_URL: {
     key: "DISCORD_WEBHOOK_URL",
     label: "Discord webhook URL (blank = off)",
@@ -162,6 +170,10 @@ export function getAutoPosters(): boolean {
 
 export function getPreferExtended(): boolean {
   return getSettingValue("PREFER_EXTENDED") === "true";
+}
+
+export function getPreferArabasta(): boolean {
+  return getSettingValue("PREFER_ARABASTA") === "true";
 }
 
 export interface SettingView {

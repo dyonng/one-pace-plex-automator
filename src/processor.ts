@@ -55,7 +55,7 @@ async function _processDownloading(): Promise<void> {
 
       const ext = path.extname(sourcePath);
       const finalFilename = buildPlexFilename(
-        ep.arc_title,
+        epMeta.arcTitle, // resolved title honors the Arabasta/Alabasta preference
         ep.arc_part,
         ep.episode_num,
         ep.resolution,
