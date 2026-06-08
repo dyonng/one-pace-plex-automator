@@ -92,20 +92,25 @@
     )
   );
 
+  // Split by whether a magnet link is available: link-ready episodes can be
+  // upgraded automatically; no-link ones need manual attention.
+  const upgradeNow = $derived(allUpgradeable.filter(ep => ep.hasMagnet));
+  const cannotUpgrade = $derived(allUpgradeable.filter(ep => !ep.hasMagnet));
+
   const allSelected = $derived(
-    allUpgradeable.length > 0 &&
-    allUpgradeable.every(ep => batchSelected.has(ep.datasetCrc32))
+    upgradeNow.length > 0 &&
+    upgradeNow.every(ep => batchSelected.has(ep.datasetCrc32))
   );
 
   const someSelected = $derived(
-    allUpgradeable.some(ep => batchSelected.has(ep.datasetCrc32))
+    upgradeNow.some(ep => batchSelected.has(ep.datasetCrc32))
   );
 
   function toggleAll() {
     if (allSelected) {
       batchSelected = new Set();
     } else {
-      batchSelected = new Set(allUpgradeable.map(ep => ep.datasetCrc32));
+      batchSelected = new Set(upgradeNow.map(ep => ep.datasetCrc32));
     }
   }
 
@@ -116,7 +121,7 @@
   }
 
   function openBatchModal() {
-    batchSelected = new Set(allUpgradeable.map(ep => ep.datasetCrc32));
+    batchSelected = new Set(upgradeNow.map(ep => ep.datasetCrc32));
     batchOpen = true;
   }
 
@@ -166,7 +171,7 @@
       {/if}
 
       <!-- Totals -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
         <div class="deck-card card bg-base-100/60">
           <div class="card-body p-3 gap-0.5">
             <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Coverage</span>
@@ -182,14 +187,22 @@
         </div>
         <button
           class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default"
-          disabled={t.upgradeable === 0}
+          disabled={upgradeNow.length === 0}
           onclick={openBatchModal}
         >
           <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgradeable</span>
-            <span class="font-display text-2xl tabular-nums text-warning">{t.upgradeable}</span>
+            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgrade Now</span>
+            <span class="font-display text-2xl tabular-nums text-info">{upgradeNow.length}</span>
+            <span class="text-[0.65rem] opacity-50">link ready</span>
           </div>
         </button>
+        <div class="deck-card card bg-base-100/60">
+          <div class="card-body p-3 gap-0.5">
+            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Cannot Upgrade Automatically</span>
+            <span class="font-display text-2xl tabular-nums text-warning">{cannotUpgrade.length}</span>
+            <span class="text-[0.65rem] opacity-50">no link</span>
+          </div>
+        </div>
         <div class="deck-card card bg-base-100/60">
           <div class="card-body p-3 gap-0.5">
             <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Extras</span>
@@ -302,7 +315,7 @@
   <div class="modal-box max-w-4xl w-full">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeBatchModal}>✕</button>
     <h3 class="font-bold text-base">Batch Upgrade</h3>
-    <p class="text-xs opacity-50 mb-4">{allUpgradeable.length} upgradeable episode{allUpgradeable.length === 1 ? "" : "s"}</p>
+    <p class="text-xs opacity-50 mb-4">{upgradeNow.length} episode{upgradeNow.length === 1 ? "" : "s"} ready to upgrade</p>
 
     <div class="overflow-x-auto max-h-[60vh] rounded-box border border-base-content/10">
       <table class="table table-sm table-pin-rows">
@@ -315,7 +328,7 @@
                 checked={allSelected}
                 indeterminate={someSelected && !allSelected}
                 onchange={toggleAll}
-                disabled={allUpgradeable.length === 0}
+                disabled={upgradeNow.length === 0}
               />
             </th>
             <th>Arc</th>
@@ -326,7 +339,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each allUpgradeable as ep (ep.datasetCrc32)}
+          {#each upgradeNow as ep (ep.datasetCrc32)}
             <tr class="hover:bg-base-200/40">
               <td>
                 <input
@@ -340,16 +353,10 @@
                 <span class="font-mono text-xs opacity-50">S{String(ep.arcPart).padStart(2, "0")}</span>
                 <span class="text-xs ml-1">{ep.arcTitle}</span>
               </td>
-              <td class="font-mono text-xs text-primary">E{String(ep.episodeNum).padStart(2, "0")}</td>
+              <td class="font-mono text-xs text-info">E{String(ep.episodeNum).padStart(2, "0")}</td>
               <td class="text-sm max-w-[16rem] truncate" title={ep.episodeTitle}>{ep.episodeTitle}</td>
               <td class="font-mono text-xs opacity-60">{ep.diskCrc32 ?? "—"}</td>
-              <td class="font-mono text-xs">
-                {#if ep.hasMagnet}
-                  <span class="text-info">{ep.datasetCrc32}</span>
-                {:else}
-                  <span class="opacity-50">{ep.datasetCrc32}</span>
-                {/if}
-              </td>
+              <td class="font-mono text-xs text-info">{ep.datasetCrc32}</td>
             </tr>
           {/each}
         </tbody>
@@ -358,10 +365,10 @@
 
     <div class="modal-action">
       {#if batchUpgrading}
-        <button class="btn btn-sm btn-warning loading" disabled>Upgrading…</button>
+        <button class="btn btn-sm btn-info loading" disabled>Upgrading…</button>
       {:else}
         <button
-          class="btn btn-sm btn-warning"
+          class="btn btn-sm btn-info"
           disabled={batchSelected.size === 0}
           onclick={doBatchUpgrade}
         >
