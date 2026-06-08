@@ -205,18 +205,31 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
  * in the RSS feed. Used by the coverage scan to determine hasMagnet without
  * requiring each CRC32 to already be in the episodes DB.
  */
-export async function getRssCrc32Set(): Promise<Set<string>> {
+export interface RssMagnetEntry {
+  magnet: string;
+  guid: string;
+  filename: string;
+  changelog: string[];
+}
+
+/**
+ * Returns a map of CRC32 (uppercase) → full RSS entry for every item in the
+ * feed that has a magnet link. Uses the module-level cache when fresh.
+ * Used by the coverage scan to set hasMagnet and pre-cache magnets for later
+ * upgrade actions, avoiding a live RSS lookup at upgrade time.
+ */
+export async function getRssMagnetMap(): Promise<Map<string, RssMagnetEntry>> {
   const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
   let items = getCachedItems();
   if (!items) {
     try {
       items = await fetchAndCacheItems(RSS_FEED_URL) ?? _cachedItems ?? [];
     } catch {
-      return new Set();
+      return new Map();
     }
   }
 
-  const crc32s = new Set<string>();
+  const map = new Map<string, RssMagnetEntry>();
   for (const item of items) {
     const magnet = extractMagnet(item);
     if (!magnet) continue;
@@ -225,9 +238,16 @@ export async function getRssCrc32Set(): Promise<Set<string>> {
       extractFilenameFromMagnet(magnet) ??
       "";
     const crc32 = filename ? extractCrc32FromFilename(filename) : null;
-    if (crc32) crc32s.add(crc32.toUpperCase());
+    if (crc32) {
+      map.set(crc32.toUpperCase(), {
+        magnet,
+        guid: item.guid ?? item.link ?? item.title ?? "",
+        filename,
+        changelog: extractChangelog(item.content),
+      });
+    }
   }
-  return crc32s;
+  return map;
 }
 
 /**

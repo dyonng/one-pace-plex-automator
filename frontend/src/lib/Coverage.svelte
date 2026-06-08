@@ -128,7 +128,9 @@
     if (batchSelected.size === 0) return;
     batchUpgrading = true;
     try {
-      await Promise.all([...batchSelected].map(crc32 => doEpisodeAction(crc32, "upgrade")));
+      for (const crc32 of batchSelected) {
+        await doEpisodeAction(crc32, "upgrade");
+      }
       closeBatchModal();
     } finally {
       batchUpgrading = false;

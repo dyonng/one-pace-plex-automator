@@ -2,7 +2,7 @@ import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters } from "./posters";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
-import { getEpisodeByCrc32, updateEpisodeStatus, deleteEpisode, upsertEpisode } from "./db";
+import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { syncSingleEpisode } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
@@ -128,8 +128,12 @@ export async function runEpisodeAction(
       let record = getEpisodeByCrc32(crc32);
 
       if (!record?.magnet_uri) {
-        logger.info("Magnet not in DB, scanning RSS for upgrade", { crc32 });
-        const rssItem = await findMagnetByCrc32(crc32);
+        // Check the KV cache populated by the coverage scan before hitting the RSS live.
+        const kvRaw = getKv(`magnet:${crc32.toUpperCase()}`);
+        const rssItem = kvRaw
+          ? (JSON.parse(kvRaw) as { magnet: string; guid: string; filename: string; changelog: string[] })
+          : await findMagnetByCrc32(crc32);
+
         if (!rssItem) return { ok: false, message: "No magnet found — episode not in RSS feed" };
 
         const meta = await resolveEpisodeByCrc32(crc32, extractResolutionFromFilename(rssItem.filename));
