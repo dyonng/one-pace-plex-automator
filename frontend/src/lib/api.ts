@@ -209,6 +209,7 @@ export interface TorrentProgress {
   dlspeed: number;  // bytes/s
   eta: number;      // seconds remaining, -1 if unknown
   state: string;
+  size: number;     // total torrent size in bytes
 }
 
 export async function fetchDownloadProgress(): Promise<Record<string, TorrentProgress>> {

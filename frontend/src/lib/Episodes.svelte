@@ -99,7 +99,15 @@
                   <span class="truncate block" title={file}>{file}</span>
                 {/if}
               </td>
-              <td class="whitespace-nowrap font-mono text-xs opacity-60">{e.file_size != null ? fmtBytes(e.file_size) : "—"}</td>
+              <td class="whitespace-nowrap font-mono text-xs opacity-60">
+                {#if e.status === "downloading" && $downloadProgress[e.crc32]?.size}
+                  {fmtBytes($downloadProgress[e.crc32].size)}
+                {:else if e.file_size != null}
+                  {fmtBytes(e.file_size)}
+                {:else}
+                  —
+                {/if}
+              </td>
               <td class="whitespace-nowrap text-xs opacity-60">{fmtTime(e.updated_at)}</td>
               <td>
                 <div class="flex gap-1 justify-end">
