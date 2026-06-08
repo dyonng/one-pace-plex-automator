@@ -22,6 +22,20 @@ async function connectPlexWithRetry(attempts = 3): Promise<PlexConn | null> {
   return null;
 }
 
+async function loadMetadataWithRetry(
+  attempts = 3
+): Promise<{ arcs: number; episodes: number } | null> {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await getData();
+    } catch (err) {
+      logger.warn("Metadata fetch failed", { attempt: i, error: (err as Error).message });
+      if (i < attempts) await new Promise((r) => setTimeout(r, i * 2000));
+    }
+  }
+  return null;
+}
+
 async function seedOnFirstRun(): Promise<void> {
   if (getKv("rss_seeded") === "1") return;
   try {
@@ -72,8 +86,12 @@ export async function boot(): Promise<void> {
   await seedOnFirstRun();
 
   process.stdout.write("  Fetching One Pace metadata...");
-  const meta = await getData();
-  process.stdout.write(` ${meta.episodes} episodes, ${meta.arcs} arcs\n`);
+  // Don't crash-loop if the dataset host is briefly down — continue without it;
+  // the first poll cycle (and every resolve) re-fetches on demand.
+  const meta = await loadMetadataWithRetry();
+  process.stdout.write(
+    meta ? ` ${meta.episodes} episodes, ${meta.arcs} arcs\n` : " unavailable\n"
+  );
 
   process.stdout.write("  Connecting to Plex...");
   // Don't crash-loop if Plex is briefly unreachable (e.g. baremetal restart) —
@@ -98,8 +116,8 @@ export async function boot(): Promise<void> {
     row("URL", config.QBIT_URL),
     divider(),
     section("Metadata"),
-    row("Arcs", String(meta.arcs)),
-    row("Episodes", String(meta.episodes)),
+    row("Arcs", meta ? String(meta.arcs) : "(unavailable)"),
+    row("Episodes", meta ? String(meta.episodes) : "(unavailable)"),
     divider(),
     section("Paths"),
     row("Media", MEDIA_PATH),
