@@ -37,6 +37,28 @@ const parser = new Parser<Record<string, unknown>, RssItem>({
   },
 });
 
+// Module-level RSS item cache. Populated by fetchNewEpisodes (which already
+// fetches the feed with If-Modified-Since); reused by getRssCrc32Set and
+// findMagnetByCrc32 so a poll+scan cycle only hits the RSS once.
+let _cachedItems: RssItem[] | null = null;
+let _cacheTs = 0;
+const RSS_ITEM_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCachedItems(): RssItem[] | null {
+  if (_cachedItems && Date.now() - _cacheTs < RSS_ITEM_CACHE_TTL_MS) return _cachedItems;
+  return null;
+}
+
+async function fetchAndCacheItems(url: string, headers: Record<string, string> = {}): Promise<RssItem[] | null> {
+  const resp = await fetch(url, { headers, signal: AbortSignal.timeout(20_000) });
+  if (resp.status === 304) return null; // unchanged — caller keeps existing cache
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  const feed = await parser.parseString(await resp.text());
+  _cachedItems = (feed.items ?? []) as RssItem[];
+  _cacheTs = Date.now();
+  return _cachedItems;
+}
+
 export async function fetchNewEpisodes(
   isGuidSeen: (guid: string) => boolean
 ): Promise<RssEpisode[]> {
@@ -47,12 +69,13 @@ export async function fetchNewEpisodes(
   const lastModified = getKv("rss_last_modified");
   if (lastModified) headers["If-Modified-Since"] = lastModified;
 
-  let feed;
+  let items: RssItem[];
   try {
     const resp = await fetch(RSS_FEED_URL, { headers, signal: AbortSignal.timeout(20_000) });
 
     if (resp.status === 304) {
       logger.debug("RSS feed unchanged (304), skipping");
+      // Items unchanged — keep existing cache valid; nothing new to process.
       return [];
     }
 
@@ -61,12 +84,13 @@ export async function fetchNewEpisodes(
     const newLastModified = resp.headers.get("Last-Modified");
     if (newLastModified) setKv("rss_last_modified", newLastModified);
 
-    feed = await parser.parseString(await resp.text());
+    const feed = await parser.parseString(await resp.text());
+    _cachedItems = (feed.items ?? []) as RssItem[];
+    _cacheTs = Date.now();
+    items = _cachedItems;
   } catch (err) {
     throw new Error(`RSS fetch failed: ${(err as Error).message}`);
   }
-
-  const items = (feed.items ?? []) as RssItem[];
 
   // If any unseen item exists, a release (or re-release) just landed — refresh
   // metadata before resolving so an updated CRC32 resolves correctly.
@@ -146,17 +170,17 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
   changelog: string[];
 } | null> {
   const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
-  let feed;
-  try {
-    const resp = await fetch(RSS_FEED_URL, { signal: AbortSignal.timeout(20_000) });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    feed = await parser.parseString(await resp.text());
-  } catch (err) {
-    throw new Error(`RSS fetch failed: ${(err as Error).message}`);
+  let items = getCachedItems();
+  if (!items) {
+    try {
+      items = await fetchAndCacheItems(RSS_FEED_URL) ?? _cachedItems ?? [];
+    } catch (err) {
+      throw new Error(`RSS fetch failed: ${(err as Error).message}`);
+    }
   }
 
   const upper = targetCrc32.toUpperCase();
-  for (const item of (feed.items ?? []) as RssItem[]) {
+  for (const item of items) {
     const magnet = extractMagnet(item);
     if (!magnet) continue;
     const filename =
@@ -183,17 +207,17 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
  */
 export async function getRssCrc32Set(): Promise<Set<string>> {
   const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
-  let feed;
-  try {
-    const resp = await fetch(RSS_FEED_URL, { signal: AbortSignal.timeout(20_000) });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    feed = await parser.parseString(await resp.text());
-  } catch {
-    return new Set();
+  let items = getCachedItems();
+  if (!items) {
+    try {
+      items = await fetchAndCacheItems(RSS_FEED_URL) ?? _cachedItems ?? [];
+    } catch {
+      return new Set();
+    }
   }
 
   const crc32s = new Set<string>();
-  for (const item of (feed.items ?? []) as RssItem[]) {
+  for (const item of items) {
     const magnet = extractMagnet(item);
     if (!magnet) continue;
     const filename =
