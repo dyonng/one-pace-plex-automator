@@ -11,6 +11,7 @@ import { describeSettings, applySetting, resetSetting, getSettingValue } from ".
 import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage } from "../coverage";
 import { getQbitClient } from "../qbittorrent";
+import { getEpisodeFileSize } from "../fileops";
 import { getStoredHealth, runHealthCheck } from "../health";
 import { checkRequestAuth, getAuthState, setPassword, setAuthEnabled, isAuthEnabled } from "./auth";
 import { Router } from "./router";
@@ -35,6 +36,7 @@ const ACTION_IDS: ActionId[] = [
   "retry-failed",
   "sync-posters",
   "force-posters",
+  "clear-done",
 ];
 const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove", "upgrade"];
 
@@ -92,7 +94,10 @@ async function buildStatus() {
       discordConfigured: Boolean(cfg.DISCORD_WEBHOOK_URL),
     },
     counts: countByStatus(),
-    episodes: listEpisodes(),
+    episodes: listEpisodes().map((e) => ({
+      ...e,
+      file_size: getEpisodeFileSize(e.arc_title, e.arc_part, e.final_filename),
+    })),
   };
 }
 

@@ -2,7 +2,7 @@ import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters } from "./posters";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
-import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode } from "./db";
+import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { syncSingleEpisode } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
@@ -56,7 +56,8 @@ export type ActionId =
   | "refresh-metadata"
   | "retry-failed"
   | "sync-posters"
-  | "force-posters";
+  | "force-posters"
+  | "clear-done";
 
 export interface ActionResult {
   ok: boolean;
@@ -103,6 +104,12 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
           ok: true,
           message: `Posters: ${r.applied} applied, ${r.skipped} skipped, ${r.missing} not in repo, ${r.failed} failed`,
         };
+      });
+
+    case "clear-done":
+      return withLock("Clear done", async () => {
+        const n = clearDoneEpisodes();
+        return { ok: true, message: `Cleared ${n} completed episode${n === 1 ? "" : "s"} from the pipeline` };
       });
 
     default:

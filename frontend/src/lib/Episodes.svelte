@@ -1,11 +1,18 @@
 <script lang="ts">
-  import { status, doEpisodeAction, downloadProgress } from "./stores";
-  import { fmtTime, fmtSpeed, fmtEta, STATUS_BADGE } from "./util";
-  import type { Episode } from "./api";
+  import { status, doEpisodeAction, downloadProgress, toast, refreshStatus } from "./stores";
+  import { fmtTime, fmtSpeed, fmtEta, fmtBytes, STATUS_BADGE } from "./util";
+  import { postAction, type Episode } from "./api";
 
   let busy = $state<string | null>(null);
   let removeTarget = $state<Episode | null>(null);
   let removeFile = $state(false);
+  let clearing = $state(false);
+
+  // Newest first — sort by when the episode entered the pipeline.
+  const episodes = $derived(
+    [...($status?.episodes ?? [])].sort((a, b) => b.created_at - a.created_at)
+  );
+  const doneCount = $derived(($status?.episodes ?? []).filter((e) => e.status === "done").length);
 
   async function act(e: Episode, action: "download" | "retry" | "resync") {
     busy = e.crc32;
@@ -13,6 +20,19 @@
       await doEpisodeAction(e.crc32, action);
     } finally {
       busy = null;
+    }
+  }
+
+  async function clearDone() {
+    clearing = true;
+    try {
+      const res = await postAction("clear-done");
+      toast(res.message, res.ok);
+    } catch {
+      toast("Request failed", false);
+    } finally {
+      clearing = false;
+      refreshStatus();
     }
   }
 
@@ -41,17 +61,26 @@
         <div class="eyebrow">Pipeline</div>
         <h2 class="font-display text-lg">Episodes <span class="opacity-50 text-sm font-mono">{$status?.episodes.length ?? 0}</span></h2>
       </div>
+      <button
+        class="btn btn-xs btn-ghost"
+        class:loading={clearing}
+        disabled={clearing || doneCount === 0}
+        onclick={clearDone}
+        title="Remove completed episodes from the pipeline (files are kept)"
+      >
+        Clear done{doneCount > 0 ? ` (${doneCount})` : ""}
+      </button>
     </div>
 
     <div class="overflow-x-auto max-h-[28rem] rounded-box border border-base-content/5">
       <table class="table table-sm table-pin-rows">
         <thead>
           <tr class="text-xs uppercase tracking-wider">
-            <th>S/E</th><th>Arc</th><th>Status</th><th>Res</th><th>File</th><th>Updated</th><th class="text-right">Actions</th>
+            <th>S/E</th><th>Arc</th><th>Status</th><th>Res</th><th>File</th><th>Size</th><th>Updated</th><th class="text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {#each $status?.episodes ?? [] as e (e.crc32)}
+          {#each episodes as e (e.crc32)}
             {@const file = e.final_filename ?? e.original_filename ?? ""}
             {@const disabled = busy === e.crc32}
             <tr class="hover:bg-base-200/40">
@@ -70,6 +99,7 @@
                   <span class="truncate block" title={file}>{file}</span>
                 {/if}
               </td>
+              <td class="whitespace-nowrap font-mono text-xs opacity-60">{e.file_size != null ? fmtBytes(e.file_size) : "—"}</td>
               <td class="whitespace-nowrap text-xs opacity-60">{fmtTime(e.updated_at)}</td>
               <td>
                 <div class="flex gap-1 justify-end">
@@ -87,8 +117,8 @@
               </td>
             </tr>
           {/each}
-          {#if ($status?.episodes.length ?? 0) === 0}
-            <tr><td colspan="7" class="text-center opacity-50 py-6">No episodes tracked yet</td></tr>
+          {#if episodes.length === 0}
+            <tr><td colspan="8" class="text-center opacity-50 py-6">No episodes tracked yet</td></tr>
           {/if}
         </tbody>
       </table>

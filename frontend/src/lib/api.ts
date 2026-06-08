@@ -9,6 +9,8 @@ export interface Episode {
   original_filename: string | null;
   changelog: string[];
   error_message: string | null;
+  file_size: number | null;
+  created_at: number;
   updated_at: number;
 }
 
