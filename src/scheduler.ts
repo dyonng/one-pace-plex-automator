@@ -2,7 +2,7 @@ import cron, { ScheduledTask } from "node-cron";
 import { logger } from "./logger";
 import { runAction, isBusy } from "./controls";
 import { processDownloading } from "./processor";
-import { getSettingValue, getDownloadCheckMs, settingsBus } from "./settings";
+import { getSettingValue, getDownloadCheckMs, getPollEnabled, settingsBus } from "./settings";
 
 const DEFAULT_CRON = "*/5 * * * *";
 
@@ -11,6 +11,13 @@ let interval: NodeJS.Timeout | null = null;
 
 function scheduleCron(): void {
   task?.stop();
+  task = null;
+
+  if (!getPollEnabled()) {
+    logger.info("Scheduled RSS polling disabled — manual only");
+    return;
+  }
+
   let expr = getSettingValue("POLL_CRON");
   if (!cron.validate(expr)) {
     logger.error("Invalid POLL_CRON, using default", { value: expr, fallback: DEFAULT_CRON });
@@ -47,7 +54,7 @@ export function startScheduler(): void {
 
   // Live re-apply when the dashboard changes a schedule setting.
   settingsBus.on("changed", ({ key }: { key: string }) => {
-    if (key === "POLL_CRON") scheduleCron();
+    if (key === "POLL_CRON" || key === "POLL_ENABLED") scheduleCron();
     if (key === "DOWNLOAD_CHECK_SECONDS") scheduleInterval();
   });
 }

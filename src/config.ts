@@ -11,6 +11,9 @@ const ConfigSchema = z.object({
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   POLL_CRON: z.string().default("*/5 * * * *"),
+  // When false, the RSS poll cron is not scheduled — polling is manual-only
+  // (dashboard "Poll RSS"). The download-completion check is unaffected.
+  POLL_ENABLED: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   DOWNLOAD_CHECK_SECONDS: z.coerce.number().int().min(5).max(3600).default(30),
   // When true, discovered releases are queued immediately; when false they wait
   // in the dashboard as "available" until the user clicks Download.

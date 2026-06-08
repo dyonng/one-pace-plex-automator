@@ -21,7 +21,9 @@ change). The cycle logic lives in `src/cycle.ts` (`pollRss` → `dispatchPending
 
 - **`POLL_CRON`** (default `*/5 * * * *`, dashboard-editable) → routed through `runAction("poll")`
   so the cron never overlaps a manual dashboard trigger (shared action lock in `src/controls.ts`).
-  Invalid cron falls back to the default.
+  Invalid cron falls back to the default. Gated by **`POLL_ENABLED`** (default `true`,
+  dashboard-editable): when `false` the cron isn't scheduled — polling is manual-only (the dashboard
+  "Poll RSS" button still works); the download-check interval is unaffected.
 - **download-check interval** (`DOWNLOAD_CHECK_SECONDS`, default 30, dashboard-editable) →
   `processDownloading()` only (sub-minute completion check; cron can't go below 1 min). Skips the
   tick while a heavier action holds the lock.
@@ -125,7 +127,8 @@ stages without touching the deployment stack manager.
 ### Runtime Settings (`src/settings.ts`)
 
 A few settings are editable live from the dashboard without a redeploy: **POLL_CRON**,
-**DOWNLOAD_CHECK_SECONDS**, **AUTO_DOWNLOAD** (bool), **DISCORD_WEBHOOK_URL**, **RSS_FEED_URL**.
+**POLL_ENABLED** (bool), **DOWNLOAD_CHECK_SECONDS**, **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS**
+(bool), **DISCORD_WEBHOOK_URL**, **RSS_FEED_URL**, **POSTER_REPO_RAW_BASE**.
 (Secrets and volume paths stay env-only by design.)
 
 - **Precedence: DB override > env > default.** Env is the seed; a dashboard edit writes a `settings`
@@ -135,7 +138,7 @@ A few settings are editable live from the dashboard without a redeploy: **POLL_C
   rejected at `POST /api/settings` (400) and never reaches the running config, so a typo can't break
   the loop.
 - **Live apply:** `settings.ts` emits on `settingsBus`; `src/scheduler.ts` (which owns the cron task
-  + the download-check interval) re-applies POLL_CRON / DOWNLOAD_CHECK_SECONDS on change. RSS URL and
+  + the download-check interval) re-applies POLL_CRON / POLL_ENABLED / DOWNLOAD_CHECK_SECONDS on change. RSS URL and
   Discord webhook are read per-use via `getSettingValue`, so they take effect immediately.
 - API: `GET /api/settings`, `POST /api/settings` `{key,value}`, `POST /api/settings/reset` `{key}`.
 
@@ -205,6 +208,7 @@ Zod-validated env (`src/config.ts`):
 | `PLEX_LIBRARY_NAME` | `TV Shows` | library containing the "One Pace" show |
 | `DISCORD_WEBHOOK_URL` | — (optional) | notifications disabled if unset |
 | `POLL_CRON` | `*/5 * * * *` | RSS poll schedule (dashboard-editable) |
+| `POLL_ENABLED` | `true` | gate the scheduled RSS poll; `false` = manual-only (dashboard-editable) |
 | `DOWNLOAD_CHECK_SECONDS` | `30` | qBit completion check interval (dashboard-editable) |
 | `AUTO_DOWNLOAD` | `true` | auto-queue discovered releases; off = manual download (dashboard-editable) |
 | `DASHBOARD_TOKEN_HASH` | — (optional bootstrap) | scrypt hash; password is normally set in the UI |

@@ -5,6 +5,7 @@ import { getSettingOverride, setSettingOverride, deleteSettingOverride } from ".
 
 export type SettingKey =
   | "POLL_CRON"
+  | "POLL_ENABLED"
   | "DOWNLOAD_CHECK_SECONDS"
   | "AUTO_DOWNLOAD"
   | "AUTO_POSTERS"
@@ -71,6 +72,13 @@ function validateBool(raw: string): ValidateResult {
 }
 
 const DEFS: Record<SettingKey, SettingDef> = {
+  POLL_ENABLED: {
+    key: "POLL_ENABLED",
+    label: "Scheduled RSS polling (off = manual only)",
+    type: "bool",
+    envValue: () => String(getConfig().POLL_ENABLED),
+    validate: validateBool,
+  },
   POLL_CRON: {
     key: "POLL_CRON",
     label: "RSS poll schedule (cron)",
@@ -134,6 +142,10 @@ export function getDownloadCheckMs(): number {
 
 export function getAutoDownload(): boolean {
   return getSettingValue("AUTO_DOWNLOAD") === "true";
+}
+
+export function getPollEnabled(): boolean {
+  return getSettingValue("POLL_ENABLED") === "true";
 }
 
 export function getAutoPosters(): boolean {

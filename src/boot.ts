@@ -6,6 +6,7 @@ import { getDb, insertLog, getKv, setKv, markGuidSeen } from "./db";
 import { logBus, LogEntry, logger } from "./logger";
 import { seedSeenGuids } from "./rss";
 import { seedPostersOnFirstRun } from "./posters";
+import { getSettingValue, getPollEnabled } from "./settings";
 import { DATA_DIR, DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { version as VERSION } from "../package.json";
 
@@ -131,8 +132,8 @@ export async function boot(): Promise<void> {
     row("Data", DATA_DIR),
     divider(),
     section("Schedule"),
-    row("RSS Poll", config.POLL_CRON),
-    row("DL Check", "every 30s"),
+    row("RSS Poll", getPollEnabled() ? getSettingValue("POLL_CRON") : "disabled (manual only)"),
+    row("DL Check", `every ${getSettingValue("DOWNLOAD_CHECK_SECONDS")}s`),
     bottom,
   ];
 
