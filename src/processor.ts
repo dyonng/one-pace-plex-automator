@@ -51,6 +51,8 @@ async function _processDownloading(): Promise<void> {
         throw new Error(`Downloaded file not found in ${DOWNLOAD_PATH} for CRC32 ${ep.crc32}`);
       }
 
+      const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);
+
       const ext = path.extname(sourcePath);
       const finalFilename = buildPlexFilename(
         ep.arc_title,
@@ -58,7 +60,8 @@ async function _processDownloading(): Promise<void> {
         ep.episode_num,
         ep.resolution,
         ep.crc32,
-        ext
+        ext,
+        epMeta.extended
       );
 
       const { replaced } = moveAndRename(
@@ -68,8 +71,6 @@ async function _processDownloading(): Promise<void> {
         ep.arc_part,
         ep.episode_num
       );
-
-      const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);
 
       await triggerLibraryScan();
       await new Promise((resolve) => setTimeout(resolve, 5000));

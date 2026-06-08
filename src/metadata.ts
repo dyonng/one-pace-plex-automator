@@ -337,17 +337,21 @@ export function buildPlexFilename(
   episodeNum: number,
   resolution: string,
   crc32: string,
-  ext: string
+  ext: string,
+  extended = false
 ): string {
   const s = String(arcPart).padStart(2, "0");
   const e = String(episodeNum).padStart(2, "0");
-  return `One Pace - ${arcTitle} - S${s}E${e} [${resolution}][${crc32.toUpperCase()}]${ext}`;
+  const tag = extended ? "[Extended]" : "";
+  return `One Pace - ${arcTitle} - S${s}E${e} [${resolution}][${crc32.toUpperCase()}]${tag}${ext}`;
 }
 
 export function extractCrc32FromFilename(filename: string): string | null {
-  // Last bracketed 8-char hex string before the extension: [BE634289]
-  const match = filename.match(/\[([0-9A-Fa-f]{8})\](?:\.\w+)?$/);
-  return match ? match[1].toUpperCase() : null;
+  // The 8-char hex CRC bracket, e.g. [BE634289]. Take the last such bracket so
+  // a trailing tag like [Extended] (our naming) or any suffix doesn't hide it.
+  // [1080p]/[Extended] never match (not 8 hex chars).
+  const matches = [...filename.matchAll(/\[([0-9A-Fa-f]{8})\]/g)];
+  return matches.length ? matches[matches.length - 1][1].toUpperCase() : null;
 }
 
 export function extractResolutionFromFilename(filename: string): string {
