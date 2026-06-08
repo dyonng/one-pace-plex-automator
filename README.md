@@ -30,6 +30,64 @@ Example: `One Pace - Baratie - S05E01 [1080p][BE634289].mkv`
 - Plex Media Server
 - Docker
 
+## Deployment
+
+### Docker Compose (recommended)
+
+Save this as `docker-compose.yml`, change the five highlighted values, and run
+`docker compose up -d`. This is a complete, self-contained config — no `.env` or
+external network required.
+
+```yaml
+services:
+  one-pace-automator:
+    image: ghcr.io/dyonng/one-pace-plex-automator:latest
+    container_name: one-pace-automator
+    restart: unless-stopped
+    ports:
+      - "8282:8282"
+    environment:
+      - RSS_FEED_URL=https://onepace.net/en/releases/rss.xml
+      - QBIT_URL=http://192.168.1.10:8080      # qBittorrent Web UI (host IP)
+      - QBIT_PASSWORD=CHANGE_ME                # <-- your qBittorrent password
+      - PLEX_URL=http://192.168.1.10:32400     # <-- your Plex (host IP)
+      - PLEX_TOKEN=CHANGE_ME                   # <-- your Plex token
+      - TZ=America/Toronto                     # <-- your timezone
+    volumes:
+      - ./data:/data
+      - /path/to/your/one-pace:/media/one-pace # <-- your One Pace show folder
+      - /path/to/your/downloads:/downloads     # <-- qBittorrent's output folder
+```
+
+Then open `http://<host>:8282` for the dashboard. See [Configuration](#configuration)
+for the optional variables you can add to the `environment:` list.
+
+> **Tip:** prefer keeping secrets out of the compose file? Replace a value with
+> `${PLEX_TOKEN}` (etc.) and put `PLEX_TOKEN=...` in a `.env` file beside it —
+> Compose loads it automatically. The repo's [`docker-compose.yml`](docker-compose.yml)
+> is set up this way and also supports joining an existing `media-stack` network so
+> you can reference qBittorrent by container name instead of host IP.
+
+### Manual (docker run)
+
+Run the published image directly, supplying config with `--env-file` (or repeated
+`-e` flags) and binding the two media paths:
+
+```bash
+docker run -d \
+  --name one-pace-automator \
+  --restart unless-stopped \
+  --env-file .env \
+  -p 8282:8282 \
+  -v /path/to/your/one-pace:/media/one-pace \
+  -v /path/to/your/downloads:/downloads \
+  -v "$PWD/data:/data" \
+  ghcr.io/dyonng/one-pace-plex-automator:latest
+```
+
+With `--env-file`, the `${VAR:-default}` fallbacks in the compose file don't apply,
+so make sure every value you need is set explicitly in `.env`.
+
 ## Configuration
 
 Settings are passed as environment variables. Required values must be set; the
@@ -53,49 +111,12 @@ rest fall back to the defaults shown.
 | `TZ` | | Timezone for cron schedules (default `UTC`) |
 
 Two host paths are bound as volumes: your One Pace show root → `/media/one-pace`,
-and qBittorrent's output folder → `/downloads`. There are no path *variables* — set
-them on the volume mounts (see below). The dashboard can edit `POLL_CRON`,
-`AUTO_DOWNLOAD`, `AUTO_POSTERS`, and a few others live, and a dashboard override
-wins over the `.env` value.
+and qBittorrent's output folder → `/downloads` (set these on the `volumes:` mounts
+in the compose example above). The dashboard can edit `POLL_CRON`, `AUTO_DOWNLOAD`,
+`AUTO_POSTERS`, and a few others live, and a dashboard override wins over the env value.
 
 **Finding your Plex token:**
 Open Plex web UI, browse to any media item, open browser devtools → Network tab, look for `X-Plex-Token` in any request.
-
-## Deployment
-
-### Docker Compose (recommended)
-
-Put `docker-compose.yml` and your filled-in `.env` in the same directory, then:
-
-```bash
-docker compose up -d
-```
-
-Compose automatically reads the `.env` beside the compose file to fill the
-`${VAR}` values — no extra step. The same compose file drops into any
-Compose-based stack manager (Portainer, Dockge, Komodo); paste it in and provide
-the environment values however that tool expects. Edit the two `volumes:` paths to
-point at your One Pace library and qBittorrent download folder.
-
-### Manual (docker run)
-
-Run the published image directly, supplying config with `--env-file` (or repeated
-`-e` flags) and binding the two media paths:
-
-```bash
-docker run -d \
-  --name one-pace-automator \
-  --restart unless-stopped \
-  --env-file .env \
-  -p 8282:8282 \
-  -v /path/to/your/one-pace:/media/one-pace \
-  -v /path/to/your/downloads:/downloads \
-  -v "$PWD/data:/data" \
-  ghcr.io/dyonng/one-pace-plex-automator:latest
-```
-
-With `--env-file`, the `${VAR:-default}` fallbacks in the compose file don't apply,
-so make sure every value you need is set explicitly in `.env`.
 
 ## Metadata source
 
