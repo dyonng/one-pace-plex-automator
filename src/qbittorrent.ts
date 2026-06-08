@@ -29,6 +29,8 @@ export interface TorrentInfo {
   content_path: string;
   completion_on: number;
   size: number;
+  dlspeed: number; // bytes/s
+  eta: number;     // seconds remaining, -1 if unknown
 }
 
 class QBittorrentClient {

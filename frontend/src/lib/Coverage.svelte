@@ -15,10 +15,12 @@
     missing: "bg-error/10 text-error/80 border-error/30 border-dashed",
   };
 
+  const CHIP_UPGRADEABLE_WITH_MAGNET = "bg-primary/20 text-primary border-primary/30";
+
   const LABEL: Record<CoverageStatus, string> = {
     present: "present",
     present_unknown: "present (no CRC in name)",
-    upgradeable: "re-release available",
+    upgradeable: "upgradeable",
     missing: "missing",
   };
 
@@ -170,8 +172,8 @@
                 {#each arc.episodes as ep (ep.datasetCrc32)}
                   {#if ep.status === "upgradeable"}
                     <button
-                      class="badge badge-sm border font-mono tabular-nums cursor-pointer {CHIP[ep.status]}"
-                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}\nClick to compare releases`}
+                      class="badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
+                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${ep.hasMagnet ? "upgradeable · click to download" : "upgradeable · no link yet"}\nClick to compare releases`}
                       onclick={() => openModal(ep)}
                     >
                       E{String(ep.episodeNum).padStart(2, "0")}
@@ -194,7 +196,8 @@
       <!-- Legend + extras -->
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> re-release available</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-primary/40"></span> upgradeable (link ready)</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> upgradeable (no link)</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
       </div>

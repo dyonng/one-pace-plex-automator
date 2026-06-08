@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { writable, get } from "svelte/store";
 import {
   fetchStatus,
   fetchLogs,
@@ -9,12 +9,14 @@ import {
   fetchHealth,
   runHealthCheckReq,
   episodeAction,
+  fetchDownloadProgress,
   type Status,
   type LogEntry,
   type SettingView,
   type AuthState,
   type CoverageReport,
   type HealthReport,
+  type TorrentProgress,
 } from "./api";
 
 export const status = writable<Status | null>(null);
@@ -26,6 +28,7 @@ export const coverageLoading = writable(false);
 export const health = writable<HealthReport | null>(null);
 export const healthLoading = writable(false);
 export const toasts = writable<{ id: number; ok: boolean; msg: string }[]>([]);
+export const downloadProgress = writable<Record<string, TorrentProgress>>({});
 
 let _toastId = 0;
 export function toast(msg: string, ok: boolean): void {
@@ -154,6 +157,19 @@ export function streamLogs(): EventSource {
     }
   };
   return es;
+}
+
+export function startProgressPolling(): ReturnType<typeof setInterval> {
+  return setInterval(async () => {
+    const s = get(status);
+    if (!s?.episodes.some(e => e.status === "downloading")) {
+      if (Object.keys(get(downloadProgress)).length) downloadProgress.set({});
+      return;
+    }
+    try {
+      downloadProgress.set(await fetchDownloadProgress());
+    } catch { /* transient — keep last value */ }
+  }, 2000);
 }
 
 export function startPolling(): ReturnType<typeof setInterval> {
