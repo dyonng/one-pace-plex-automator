@@ -1,14 +1,12 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters } from "./posters";
-import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32 } from "./metadata";
-import { getEpisodeByCrc32, updateEpisodeStatus, deleteEpisode } from "./db";
+import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
+import { getEpisodeByCrc32, updateEpisodeStatus, deleteEpisode, upsertEpisode } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { syncSingleEpisode } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
 import { findMagnetByCrc32 } from "./rss";
-import { upsertEpisode } from "./db";
-import { extractResolutionFromFilename } from "./metadata";
 import { logger } from "./logger";
 
 export interface Runtime {

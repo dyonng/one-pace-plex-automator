@@ -2,7 +2,7 @@
   import { coverage, coverageLoading, runCoverageScan } from "./stores";
   import { fmtTime } from "./util";
   import { fetchEpisodeMetadata, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
-  import { toast, doEpisodeAction, status } from "./stores";
+  import { doEpisodeAction, status } from "./stores";
 
   // Which arcs are expanded (by arcPart).
   let open = $state<Record<number, boolean>>({});
