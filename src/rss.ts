@@ -177,6 +177,36 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
 }
 
 /**
+ * Returns the set of CRC32s (uppercase) that currently have a magnet link
+ * in the RSS feed. Used by the coverage scan to determine hasMagnet without
+ * requiring each CRC32 to already be in the episodes DB.
+ */
+export async function getRssCrc32Set(): Promise<Set<string>> {
+  const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
+  let feed;
+  try {
+    const resp = await fetch(RSS_FEED_URL, { signal: AbortSignal.timeout(20_000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    feed = await parser.parseString(await resp.text());
+  } catch {
+    return new Set();
+  }
+
+  const crc32s = new Set<string>();
+  for (const item of (feed.items ?? []) as RssItem[]) {
+    const magnet = extractMagnet(item);
+    if (!magnet) continue;
+    const filename =
+      cleanTorrentFilename(item.torrentFileName) ??
+      extractFilenameFromMagnet(magnet) ??
+      "";
+    const crc32 = filename ? extractCrc32FromFilename(filename) : null;
+    if (crc32) crc32s.add(crc32.toUpperCase());
+  }
+  return crc32s;
+}
+
+/**
  * First-run seed: marks every GUID currently in the feed as seen WITHOUT
  * downloading. Prevents a fresh install (empty rss_seen) from mass-downloading
  * and replacing files the user already has on disk. Genuinely new releases that
