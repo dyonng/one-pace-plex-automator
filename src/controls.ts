@@ -7,6 +7,7 @@ import { getQbitClient } from "./qbittorrent";
 import { syncSingleEpisode } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
 import { findMagnetByCrc32 } from "./rss";
+import { refreshCoverageIfPresent } from "./coverage";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -169,6 +170,7 @@ export async function runEpisodeAction(
 
       const torrentHash = await getQbitClient().addMagnet(record.magnet_uri!);
       updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+      await refreshCoverageIfPresent();
       logger.info("Episode upgrade queued from dashboard", { crc32, torrentHash });
       return { ok: true, message: `Upgrade started: S${record.arc_part}E${record.episode_num}` };
     });
@@ -187,6 +189,7 @@ export async function runEpisodeAction(
         }
         const torrentHash = await getQbitClient().addMagnet(ep.magnet_uri);
         updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+        await refreshCoverageIfPresent();
         logger.info("Episode download started from dashboard", { crc32, torrentHash });
         return { ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` };
       });
@@ -204,7 +207,21 @@ export async function runEpisodeAction(
         if (opts.deleteFile && ep.final_filename) {
           deletedFile = deleteEpisodeFile(ep.arc_title, ep.arc_part, ep.final_filename);
         }
+        // If the episode is still in the pipeline (e.g. a stalled download),
+        // cancel its torrent and drop the partial data so removing it fully
+        // resets state — the user can retry the download/upgrade later.
+        const inFlight =
+          ep.status === "pending" || ep.status === "downloading" || ep.status === "processing";
+        if (inFlight && ep.torrent_hash) {
+          try {
+            await getQbitClient().deleteTorrent(ep.torrent_hash, true);
+            logger.info("Cancelled in-flight torrent on remove", { crc32, hash: ep.torrent_hash });
+          } catch (err) {
+            logger.warn("Failed to cancel torrent on remove", { crc32, error: (err as Error).message });
+          }
+        }
         deleteEpisode(crc32);
+        await refreshCoverageIfPresent();
         logger.info("Episode removed from dashboard", { crc32, deletedFile });
         return { ok: true, message: `Removed S${ep.arc_part}E${ep.episode_num}${deletedFile ? " + file" : ""}` };
       });

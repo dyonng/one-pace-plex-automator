@@ -12,6 +12,7 @@
     present: "bg-success/20 text-success border-success/30",
     present_unknown: "bg-base-content/10 text-base-content/60 border-base-content/20",
     upgradeable: "bg-warning/20 text-warning border-warning/40",
+    downloading: "bg-accent/20 text-accent border-accent/40 animate-pulse",
     missing: "bg-error/10 text-error/80 border-error/30 border-dashed",
   };
 
@@ -21,6 +22,7 @@
     present: "present",
     present_unknown: "present (no CRC in name)",
     upgradeable: "upgradeable",
+    downloading: "downloading…",
     missing: "missing",
   };
 
@@ -215,7 +217,7 @@
       <!-- Per-arc -->
       <div class="flex flex-col gap-1.5">
         {#each $coverage.arcs as arc (arc.arcPart)}
-          {@const complete = arc.missing === 0 && arc.upgradeable === 0}
+          {@const complete = arc.missing === 0 && arc.upgradeable === 0 && arc.downloading === 0}
           <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
             <button
               class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left"
@@ -229,6 +231,9 @@
               <span class="flex-1 truncate text-sm">{arc.arcTitle}</span>
               {#if arc.upgradeable > 0}
                 <span class="badge badge-sm badge-warning">{arc.upgradeable} ↑</span>
+              {/if}
+              {#if arc.downloading > 0}
+                <span class="badge badge-sm badge-accent">{arc.downloading} ↓</span>
               {/if}
               {#if arc.missing > 0}
                 <span class="badge badge-sm badge-error badge-outline">{arc.missing} missing</span>
@@ -279,6 +284,7 @@
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-info/50"></span> upgradeable (link ready)</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> upgradeable (no link)</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-accent/50"></span> downloading</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
       </div>
