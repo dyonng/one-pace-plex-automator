@@ -32,27 +32,25 @@ Example: `One Pace - Baratie - S05E01 [1080p][BE634289].mkv`
 
 ## Configuration
 
-All settings are environment variables. Copy the example and fill it in:
+Settings are passed as environment variables. Required values must be set; the
+rest fall back to the defaults shown.
 
-```bash
-cp .env.example .env
-```
-
-| Variable | Description |
-|----------|-------------|
-| `RSS_FEED_URL` | One Pace RSS feed (default: `https://onepace.net/en/releases/rss.xml`) |
-| `QBIT_URL` | qBittorrent Web UI URL |
-| `QBIT_USERNAME` / `QBIT_PASSWORD` | qBittorrent credentials |
-| `QBIT_CATEGORY` | Category applied to added torrents (default: `one-pace`) |
-| `PLEX_URL` | Plex Media Server URL (use host IP if Plex runs on baremetal) |
-| `PLEX_TOKEN` | Plex authentication token |
-| `PLEX_LIBRARY_NAME` | Name of the Plex library holding One Pace (default: `TV Shows`) |
-| `POLL_CRON` | RSS poll schedule (default: `*/5 * * * *`) |
-| `AUTO_DOWNLOAD` | Auto-download discovered releases (default: `true`) |
-| `AUTO_POSTERS` | Auto-apply posters to new seasons (default: `true`) |
-| `POSTER_REPO_RAW_BASE` | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
-| `DISCORD_WEBHOOK_URL` | Discord webhook URL for notifications (optional) |
-| `TZ` | Timezone for cron schedules (default: `UTC`) |
+| Variable | Required | Description |
+|----------|:--------:|-------------|
+| `RSS_FEED_URL` | ✅ | One Pace RSS feed (e.g. `https://onepace.net/en/releases/rss.xml`) |
+| `QBIT_PASSWORD` | ✅ | qBittorrent password |
+| `PLEX_URL` | ✅ | Plex Media Server URL (use host IP if Plex runs on baremetal) |
+| `PLEX_TOKEN` | ✅ | Plex authentication token |
+| `QBIT_URL` | | qBittorrent Web UI URL (default `http://qbittorrent:8080`) |
+| `QBIT_USERNAME` | | qBittorrent username (default `admin`) |
+| `QBIT_CATEGORY` | | Category applied to added torrents (default `one-pace`) |
+| `PLEX_LIBRARY_NAME` | | Plex library holding One Pace (default `TV Shows`) |
+| `POLL_CRON` | | RSS poll schedule (default `*/5 * * * *`) |
+| `AUTO_DOWNLOAD` | | Auto-download discovered releases (default `true`) |
+| `AUTO_POSTERS` | | Auto-apply posters to new seasons (default `true`) |
+| `POSTER_REPO_RAW_BASE` | | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
+| `DISCORD_WEBHOOK_URL` | | Discord webhook URL for notifications |
+| `TZ` | | Timezone for cron schedules (default `UTC`) |
 
 Two host paths are bound as volumes: your One Pace show root → `/media/one-pace`,
 and qBittorrent's output folder → `/downloads`. There are no path *variables* — set
