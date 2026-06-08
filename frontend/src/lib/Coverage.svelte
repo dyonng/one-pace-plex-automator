@@ -254,7 +254,7 @@
                   {#if ep.status === "upgradeable"}
                     <button
                       class="badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
-                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${ep.hasMagnet ? "upgradeable · click to download" : "upgradeable · no link yet"}\nClick to compare releases`}
+                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${ep.extended ? "upgrade to Extended cut" : "upgradeable"}${ep.hasMagnet ? " · click to download" : " · no link yet"}\nClick to compare releases`}
                       onclick={() => openModal(ep)}
                     >
                       E{String(ep.episodeNum).padStart(2, "0")}
@@ -334,6 +334,7 @@
             <th>Arc</th>
             <th>Ep</th>
             <th>Title</th>
+            <th>Cut</th>
             <th class="font-mono">On Disk CRC32</th>
             <th class="font-mono">Latest CRC32</th>
           </tr>
@@ -354,9 +355,13 @@
                 <span class="text-xs ml-1">{ep.arcTitle}</span>
               </td>
               <td class="font-mono text-xs text-info">E{String(ep.episodeNum).padStart(2, "0")}</td>
-              <td class="text-sm max-w-[16rem] truncate" title={ep.episodeTitle}>
-                {ep.episodeTitle}
-                {#if ep.extended}<span class="badge badge-xs badge-info badge-outline ml-1 align-middle">EXT</span>{/if}
+              <td class="text-sm max-w-[16rem] truncate" title={ep.episodeTitle}>{ep.episodeTitle}</td>
+              <td>
+                {#if ep.extended}
+                  <span class="badge badge-xs badge-info badge-outline">Extended</span>
+                {:else}
+                  <span class="text-xs opacity-50">Standard</span>
+                {/if}
               </td>
               <td class="font-mono text-xs opacity-60">{ep.diskCrc32 ?? "—"}</td>
               <td class="font-mono text-xs text-info">{ep.datasetCrc32}</td>
@@ -395,7 +400,7 @@
           S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
         </span>
       </h3>
-      <p class="text-xs opacity-50 mb-4">Re-release comparison</p>
+      <p class="text-xs opacity-50 mb-4">Re-release comparison{modal.ep.extended ? " · target is the Extended cut" : ""}</p>
 
       {#if modal.loading}
         <div class="flex justify-center py-10">
@@ -446,7 +451,7 @@
             disabled={modal.loading}
             onclick={doUpgrade}
           >
-            Update
+            {modal.ep.extended ? "Update to Extended" : "Update"}
           </button>
         {/if}
         <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
