@@ -15,6 +15,22 @@ export type SettingKey =
   | "RSS_FEED_URL"
   | "POSTER_REPO_RAW_BASE";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty";
+export type SettingCategory = "service" | "preference";
+
+// Splits the settings UI: "service" = infrastructure/integration config,
+// "preference" = how the app behaves and names things for you.
+const CATEGORY: Record<SettingKey, SettingCategory> = {
+  POLL_ENABLED: "service",
+  POLL_CRON: "service",
+  DOWNLOAD_CHECK_SECONDS: "service",
+  RSS_FEED_URL: "service",
+  DISCORD_WEBHOOK_URL: "service",
+  POSTER_REPO_RAW_BASE: "service",
+  AUTO_DOWNLOAD: "preference",
+  AUTO_POSTERS: "preference",
+  PREFER_EXTENDED: "preference",
+  PREFER_ARABASTA: "preference",
+};
 
 type ValidateResult = { ok: true; value: string } | { ok: false; error: string };
 
@@ -180,6 +196,7 @@ export interface SettingView {
   key: SettingKey;
   label: string;
   type: SettingType;
+  category: SettingCategory;
   value: string;
   envValue: string;
   overridden: boolean;
@@ -193,6 +210,7 @@ export function describeSettings(): SettingView[] {
       key,
       label: DEFS[key].label,
       type: DEFS[key].type,
+      category: CATEGORY[key],
       value: override ?? envValue,
       envValue,
       overridden: override !== null,

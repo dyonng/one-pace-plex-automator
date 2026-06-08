@@ -121,6 +121,7 @@ export interface SettingView {
   key: string;
   label: string;
   type: string;
+  category: "service" | "preference";
   value: string;
   envValue: string;
   overridden: boolean;
