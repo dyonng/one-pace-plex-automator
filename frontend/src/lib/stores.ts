@@ -21,6 +21,7 @@ import {
 
 export const status = writable<Status | null>(null);
 export const logs = writable<LogEntry[]>([]);
+export function clearLogs(): void { logs.set([]); }
 export const settings = writable<SettingView[]>([]);
 export const auth = writable<AuthState | null>(null);
 export const coverage = writable<CoverageReport | null>(null);

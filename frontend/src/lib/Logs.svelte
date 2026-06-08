@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { logs } from "./stores";
+  import { logs, clearLogs } from "./stores";
   import { LEVEL_CLASS } from "./util";
 
   let autoscroll = $state(true);
@@ -26,10 +26,19 @@
         <div class="eyebrow">Telemetry</div>
         <h2 class="font-display text-lg">Logs</h2>
       </div>
-      <label class="label cursor-pointer gap-2 py-0">
-        <span class="label-text text-xs">Auto-scroll</span>
-        <input type="checkbox" class="toggle toggle-xs toggle-primary" bind:checked={autoscroll} />
-      </label>
+      <div class="flex items-center gap-3">
+        <button
+          class="btn btn-xs btn-ghost opacity-60 hover:opacity-100"
+          onclick={clearLogs}
+          disabled={$logs.length === 0}
+        >
+          Clear
+        </button>
+        <label class="label cursor-pointer gap-2 py-0">
+          <span class="label-text text-xs">Auto-scroll</span>
+          <input type="checkbox" class="toggle toggle-xs toggle-primary" bind:checked={autoscroll} />
+        </label>
+      </div>
     </div>
     <div
       bind:this={box}
