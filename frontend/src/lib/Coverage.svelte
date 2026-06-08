@@ -2,6 +2,7 @@
   import { coverage, coverageLoading, runCoverageScan } from "./stores";
   import { fmtTime } from "./util";
   import { fetchEpisodeMetadata, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
+  import { doEpisodeAction, status } from "./stores";
 
   // Which arcs are expanded (by arcPart).
   let open = $state<Record<number, boolean>>({});
@@ -49,6 +50,25 @@
 
   function closeModal() {
     modal = null;
+  }
+
+  let upgrading = $state(false);
+
+  const pipelineEp = $derived(
+    modal
+      ? ($status?.episodes ?? []).find(e => e.crc32.toUpperCase() === modal.ep.datasetCrc32.toUpperCase()) ?? null
+      : null
+  );
+
+  async function doUpgrade() {
+    if (!modal) return;
+    upgrading = true;
+    try {
+      const r = await doEpisodeAction(modal.ep.datasetCrc32, "upgrade");
+      if (r.ok) closeModal();
+    } finally {
+      upgrading = false;
+    }
   }
 </script>
 
@@ -254,7 +274,22 @@
       {/if}
 
       <div class="modal-action">
-        <button class="btn btn-sm" onclick={closeModal}>Close</button>
+        {#if upgrading}
+          <button class="btn btn-sm btn-warning loading" disabled>Starting…</button>
+        {:else if pipelineEp && ["pending", "downloading", "processing"].includes(pipelineEp.status)}
+          <button class="btn btn-sm" disabled title="Already in pipeline">
+            {pipelineEp.status === "pending" ? "Queued" : pipelineEp.status === "downloading" ? "Downloading…" : "Processing…"}
+          </button>
+        {:else}
+          <button
+            class="btn btn-sm btn-warning"
+            disabled={modal.loading}
+            onclick={doUpgrade}
+          >
+            Update
+          </button>
+        {/if}
+        <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button onclick={closeModal}>close</button></form>
