@@ -45,6 +45,7 @@ export interface ResolvedEpisode {
 
 let _data: DataJson | null = null;
 let _etag: string | null = null;
+let _episodesCache: EpisodeSummary[] | null = null;
 
 export async function getData(): Promise<{ arcs: number; episodes: number }> {
   const d = await _getData();
@@ -79,6 +80,7 @@ export async function refreshMetadata(): Promise<boolean> {
 
   _etag = resp.headers.get("etag");
   _data = (await resp.json()) as DataJson;
+  _episodesCache = null; // invalidate derived cache on new data
   logger.info("Metadata dataset loaded", {
     arcs: _data.arcs.length,
     episodes: Object.keys(_data.episodes).length,
@@ -94,6 +96,7 @@ export function isMetadataLoaded(): boolean {
 export function clearMetadataCache(): void {
   _data = null;
   _etag = null;
+  _episodesCache = null;
   logger.debug("Metadata cache cleared");
 }
 
@@ -186,6 +189,8 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
 }
 
 export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
+  if (_episodesCache) return _episodesCache;
+
   const data = await _getData();
 
   // The dataset is keyed by CRC32 and retains release *history*: a re-released
@@ -226,7 +231,8 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
     });
   }
 
-  return [...canonical.values()];
+  _episodesCache = [...canonical.values()];
+  return _episodesCache;
 }
 
 export function buildPlexFilename(
