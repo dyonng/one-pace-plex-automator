@@ -4,10 +4,11 @@ import { syncPosters } from "./posters";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
 import { getQbitClient } from "./qbittorrent";
-import { syncSingleEpisode } from "./plex";
+import { syncSingleEpisode, triggerLibraryScan } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
 import { findMagnetByCrc32 } from "./rss";
 import { refreshCoverageIfPresent } from "./coverage";
+import { applyNamingRenames } from "./naming";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -229,4 +230,27 @@ export async function runEpisodeAction(
     default:
       return { ok: false, message: `Unknown episode action: ${action}` };
   }
+}
+
+/**
+ * Renames the given files (by CRC32) to the canonical naming scheme. Runs under
+ * the action lock so it never overlaps the download processor's file moves, and
+ * triggers a Plex scan + coverage refresh afterwards.
+ */
+export async function runNormalizeNaming(crc32s: string[]): Promise<ActionResult> {
+  return withLock("Normalize file naming", async () => {
+    const r = await applyNamingRenames(crc32s);
+    if (r.renamed > 0) {
+      try {
+        await triggerLibraryScan();
+      } catch (err) {
+        logger.warn("Plex scan after rename failed", { error: (err as Error).message });
+      }
+      await refreshCoverageIfPresent();
+    }
+    const msg =
+      `Renamed ${r.renamed} file${r.renamed === 1 ? "" : "s"}` +
+      (r.failed > 0 ? `, ${r.failed} failed` : "");
+    return { ok: r.failed === 0, message: msg };
+  });
 }

@@ -6,7 +6,8 @@ import { logger, logBus, LogEntry } from "../logger";
 import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus } from "../db";
 import { getData, resolveEpisodeByCrc32 } from "../metadata";
 import { resolvePlexConnection } from "../plex";
-import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
+import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, runNormalizeNaming, ActionId, EpisodeActionId } from "../controls";
+import { scanNamingCandidates } from "../naming";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage, getCoverageScannedAt } from "../coverage";
@@ -189,6 +190,25 @@ function buildRouter(): Router {
       c.json(200, await resolveEpisodeByCrc32(c.params.crc32.toUpperCase()));
     } catch (err) {
       c.json(404, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  // Files on disk whose name doesn't match our canonical scheme, and a bulk
+  // rename for the selected ones.
+  r.get("/api/naming/candidates", async (c) => {
+    try {
+      c.json(200, await scanNamingCandidates());
+    } catch (err) {
+      c.json(500, { ok: false, message: (err as Error).message });
+    }
+  });
+  r.post("/api/naming/normalize", async (c) => {
+    const body = await c.body();
+    const crc32s = Array.isArray(body?.crc32s) ? (body.crc32s as string[]) : [];
+    try {
+      c.json(200, await runNormalizeNaming(crc32s));
+    } catch (err) {
+      c.json(409, { ok: false, message: (err as Error).message });
     }
   });
 
