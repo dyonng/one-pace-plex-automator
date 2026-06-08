@@ -175,7 +175,7 @@ function buildRouter(): Router {
       const result: Record<string, object> = {};
       for (const t of torrents) {
         const crc32 = hashToCrc32[t.hash.toLowerCase()];
-        if (crc32) result[crc32] = { progress: t.progress, dlspeed: t.dlspeed, eta: t.eta, state: t.state };
+        if (crc32) result[crc32] = { progress: t.progress, dlspeed: t.dlspeed, eta: t.eta, state: t.state, size: t.size };
       }
       c.json(200, result);
     } catch (err) {
