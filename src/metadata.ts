@@ -187,7 +187,14 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
 
 export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
   const data = await _getData();
-  const results: EpisodeSummary[] = [];
+
+  // The dataset is keyed by CRC32 and retains release *history*: a re-released
+  // episode keeps its old CRC entry alongside the new one (same arc+episode,
+  // different `released` date). Collapse to one canonical entry per
+  // (arcPart, episodeNum) — the newest `released` wins — so consumers see the
+  // current release only. `released` is "YYYY-MM-DD", so a string compare
+  // orders it; a missing date sorts oldest.
+  const canonical = new Map<string, EpisodeSummary>();
 
   for (const [crc32, ep] of Object.entries(data.episodes)) {
     if (ep.arc === 0) continue; // skip specials
@@ -196,8 +203,12 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
 
     const season = String(arc.part).padStart(2, "0");
     const episode = String(ep.episode).padStart(2, "0");
+    const key = `${arc.part}-${ep.episode}`;
 
-    results.push({
+    const existing = canonical.get(key);
+    if (existing && (existing.released ?? "") >= (ep.released ?? "")) continue;
+
+    canonical.set(key, {
       crc32: crc32.toUpperCase(),
       arcIndex: ep.arc,
       arcTitle: arc.title,
@@ -215,7 +226,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
     });
   }
 
-  return results;
+  return [...canonical.values()];
 }
 
 export function buildPlexFilename(
