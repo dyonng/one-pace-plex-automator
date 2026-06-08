@@ -116,14 +116,16 @@ export async function fetchNewEpisodes(
 
     const magnet = extractMagnet(item);
     if (!magnet) {
-      logger.warn("RSS item has no magnet link, skipping", { title: item.title });
+      logger.warn("RSS item has no magnet or torrent link, skipping", { title: item.title });
       continue;
     }
 
-    // Prefer filename from torrent:fileName, then dn= param in magnet
+    // Prefer filename from torrent:fileName, then dn= param in magnet, then the
+    // .torrent URL's basename.
     const filename =
       cleanTorrentFilename(item.torrentFileName) ??
       extractFilenameFromMagnet(magnet) ??
+      extractFilenameFromTorrentUrl(magnet) ??
       item.title ??
       "";
 
@@ -186,6 +188,7 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
     const filename =
       cleanTorrentFilename(item.torrentFileName) ??
       extractFilenameFromMagnet(magnet) ??
+      extractFilenameFromTorrentUrl(magnet) ??
       "";
     const crc32 = filename ? extractCrc32FromFilename(filename) : null;
     if (crc32?.toUpperCase() === upper) {
@@ -236,6 +239,7 @@ export async function getRssMagnetMap(): Promise<Map<string, RssMagnetEntry>> {
     const filename =
       cleanTorrentFilename(item.torrentFileName) ??
       extractFilenameFromMagnet(magnet) ??
+      extractFilenameFromTorrentUrl(magnet) ??
       "";
     const crc32 = filename ? extractCrc32FromFilename(filename) : null;
     if (crc32) {
@@ -276,11 +280,38 @@ export async function seedSeenGuids(markSeen: (guid: string) => void): Promise<n
   return count;
 }
 
+/**
+ * Returns a download source for an item: a magnet URI when present, otherwise an
+ * http(s) `.torrent` URL (qBittorrent's add endpoint accepts either). Magnets are
+ * preferred — they carry the infohash inline, so completion detection is exact.
+ */
 function extractMagnet(item: RssItem): string | null {
   if (item.magnetURI?.startsWith("magnet:")) return item.magnetURI;
   if (item.link?.startsWith("magnet:")) return item.link;
   if (item.enclosure?.url?.startsWith("magnet:")) return item.enclosure.url;
+
+  // Fallback: a .torrent file URL (enclosure or link).
+  const enc = item.enclosure;
+  if (enc?.url && /^https?:/i.test(enc.url) &&
+      (enc.type === "application/x-bittorrent" || enc.url.toLowerCase().endsWith(".torrent"))) {
+    return enc.url;
+  }
+  if (item.link && /^https?:/i.test(item.link) && item.link.toLowerCase().endsWith(".torrent")) {
+    return item.link;
+  }
   return null;
+}
+
+/** Pulls a filename out of a .torrent URL's path (strips the .torrent suffix). */
+function extractFilenameFromTorrentUrl(source: string): string | null {
+  if (source.startsWith("magnet:")) return null;
+  try {
+    const base = decodeURIComponent(new URL(source).pathname.split("/").pop() ?? "");
+    if (!base) return null;
+    return base.endsWith(".torrent") ? base.slice(0, -".torrent".length) : base;
+  } catch {
+    return null;
+  }
 }
 
 function extractFilenameFromMagnet(magnet: string): string | null {
