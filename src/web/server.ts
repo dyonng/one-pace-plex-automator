@@ -3,13 +3,14 @@ import fs from "fs";
 import path from "path";
 import { getConfig } from "../config";
 import { logger, logBus, LogEntry } from "../logger";
-import { getRecentLogs, listEpisodes, countByStatus } from "../db";
+import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus } from "../db";
 import { getData, resolveEpisodeByCrc32 } from "../metadata";
 import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage } from "../coverage";
+import { getQbitClient } from "../qbittorrent";
 import { getStoredHealth, runHealthCheck } from "../health";
 import { checkRequestAuth, getAuthState, setPassword, setAuthEnabled, isAuthEnabled } from "./auth";
 import { Router } from "./router";
@@ -154,6 +155,26 @@ function buildRouter(): Router {
       c.json(result.ok ? 200 : 409, result);
     } catch (err) {
       c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  r.get("/api/downloads/progress", async (c) => {
+    const downloading = getEpisodesByStatus("downloading");
+    if (downloading.length === 0) { c.json(200, {}); return; }
+    const hashes = downloading.flatMap(ep => ep.torrent_hash ? [ep.torrent_hash] : []);
+    try {
+      const torrents = await getQbitClient().getTorrents(hashes);
+      const hashToCrc32 = Object.fromEntries(
+        downloading.map(ep => [ep.torrent_hash?.toLowerCase(), ep.crc32])
+      );
+      const result: Record<string, object> = {};
+      for (const t of torrents) {
+        const crc32 = hashToCrc32[t.hash.toLowerCase()];
+        if (crc32) result[crc32] = { progress: t.progress, dlspeed: t.dlspeed, eta: t.eta, state: t.state };
+      }
+      c.json(200, result);
+    } catch (err) {
+      c.json(500, { ok: false, message: (err as Error).message });
     }
   });
 

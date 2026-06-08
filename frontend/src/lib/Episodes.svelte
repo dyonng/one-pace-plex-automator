@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { status, doEpisodeAction } from "./stores";
-  import { fmtTime, STATUS_BADGE } from "./util";
+  import { status, doEpisodeAction, downloadProgress } from "./stores";
+  import { fmtTime, fmtSpeed, fmtEta, STATUS_BADGE } from "./util";
   import type { Episode } from "./api";
 
   let busy = $state<string | null>(null);
@@ -59,7 +59,17 @@
               <td class="max-w-[14rem] truncate font-display">{e.arc_title}</td>
               <td><span class="badge badge-sm {STATUS_BADGE[e.status] ?? 'badge-ghost'}">{e.status}</span></td>
               <td class="font-mono text-xs">{e.resolution}</td>
-              <td class="max-w-xs truncate font-mono text-xs opacity-70" title={file}>{file}</td>
+              <td class="max-w-xs font-mono text-xs opacity-70">
+                {#if e.status === "downloading" && $downloadProgress[e.crc32]}
+                  {@const p = $downloadProgress[e.crc32]}
+                  <div class="flex flex-col gap-1 min-w-[12rem]">
+                    <progress class="progress progress-info h-1.5 w-full" value={p.progress} max={1}></progress>
+                    <span>{Math.round(p.progress * 100)}% · {fmtSpeed(p.dlspeed)} · {fmtEta(p.eta)}</span>
+                  </div>
+                {:else}
+                  <span class="truncate block" title={file}>{file}</span>
+                {/if}
+              </td>
               <td class="whitespace-nowrap text-xs opacity-60">{fmtTime(e.updated_at)}</td>
               <td>
                 <div class="flex gap-1 justify-end">

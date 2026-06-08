@@ -11,6 +11,7 @@
   const CHIP: Record<CoverageStatus, string> = {
     present: "bg-success/20 text-success border-success/30",
     present_unknown: "bg-base-content/10 text-base-content/60 border-base-content/20",
+    upgradable: "bg-primary/20 text-primary border-primary/30",
     upgradeable: "bg-warning/20 text-warning border-warning/40",
     missing: "bg-error/10 text-error/80 border-error/30 border-dashed",
   };
@@ -18,7 +19,8 @@
   const LABEL: Record<CoverageStatus, string> = {
     present: "present",
     present_unknown: "present (no CRC in name)",
-    upgradeable: "re-release available",
+    upgradable: "upgradable",
+    upgradeable: "re-release available (no link)",
     missing: "missing",
   };
 
@@ -116,8 +118,16 @@
         </div>
         <div class="deck-card card bg-base-100/60">
           <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgradeable</span>
-            <span class="font-display text-2xl tabular-nums text-warning">{t.upgradeable}</span>
+            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgradable</span>
+            <div class="flex items-baseline gap-2">
+              <span class="font-display text-2xl tabular-nums text-primary">{t.upgradable}</span>
+              {#if t.upgradeable > 0}
+                <span class="text-sm tabular-nums text-warning">+{t.upgradeable}</span>
+              {/if}
+            </div>
+            {#if t.upgradeable > 0}
+              <span class="text-[0.65rem] opacity-50">{t.upgradeable} no link</span>
+            {/if}
           </div>
         </div>
         <div class="deck-card card bg-base-100/60">
@@ -132,7 +142,7 @@
       <!-- Per-arc -->
       <div class="flex flex-col gap-1.5">
         {#each $coverage.arcs as arc (arc.arcPart)}
-          {@const complete = arc.missing === 0 && arc.upgradeable === 0}
+          {@const complete = arc.missing === 0 && arc.upgradeable === 0 && arc.upgradable === 0}
           <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
             <button
               class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left"
@@ -144,6 +154,9 @@
               <span class="opacity-40 text-xs w-3">{open[arc.arcPart] ? "▾" : "▸"}</span>
               <span class="font-mono text-xs opacity-50 tabular-nums">S{String(arc.arcPart).padStart(2, "0")}</span>
               <span class="flex-1 truncate text-sm">{arc.arcTitle}</span>
+              {#if arc.upgradable > 0}
+                <span class="badge badge-sm badge-primary">{arc.upgradable} ↑</span>
+              {/if}
               {#if arc.upgradeable > 0}
                 <span class="badge badge-sm badge-warning">{arc.upgradeable} ↑</span>
               {/if}
@@ -168,7 +181,7 @@
             {#if open[arc.arcPart]}
               <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
                 {#each arc.episodes as ep (ep.datasetCrc32)}
-                  {#if ep.status === "upgradeable"}
+                  {#if ep.status === "upgradeable" || ep.status === "upgradable"}
                     <button
                       class="badge badge-sm border font-mono tabular-nums cursor-pointer {CHIP[ep.status]}"
                       title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}\nClick to compare releases`}
@@ -194,7 +207,8 @@
       <!-- Legend + extras -->
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> re-release available</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-primary/40"></span> upgradable</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> re-release (no link)</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
       </div>

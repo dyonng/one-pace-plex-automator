@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
-import { getKv, setKv } from "./db";
+import { getKv, setKv, getEpisodeByCrc32 } from "./db";
 import { getAllEpisodes, extractCrc32FromFilename } from "./metadata";
 
 // Latest report only — a single upserted kv row, so it never grows and survives
@@ -12,10 +12,11 @@ const KV_KEY = "coverage_report";
 const VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
 
 export type CoverageStatus =
-  | "present" // on disk, CRC32 matches the dataset's current release
+  | "present"         // on disk, CRC32 matches the dataset's current release
   | "present_unknown" // on disk, but filename has no CRC32 so we can't verify
-  | "upgradeable" // on disk, but a different CRC32 — a re-release is available
-  | "missing"; // not on disk
+  | "upgradable"      // on disk with old CRC32, and the new version's magnet is in the DB
+  | "upgradeable"     // on disk with old CRC32, but no magnet stored yet
+  | "missing";        // not on disk
 
 export interface CoverageEpisode {
   arcPart: number;
@@ -36,6 +37,7 @@ export interface CoverageArc {
   present: number;
   missing: number;
   upgradeable: number;
+  upgradable: number;
   seasonFolder: string | null; // actual on-disk folder name, if any files were found
   episodes: CoverageEpisode[];
 }
@@ -44,7 +46,7 @@ export interface CoverageReport {
   scannedAt: number;
   mediaPath: string;
   mediaPathExists: boolean;
-  totals: { episodes: number; present: number; missing: number; upgradeable: number };
+  totals: { episodes: number; present: number; missing: number; upgradeable: number; upgradable: number };
   arcs: CoverageArc[];
   extras: string[]; // video files on disk that map to no dataset episode
 }
@@ -113,7 +115,11 @@ export async function scanCoverage(): Promise<CoverageReport> {
     if (!onDisk) status = "missing";
     else if (!onDisk.crc32) status = "present_unknown";
     else if (onDisk.crc32.toUpperCase() === ep.crc32.toUpperCase()) status = "present";
-    else status = "upgradeable";
+    else {
+      // Re-release detected — check if we have a magnet stored for the new CRC32.
+      const dbRecord = getEpisodeByCrc32(ep.crc32.toUpperCase());
+      status = dbRecord?.magnet_uri ? "upgradable" : "upgradeable";
+    }
 
     let arc = arcMap.get(ep.arcPart);
     if (!arc) {
@@ -125,6 +131,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
         present: 0,
         missing: 0,
         upgradeable: 0,
+        upgradable: 0,
         seasonFolder: null,
         episodes: [],
       };
@@ -136,6 +143,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
     arc.total++;
     if (status === "missing") arc.missing++;
     else if (status === "upgradeable") arc.upgradeable++;
+    else if (status === "upgradable") arc.upgradable++;
     else arc.present++; // present + present_unknown
 
     arc.episodes.push({
@@ -159,8 +167,9 @@ export async function scanCoverage(): Promise<CoverageReport> {
       present: t.present + a.present,
       missing: t.missing + a.missing,
       upgradeable: t.upgradeable + a.upgradeable,
+      upgradable: t.upgradable + a.upgradable,
     }),
-    { episodes: 0, present: 0, missing: 0, upgradeable: 0 }
+    { episodes: 0, present: 0, missing: 0, upgradeable: 0, upgradable: 0 }
   );
 
   const extras = [...disk.values()].map((f) => f.filename).sort();
