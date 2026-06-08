@@ -6,8 +6,9 @@ import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
 import { getAutoDownload } from "./settings";
+import { getStoredCoverage, scanCoverage } from "./coverage";
 
-export async function pollRss(): Promise<void> {
+export async function pollRss(): Promise<number> {
   logger.info("Starting RSS poll cycle");
 
   let newEpisodes;
@@ -15,7 +16,7 @@ export async function pollRss(): Promise<void> {
     newEpisodes = await fetchNewEpisodes(isGuidSeen);
   } catch (err) {
     logger.error("RSS poll failed", { error: (err as Error).message });
-    return;
+    return 0;
   }
 
   const autoDownload = getAutoDownload();
@@ -78,6 +79,8 @@ export async function pollRss(): Promise<void> {
       });
     }
   }
+
+  return newEpisodes.length;
 }
 
 export async function dispatchPending(): Promise<void> {
@@ -103,7 +106,20 @@ export async function dispatchPending(): Promise<void> {
 }
 
 export async function runCycle(): Promise<void> {
-  await pollRss();
+  const newCount = await pollRss();
   await dispatchPending();
   await processDownloading();
+
+  // If new RSS items appeared and the user has run a coverage scan before,
+  // refresh the stored report so hasMagnet stays accurate without manual
+  // re-scanning. Only fires when the RSS actually changed — no extra I/O
+  // on quiet poll cycles.
+  if (newCount > 0 && getStoredCoverage()) {
+    try {
+      await scanCoverage();
+      logger.info("Coverage report refreshed after RSS update");
+    } catch (err) {
+      logger.warn("Coverage refresh after RSS update failed", { error: (err as Error).message });
+    }
+  }
 }
