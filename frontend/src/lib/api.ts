@@ -177,6 +177,7 @@ export interface CoverageEpisode {
   status: CoverageStatus;
   diskFilename: string | null;
   diskCrc32: string | null;
+  hasMagnet: boolean;
 }
 
 export interface CoverageArc {
@@ -198,6 +199,19 @@ export interface CoverageReport {
   totals: { episodes: number; present: number; missing: number; upgradeable: number };
   arcs: CoverageArc[];
   extras: string[];
+}
+
+export interface TorrentProgress {
+  progress: number; // 0–1
+  dlspeed: number;  // bytes/s
+  eta: number;      // seconds remaining, -1 if unknown
+  state: string;
+}
+
+export async function fetchDownloadProgress(): Promise<Record<string, TorrentProgress>> {
+  const r = await fetch("/api/downloads/progress");
+  if (!r.ok) throw new Error("progress " + r.status);
+  return r.json();
 }
 
 export interface EpisodeMetadata {
