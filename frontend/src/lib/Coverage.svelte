@@ -354,7 +354,10 @@
                 <span class="text-xs ml-1">{ep.arcTitle}</span>
               </td>
               <td class="font-mono text-xs text-info">E{String(ep.episodeNum).padStart(2, "0")}</td>
-              <td class="text-sm max-w-[16rem] truncate" title={ep.episodeTitle}>{ep.episodeTitle}</td>
+              <td class="text-sm max-w-[16rem] truncate" title={ep.episodeTitle}>
+                {ep.episodeTitle}
+                {#if ep.extended}<span class="badge badge-xs badge-info badge-outline ml-1 align-middle">EXT</span>{/if}
+              </td>
               <td class="font-mono text-xs opacity-60">{ep.diskCrc32 ?? "—"}</td>
               <td class="font-mono text-xs text-info">{ep.datasetCrc32}</td>
             </tr>
@@ -404,6 +407,7 @@
           <div class="rounded-lg border border-warning/40 bg-warning/5 p-3 flex flex-col gap-3">
             <div class="text-xs font-semibold text-warning uppercase tracking-wider">On Disk</div>
             {@render metaField("CRC32", modal.ep.diskCrc32 ?? "unknown", false, true)}
+            {@render metaField("Cut", modal.old ? (modal.old.extended ? "Extended" : "Standard") : "unknown", modal.old?.extended !== modal.curr?.extended)}
             {@render metaField("Released", modal.old?.released ?? "unknown")}
             {@render metaField("Title", modal.old?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
             {@render metaField("Chapters", modal.old?.chapters ?? "—")}
@@ -417,6 +421,7 @@
           <div class="rounded-lg border border-success/40 bg-success/5 p-3 flex flex-col gap-3">
             <div class="text-xs font-semibold text-success uppercase tracking-wider">Latest Release</div>
             {@render metaField("CRC32", modal.curr?.crc32 ?? modal.ep.datasetCrc32, false, true)}
+            {@render metaField("Cut", modal.curr ? (modal.curr.extended ? "Extended" : "Standard") : "unknown", modal.old?.extended !== modal.curr?.extended)}
             {@render metaField("Released", modal.curr?.released ?? "unknown")}
             {@render metaField("Title", modal.curr?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
             {@render metaField("Chapters", modal.curr?.chapters ?? "—")}

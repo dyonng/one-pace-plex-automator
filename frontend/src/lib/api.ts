@@ -180,6 +180,7 @@ export interface CoverageEpisode {
   diskFilename: string | null;
   diskCrc32: string | null;
   hasMagnet: boolean;
+  extended: boolean;
 }
 
 export interface CoverageArc {
@@ -226,6 +227,7 @@ export interface EpisodeMetadata {
   chapters: string;
   originalEpisodes: string;
   released: string;
+  extended: boolean;
 }
 
 export async function fetchEpisodeMetadata(crc32: string): Promise<EpisodeMetadata | null> {

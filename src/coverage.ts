@@ -28,6 +28,7 @@ export interface CoverageEpisode {
   diskFilename: string | null;
   diskCrc32: string | null;
   hasMagnet: boolean; // true when a magnet for the latest CRC32 is stored in the DB
+  extended: boolean;  // true when the canonical release is the extended cut
 }
 
 export interface CoverageArc {
@@ -160,6 +161,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
       diskFilename: onDisk?.filename ?? null,
       diskCrc32: onDisk?.crc32 ?? null,
       hasMagnet,
+      extended: ep.extended,
     });
   }
 
