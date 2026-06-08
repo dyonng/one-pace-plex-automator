@@ -37,6 +37,7 @@ export interface Status {
     discordConfigured: boolean;
   };
   counts: Record<string, number>;
+  coverageScannedAt: number | null;
   episodes: Episode[];
 }
 

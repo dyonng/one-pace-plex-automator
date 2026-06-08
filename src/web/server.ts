@@ -9,7 +9,7 @@ import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
-import { scanCoverage, getStoredCoverage } from "../coverage";
+import { scanCoverage, getStoredCoverage, getCoverageScannedAt } from "../coverage";
 import { getQbitClient } from "../qbittorrent";
 import { getEpisodeFileSize } from "../fileops";
 import { getStoredHealth, runHealthCheck } from "../health";
@@ -94,6 +94,7 @@ async function buildStatus() {
       discordConfigured: Boolean(cfg.DISCORD_WEBHOOK_URL),
     },
     counts: countByStatus(),
+    coverageScannedAt: getCoverageScannedAt(),
     episodes: listEpisodes().map((e) => ({
       ...e,
       file_size: getEpisodeFileSize(e.arc_title, e.arc_part, e.final_filename),
