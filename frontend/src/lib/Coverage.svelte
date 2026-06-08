@@ -1,7 +1,7 @@
 <script lang="ts">
   import { coverage, coverageLoading, runCoverageScan } from "./stores";
   import { fmtTime } from "./util";
-  import type { CoverageStatus } from "./api";
+  import { fetchEpisodeMetadata, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
 
   // Which arcs are expanded (by arcPart).
   let open = $state<Record<number, boolean>>({});
@@ -22,6 +22,34 @@
   };
 
   const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
+
+  interface ModalState {
+    ep: CoverageEpisode;
+    loading: boolean;
+    old: EpisodeMetadata | null;
+    curr: EpisodeMetadata | null;
+  }
+
+  let modal = $state<ModalState | null>(null);
+  let dialogEl = $state<HTMLDialogElement | null>(null);
+
+  $effect(() => {
+    if (modal) dialogEl?.showModal();
+    else dialogEl?.close();
+  });
+
+  async function openModal(ep: CoverageEpisode) {
+    modal = { ep, loading: true, old: null, curr: null };
+    const [oldMeta, currMeta] = await Promise.all([
+      ep.diskCrc32 ? fetchEpisodeMetadata(ep.diskCrc32) : Promise.resolve(null),
+      fetchEpisodeMetadata(ep.datasetCrc32),
+    ]);
+    if (modal) modal = { ...modal, loading: false, old: oldMeta, curr: currMeta };
+  }
+
+  function closeModal() {
+    modal = null;
+  }
 </script>
 
 <section class="deck-card card bg-base-100/60">
@@ -120,12 +148,22 @@
             {#if open[arc.arcPart]}
               <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
                 {#each arc.episodes as ep (ep.datasetCrc32)}
-                  <span
-                    class="badge badge-sm border font-mono tabular-nums {CHIP[ep.status]}"
-                    title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}`}
-                  >
-                    E{String(ep.episodeNum).padStart(2, "0")}
-                  </span>
+                  {#if ep.status === "upgradeable"}
+                    <button
+                      class="badge badge-sm border font-mono tabular-nums cursor-pointer {CHIP[ep.status]}"
+                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}\nClick to compare releases`}
+                      onclick={() => openModal(ep)}
+                    >
+                      E{String(ep.episodeNum).padStart(2, "0")}
+                    </button>
+                  {:else}
+                    <span
+                      class="badge badge-sm border font-mono tabular-nums {CHIP[ep.status]}"
+                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}`}
+                    >
+                      E{String(ep.episodeNum).padStart(2, "0")}
+                    </span>
+                  {/if}
                 {/each}
               </div>
             {/if}
@@ -160,3 +198,65 @@
     {/if}
   </div>
 </section>
+
+{#snippet metaField(label: string, value: string, highlight: boolean = false, mono: boolean = false)}
+  <div class="flex flex-col gap-0.5">
+    <span class="text-[0.6rem] uppercase tracking-wider opacity-50">{label}</span>
+    <span class="text-sm break-words {mono ? 'font-mono text-xs' : ''} {highlight ? 'text-warning font-medium' : ''}">{value || "—"}</span>
+  </div>
+{/snippet}
+
+<!-- Re-release comparison modal -->
+<dialog bind:this={dialogEl} class="modal" onclose={closeModal}>
+  {#if modal}
+    <div class="modal-box max-w-3xl w-full">
+      <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeModal}>✕</button>
+      <h3 class="font-bold text-base">
+        {modal.ep.episodeTitle}
+        <span class="font-mono text-sm opacity-50 ml-1">
+          S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
+        </span>
+      </h3>
+      <p class="text-xs opacity-50 mb-4">Re-release comparison</p>
+
+      {#if modal.loading}
+        <div class="flex justify-center py-10">
+          <span class="loading loading-spinner loading-md"></span>
+        </div>
+      {:else}
+        <div class="grid grid-cols-2 gap-3">
+          <!-- On disk (old) -->
+          <div class="rounded-lg border border-warning/40 bg-warning/5 p-3 flex flex-col gap-3">
+            <div class="text-xs font-semibold text-warning uppercase tracking-wider">On Disk</div>
+            {@render metaField("CRC32", modal.ep.diskCrc32 ?? "unknown", false, true)}
+            {@render metaField("Released", modal.old?.released ?? "unknown")}
+            {@render metaField("Title", modal.old?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
+            {@render metaField("Chapters", modal.old?.chapters ?? "—")}
+            {@render metaField("Original episodes", modal.old?.originalEpisodes ?? "—")}
+            {#if modal.old?.episodeDescription}
+              {@render metaField("Description", modal.old.episodeDescription, modal.old.episodeDescription !== modal.curr?.episodeDescription)}
+            {/if}
+          </div>
+
+          <!-- Latest (new) -->
+          <div class="rounded-lg border border-success/40 bg-success/5 p-3 flex flex-col gap-3">
+            <div class="text-xs font-semibold text-success uppercase tracking-wider">Latest Release</div>
+            {@render metaField("CRC32", modal.curr?.crc32 ?? modal.ep.datasetCrc32, false, true)}
+            {@render metaField("Released", modal.curr?.released ?? "unknown")}
+            {@render metaField("Title", modal.curr?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
+            {@render metaField("Chapters", modal.curr?.chapters ?? "—")}
+            {@render metaField("Original episodes", modal.curr?.originalEpisodes ?? "—")}
+            {#if modal.curr?.episodeDescription}
+              {@render metaField("Description", modal.curr.episodeDescription, modal.old?.episodeDescription !== modal.curr?.episodeDescription)}
+            {/if}
+          </div>
+        </div>
+      {/if}
+
+      <div class="modal-action">
+        <button class="btn btn-sm" onclick={closeModal}>Close</button>
+      </div>
+    </div>
+    <form method="dialog" class="modal-backdrop"><button onclick={closeModal}>close</button></form>
+  {/if}
+</dialog>

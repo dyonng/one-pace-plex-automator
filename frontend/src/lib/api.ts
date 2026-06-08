@@ -200,6 +200,24 @@ export interface CoverageReport {
   extras: string[];
 }
 
+export interface EpisodeMetadata {
+  crc32: string;
+  arcTitle: string;
+  arcPart: number;
+  episodeNum: number;
+  episodeTitle: string;
+  episodeDescription: string;
+  chapters: string;
+  originalEpisodes: string;
+  released: string;
+}
+
+export async function fetchEpisodeMetadata(crc32: string): Promise<EpisodeMetadata | null> {
+  const r = await fetch(`/api/metadata/${encodeURIComponent(crc32)}`);
+  if (!r.ok) return null;
+  return r.json();
+}
+
 /** Last stored scan, or null if none has run yet. */
 export async function fetchCoverage(): Promise<CoverageReport | null> {
   const r = await fetch("/api/coverage");
