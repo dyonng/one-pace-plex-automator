@@ -90,6 +90,13 @@
               <button class="btn btn-ghost btn-xs" onclick={() => reset(s.key)}>reset</button>
             {/if}
           {:else}
+            {#if s.key === "DISCORD_WEBHOOK_URL"}
+              <button
+                class="btn btn-secondary btn-sm"
+                disabled={testing || !s.value}
+                title={s.value ? "Sends a test message to the saved webhook" : "Save a webhook URL first"}
+                onclick={testDiscord}>{testing ? "Testing…" : "Test"}</button>
+            {/if}
             <input
               class="input input-bordered input-sm w-full sm:w-72 font-mono"
               type={s.type === "int" ? "number" : "text"}
@@ -99,13 +106,6 @@
             <div class="flex gap-1">
               <button class="btn btn-primary btn-sm" disabled={saving === s.key} onclick={() => persist(s.key, edited[s.key] ?? "")}>Save</button>
               <button class="btn btn-ghost btn-sm" disabled={saving === s.key || !s.overridden} onclick={() => reset(s.key)}>Reset</button>
-              {#if s.key === "DISCORD_WEBHOOK_URL"}
-                <button
-                  class="btn btn-secondary btn-sm"
-                  disabled={testing || !s.value}
-                  title={s.value ? "Sends a test message to the saved webhook" : "Save a webhook URL first"}
-                  onclick={testDiscord}>{testing ? "Testing…" : "Test"}</button>
-              {/if}
             </div>
             {#if s.key === "DISCORD_WEBHOOK_URL" && (edited[s.key] ?? "") !== s.value}
               <div class="basis-full text-xs opacity-55">↳ Test uses the saved value — Save first to test your edit.</div>
