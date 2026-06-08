@@ -1,7 +1,7 @@
 import { logger } from "./logger";
 import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus } from "./db";
 import { fetchNewEpisodes } from "./rss";
-import { resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
+import { resolveEpisodeByCrc32, extractResolutionFromFilename, isPreferredRelease } from "./metadata";
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
@@ -24,6 +24,15 @@ export async function pollRss(): Promise<number> {
   for (const rssEp of newEpisodes) {
     try {
       logger.info("Processing new RSS entry", { crc32: rssEp.crc32, title: rssEp.title });
+
+      // Honor the extended-cut preference: when an episode has both a standard
+      // and an extended cut, only download the preferred variant. This prevents
+      // a standard re-release from replacing an extended cut already on disk.
+      if (!(await isPreferredRelease(rssEp.crc32))) {
+        logger.info("Skipping non-preferred cut", { crc32: rssEp.crc32, title: rssEp.title });
+        markGuidSeen(rssEp.guid);
+        continue;
+      }
 
       const resolution = extractResolutionFromFilename(rssEp.filename);
       const ep = await resolveEpisodeByCrc32(rssEp.crc32, resolution);

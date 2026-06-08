@@ -1,29 +1,61 @@
 import { getConfig } from "./config";
 import { logger } from "./logger";
+import { getPreferExtended } from "./settings";
+
+// ── Richer v2 metadata schema (metadata/data.min.json) ───────────────────────
+// arcs.en[]            — one entry per arc; episodes[] maps each episode to its
+//                        standard + (optional) extended CRC32.
+// descriptions.en[]    — per-episode title/description, keyed by (arc part, episode).
+// episodes{CRC32}      — per-release technical metadata; retains release history.
+
+interface DataJsonArcEpisode {
+  episode: string;   // zero-padded string, e.g. "02"
+  standard: string;  // CRC32 of the standard cut
+  extended: string;  // CRC32 of the extended cut, or "" if none
+}
 
 interface DataJsonArc {
   part: number;
   saga: string;
   title: string;
   originaltitle: string;
+  shortcode: string;
+  mkvcode: string;
   description: string;
-  poster: string;
+  episodes: DataJsonArcEpisode[];
+}
+
+interface DataJsonEpisodeFile {
+  id: number;
+  name: string;
+  size: string;
+  hash: string;
+  index: number;
 }
 
 interface DataJsonEpisode {
-  arc: number; // index into arcs[]
+  arc: number;        // arc PART (matches DataJsonArc.part)
+  episode: number;
+  manga_chapters: string;
+  anime_episodes: string;
+  released: string;
+  duration: number;
+  extended: boolean;
+  hashes: { crc32: string; blake2s: string };
+  file?: DataJsonEpisodeFile;
+}
+
+interface DataJsonDescription {
+  arc: number;        // arc PART
   episode: number;
   title: string;
   originaltitle: string;
   description: string;
-  chapters: string;
-  episodes: string;
-  released: string;
-  hashes: { crc32: string; blake2: string };
 }
 
 interface DataJson {
-  arcs: DataJsonArc[];
+  arcs: { en: DataJsonArc[] };
+  descriptions: { en: DataJsonDescription[] };
   episodes: Record<string, DataJsonEpisode>; // key = CRC32 uppercase hex
 }
 
@@ -41,15 +73,46 @@ export interface ResolvedEpisode {
   originalEpisodes: string;
   released: string;
   resolution: string;
+  extended: boolean; // true when this CRC32 is the extended cut
 }
 
 let _data: DataJson | null = null;
 let _etag: string | null = null;
-let _episodesCache: EpisodeSummary[] | null = null;
+
+// Derived lookup indexes, rebuilt whenever _data is (re)loaded.
+let _arcByPart: Map<number, { arc: DataJsonArc; index: number }> | null = null;
+let _descByKey: Map<string, DataJsonDescription> | null = null;
+let _variantByKey: Map<string, { standard: string; extended: string }> | null = null;
+// getAllEpisodes() output, cached per prefer-extended value (cleared on reload).
+let _episodesCache: { pref: boolean; list: EpisodeSummary[] } | null = null;
+
+const epKey = (arcPart: number, episodeNum: number): string => `${arcPart}-${episodeNum}`;
+
+function buildIndexes(d: DataJson): void {
+  _arcByPart = new Map();
+  d.arcs.en.forEach((arc, index) => _arcByPart!.set(arc.part, { arc, index }));
+
+  _descByKey = new Map();
+  for (const desc of d.descriptions.en) {
+    _descByKey.set(epKey(desc.arc, Number(desc.episode)), desc);
+  }
+
+  _variantByKey = new Map();
+  for (const arc of d.arcs.en) {
+    for (const ve of arc.episodes) {
+      _variantByKey.set(epKey(arc.part, Number(ve.episode)), {
+        standard: (ve.standard ?? "").toUpperCase(),
+        extended: (ve.extended ?? "").toUpperCase(),
+      });
+    }
+  }
+
+  _episodesCache = null;
+}
 
 export async function getData(): Promise<{ arcs: number; episodes: number }> {
   const d = await _getData();
-  return { arcs: d.arcs.length, episodes: Object.keys(d.episodes).length };
+  return { arcs: d.arcs.en.length, episodes: Object.keys(d.episodes).length };
 }
 
 async function _getData(): Promise<DataJson> {
@@ -60,13 +123,13 @@ async function _getData(): Promise<DataJson> {
 }
 
 /**
- * Conditional GET of data.min.json. Uses the stored ETag so an unchanged dataset
- * costs a 304 with no body. Returns true if the cache was updated. One Pace bumps
- * an episode's CRC32 on re-release, so this must run before resolving new feed
- * items or the new CRC32 won't be found.
+ * Conditional GET of metadata/data.min.json. Uses the stored ETag so an
+ * unchanged dataset costs a 304 with no body. Returns true if the cache was
+ * updated. One Pace bumps an episode's CRC32 on re-release, so this must run
+ * before resolving new feed items or the new CRC32 won't be found.
  */
 export async function refreshMetadata(): Promise<boolean> {
-  const url = `${getConfig().METADATA_REPO_RAW_BASE}/data.min.json`;
+  const url = `${getConfig().METADATA_REPO_RAW_BASE}/metadata/data.min.json`;
   const headers: Record<string, string> = {};
   if (_etag) headers["If-None-Match"] = _etag;
 
@@ -80,9 +143,9 @@ export async function refreshMetadata(): Promise<boolean> {
 
   _etag = resp.headers.get("etag");
   _data = (await resp.json()) as DataJson;
-  _episodesCache = null; // invalidate derived cache on new data
+  buildIndexes(_data);
   logger.info("Metadata dataset loaded", {
-    arcs: _data.arcs.length,
+    arcs: _data.arcs.en.length,
     episodes: Object.keys(_data.episodes).length,
   });
   return true;
@@ -96,6 +159,9 @@ export function isMetadataLoaded(): boolean {
 export function clearMetadataCache(): void {
   _data = null;
   _etag = null;
+  _arcByPart = null;
+  _descByKey = null;
+  _variantByKey = null;
   _episodesCache = null;
   logger.debug("Metadata cache cleared");
 }
@@ -108,23 +174,55 @@ export async function resolveEpisodeByCrc32(
   const key = crc32.toUpperCase();
   const ep = data.episodes[key];
   if (!ep) throw new Error(`CRC32 ${key} not found in metadata dataset`);
-  const arc = data.arcs[ep.arc];
-  if (!arc) throw new Error(`Arc index ${ep.arc} not found in metadata dataset`);
+  const arcEntry = _arcByPart!.get(ep.arc);
+  if (!arcEntry) throw new Error(`Arc part ${ep.arc} not found in metadata dataset`);
+  const epNum = Number(ep.episode);
+  const desc = _descByKey!.get(epKey(ep.arc, epNum));
   return {
     crc32: key,
-    arcIndex: ep.arc,
-    arcTitle: arc.title,
-    arcSaga: arc.saga,
-    arcPart: arc.part,
-    arcDescription: arc.description,
-    episodeNum: ep.episode,
-    episodeTitle: ep.title,
-    episodeDescription: ep.description,
-    chapters: ep.chapters,
-    originalEpisodes: ep.episodes,
-    released: ep.released,
+    arcIndex: arcEntry.index,
+    arcTitle: arcEntry.arc.title,
+    arcSaga: arcEntry.arc.saga,
+    arcPart: arcEntry.arc.part,
+    arcDescription: arcEntry.arc.description,
+    episodeNum: epNum,
+    episodeTitle: desc?.title ?? "",
+    episodeDescription: desc?.description ?? "",
+    chapters: ep.manga_chapters ?? "",
+    originalEpisodes: ep.anime_episodes ?? "",
+    released: ep.released ?? "",
     resolution,
+    extended: Boolean(ep.extended),
   };
+}
+
+/**
+ * The preferred CRC32 for an episode: the extended cut when one exists and the
+ * "prefer extended" setting is on, otherwise the standard cut. Returns null if
+ * the episode is unknown.
+ */
+export async function getCanonicalCrc32(arcPart: number, episodeNum: number): Promise<string | null> {
+  await _getData();
+  const v = _variantByKey!.get(epKey(arcPart, episodeNum));
+  if (!v) return null;
+  if (getPreferExtended() && v.extended) return v.extended;
+  return v.standard || v.extended || null;
+}
+
+/**
+ * True if a CRC32 is the variant we'd want to keep for its episode, per the
+ * current preference. Used by the RSS poll to skip downloading the non-preferred
+ * cut (e.g. a standard re-release when the extended cut is preferred). Unknown
+ * CRC32s return true (fail-open — never silently drop a genuinely new release).
+ */
+export async function isPreferredRelease(crc32: string): Promise<boolean> {
+  const data = await _getData();
+  const key = crc32.toUpperCase();
+  const ep = data.episodes[key];
+  if (!ep) return true;
+  const preferred = await getCanonicalCrc32(ep.arc, Number(ep.episode));
+  if (!preferred) return true;
+  return preferred === key;
 }
 
 /**
@@ -145,22 +243,20 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
   if (!parsed) return null;
 
   const data = await _getData();
-  const arcIndex = data.arcs.findIndex(
+  const arc = data.arcs.en.find(
     (a) => a.title.toLowerCase() === parsed.arcTitle.toLowerCase()
   );
-  if (arcIndex === -1) {
+  if (!arc) {
     logger.warn("Arc not found in metadata", { arcTitle: parsed.arcTitle });
     return null;
   }
 
-  for (const [crc32, ep] of Object.entries(data.episodes)) {
-    if (ep.arc === arcIndex && ep.episode === parsed.epNum) {
-      return crc32.toUpperCase();
-    }
+  const crc = await getCanonicalCrc32(arc.part, parsed.epNum);
+  if (!crc) {
+    logger.warn("Episode not found in metadata", { arcTitle: parsed.arcTitle, epNum: parsed.epNum });
+    return null;
   }
-
-  logger.warn("Episode not found in metadata", { arcTitle: parsed.arcTitle, epNum: parsed.epNum });
-  return null;
+  return crc;
 }
 
 export interface ArcSummary {
@@ -177,10 +273,11 @@ export interface EpisodeSummary extends ResolvedEpisode {
 
 export async function getAllArcs(): Promise<ArcSummary[]> {
   const data = await _getData();
-  return data.arcs
-    .filter((a) => a.part > 0)
-    .map((a, i) => ({
-      arcIndex: i,
+  return data.arcs.en
+    .map((a, index) => ({ a, index }))
+    .filter(({ a }) => a.part > 0)
+    .map(({ a, index }) => ({
+      arcIndex: index,
       arcPart: a.part,
       arcTitle: a.title,
       arcSaga: a.saga,
@@ -189,50 +286,49 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
 }
 
 export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
-  if (_episodesCache) return _episodesCache;
-
   const data = await _getData();
+  const preferExtended = getPreferExtended();
+  if (_episodesCache && _episodesCache.pref === preferExtended) return _episodesCache.list;
 
-  // The dataset is keyed by CRC32 and retains release *history*: a re-released
-  // episode keeps its old CRC entry alongside the new one (same arc+episode,
-  // different `released` date). Collapse to one canonical entry per
-  // (arcPart, episodeNum) — the newest `released` wins — so consumers see the
-  // current release only. `released` is "YYYY-MM-DD", so a string compare
-  // orders it; a missing date sorts oldest.
-  const canonical = new Map<string, EpisodeSummary>();
+  // The arc episode list gives the current canonical standard + extended CRC32
+  // per (arc, episode). Pick the preferred variant; everything else (titles,
+  // technical fields) hangs off that CRC32.
+  const list: EpisodeSummary[] = [];
+  for (const { arc, index } of _arcByPart!.values()) {
+    if (arc.part <= 0) continue; // skip specials
+    for (const ve of arc.episodes) {
+      const epNum = Number(ve.episode);
+      const isExtended = Boolean(preferExtended && ve.extended);
+      const crc = (isExtended ? ve.extended : ve.standard || ve.extended || "").toUpperCase();
+      if (!crc) continue;
 
-  for (const [crc32, ep] of Object.entries(data.episodes)) {
-    if (ep.arc === 0) continue; // skip specials
-    const arc = data.arcs[ep.arc];
-    if (!arc) continue;
+      const epData = data.episodes[crc];
+      const desc = _descByKey!.get(epKey(arc.part, epNum));
+      const season = String(arc.part).padStart(2, "0");
+      const episode = String(epNum).padStart(2, "0");
 
-    const season = String(arc.part).padStart(2, "0");
-    const episode = String(ep.episode).padStart(2, "0");
-    const key = `${arc.part}-${ep.episode}`;
-
-    const existing = canonical.get(key);
-    if (existing && (existing.released ?? "") >= (ep.released ?? "")) continue;
-
-    canonical.set(key, {
-      crc32: crc32.toUpperCase(),
-      arcIndex: ep.arc,
-      arcTitle: arc.title,
-      arcSaga: arc.saga,
-      arcPart: arc.part,
-      arcDescription: arc.description,
-      episodeNum: ep.episode,
-      episodeTitle: ep.title,
-      episodeDescription: ep.description,
-      chapters: ep.chapters,
-      originalEpisodes: ep.episodes,
-      released: ep.released,
-      resolution: "1080p",
-      seasonEpisodeId: `s${season}e${episode}`,
-    });
+      list.push({
+        crc32: crc,
+        arcIndex: index,
+        arcTitle: arc.title,
+        arcSaga: arc.saga,
+        arcPart: arc.part,
+        arcDescription: arc.description,
+        episodeNum: epNum,
+        episodeTitle: desc?.title ?? "",
+        episodeDescription: desc?.description ?? "",
+        chapters: epData?.manga_chapters ?? "",
+        originalEpisodes: epData?.anime_episodes ?? "",
+        released: epData?.released ?? "",
+        resolution: extractResolutionFromFilename(epData?.file?.name ?? ""),
+        extended: Boolean(epData?.extended),
+        seasonEpisodeId: `s${season}e${episode}`,
+      });
+    }
   }
 
-  _episodesCache = [...canonical.values()];
-  return _episodesCache;
+  _episodesCache = { pref: preferExtended, list };
+  return list;
 }
 
 export function buildPlexFilename(

@@ -9,6 +9,7 @@ export type SettingKey =
   | "DOWNLOAD_CHECK_SECONDS"
   | "AUTO_DOWNLOAD"
   | "AUTO_POSTERS"
+  | "PREFER_EXTENDED"
   | "DISCORD_WEBHOOK_URL"
   | "RSS_FEED_URL"
   | "POSTER_REPO_RAW_BASE";
@@ -107,6 +108,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().AUTO_POSTERS),
     validate: validateBool,
   },
+  PREFER_EXTENDED: {
+    key: "PREFER_EXTENDED",
+    label: "Prefer extended cuts over standard",
+    type: "bool",
+    envValue: () => String(getConfig().PREFER_EXTENDED),
+    validate: validateBool,
+  },
   DISCORD_WEBHOOK_URL: {
     key: "DISCORD_WEBHOOK_URL",
     label: "Discord webhook URL (blank = off)",
@@ -150,6 +158,10 @@ export function getPollEnabled(): boolean {
 
 export function getAutoPosters(): boolean {
   return getSettingValue("AUTO_POSTERS") === "true";
+}
+
+export function getPreferExtended(): boolean {
+  return getSettingValue("PREFER_EXTENDED") === "true";
 }
 
 export interface SettingView {
