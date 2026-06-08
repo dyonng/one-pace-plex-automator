@@ -4,7 +4,7 @@ import path from "path";
 import { getConfig } from "../config";
 import { logger, logBus, LogEntry } from "../logger";
 import { getRecentLogs, listEpisodes, countByStatus } from "../db";
-import { getData } from "../metadata";
+import { getData, resolveEpisodeByCrc32 } from "../metadata";
 import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
@@ -154,6 +154,14 @@ function buildRouter(): Router {
       c.json(result.ok ? 200 : 409, result);
     } catch (err) {
       c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  r.get("/api/metadata/:crc32", async (c) => {
+    try {
+      c.json(200, await resolveEpisodeByCrc32(c.params.crc32.toUpperCase()));
+    } catch (err) {
+      c.json(404, { ok: false, message: (err as Error).message });
     }
   });
 
