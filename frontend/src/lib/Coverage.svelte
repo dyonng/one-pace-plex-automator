@@ -88,6 +88,9 @@
           <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
             <button
               class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left"
+              title={arc.seasonFolder
+                ? `${$coverage.mediaPath}/${arc.seasonFolder}`
+                : "No season folder on disk yet"}
               onclick={() => toggle(arc.arcPart)}
             >
               <span class="opacity-40 text-xs w-3">{open[arc.arcPart] ? "▾" : "▸"}</span>
@@ -116,7 +119,7 @@
 
             {#if open[arc.arcPart]}
               <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
-                {#each arc.episodes as ep (ep.episodeNum)}
+                {#each arc.episodes as ep (ep.datasetCrc32)}
                   <span
                     class="badge badge-sm border font-mono tabular-nums {CHIP[ep.status]}"
                     title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}`}

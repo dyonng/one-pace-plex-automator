@@ -187,6 +187,7 @@ export interface CoverageArc {
   present: number;
   missing: number;
   upgradeable: number;
+  seasonFolder: string | null;
   episodes: CoverageEpisode[];
 }
 

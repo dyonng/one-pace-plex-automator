@@ -36,6 +36,7 @@ export interface CoverageArc {
   present: number;
   missing: number;
   upgradeable: number;
+  seasonFolder: string | null; // actual on-disk folder name, if any files were found
   episodes: CoverageEpisode[];
 }
 
@@ -51,6 +52,7 @@ export interface CoverageReport {
 interface DiskFile {
   filename: string;
   crc32: string | null;
+  folder: string; // the season folder the file was found in
 }
 
 const seKey = (season: number, episode: number): string => `${season}-${episode}`;
@@ -83,6 +85,7 @@ function scanDisk(): Map<string, DiskFile> {
       byEpisode.set(seKey(season, episode), {
         filename: f.name,
         crc32: extractCrc32FromFilename(f.name),
+        folder: dir.name,
       });
     }
   }
@@ -122,10 +125,13 @@ export async function scanCoverage(): Promise<CoverageReport> {
         present: 0,
         missing: 0,
         upgradeable: 0,
+        seasonFolder: null,
         episodes: [],
       };
       arcMap.set(ep.arcPart, arc);
     }
+
+    if (onDisk && !arc.seasonFolder) arc.seasonFolder = onDisk.folder;
 
     arc.total++;
     if (status === "missing") arc.missing++;
