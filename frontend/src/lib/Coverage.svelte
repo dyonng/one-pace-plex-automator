@@ -1,7 +1,8 @@
 <script lang="ts">
   import { coverage, coverageLoading, runCoverageScan } from "./stores";
   import { fmtTime } from "./util";
-  import { fetchEpisodeMetadata, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
+  import { fetchEpisodeMetadata, episodeAction, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
+  import { toast } from "./stores";
 
   // Which arcs are expanded (by arcPart).
   let open = $state<Record<number, boolean>>({});
@@ -49,6 +50,22 @@
 
   function closeModal() {
     modal = null;
+  }
+
+  let upgrading = $state(false);
+
+  async function doUpgrade() {
+    if (!modal) return;
+    upgrading = true;
+    try {
+      const r = await episodeAction(modal.ep.datasetCrc32, "upgrade");
+      toast(r.message, r.ok);
+      if (r.ok) closeModal();
+    } catch {
+      toast("Request failed", false);
+    } finally {
+      upgrading = false;
+    }
   }
 </script>
 
@@ -254,7 +271,15 @@
       {/if}
 
       <div class="modal-action">
-        <button class="btn btn-sm" onclick={closeModal}>Close</button>
+        <button
+          class="btn btn-sm btn-warning"
+          disabled={upgrading || modal.loading}
+          class:loading={upgrading}
+          onclick={doUpgrade}
+        >
+          {upgrading ? "Starting…" : "Update"}
+        </button>
+        <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
       </div>
     </div>
     <form method="dialog" class="modal-backdrop"><button onclick={closeModal}>close</button></form>
