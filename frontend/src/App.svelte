@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { startPolling, initLogs, streamLogs, loadSettings, loadAuth, loadCoverage } from "./lib/stores";
+  import { startPolling, startProgressPolling, initLogs, streamLogs, loadSettings, loadAuth, loadCoverage } from "./lib/stores";
   import Navbar from "./lib/Navbar.svelte";
   import NewReleases from "./lib/NewReleases.svelte";
   import Controls from "./lib/Controls.svelte";
@@ -15,6 +15,7 @@
 
   onMount(() => {
     const poll = startPolling();
+    const progressPoll = startProgressPolling();
     loadSettings();
     loadAuth();
     loadCoverage();
@@ -22,6 +23,7 @@
     const es = streamLogs();
     return () => {
       clearInterval(poll);
+      clearInterval(progressPoll);
       es.close();
     };
   });
