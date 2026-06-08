@@ -72,6 +72,70 @@
       upgrading = false;
     }
   }
+
+  // ── Batch upgrade modal ──────────────────────────────────────────────────────
+  let batchOpen = $state(false);
+  let batchDialogEl = $state<HTMLDialogElement | null>(null);
+  let batchSelected = $state(new Set<string>());
+  let batchUpgrading = $state(false);
+
+  $effect(() => {
+    if (batchOpen) batchDialogEl?.showModal();
+    else batchDialogEl?.close();
+  });
+
+  const allUpgradeable = $derived(
+    ($coverage?.arcs ?? []).flatMap(arc =>
+      arc.episodes
+        .filter(ep => ep.status === "upgradeable")
+        .map(ep => ({ ...ep, arcTitle: arc.arcTitle }))
+    )
+  );
+
+  const upgradeableWithMagnet = $derived(allUpgradeable.filter(ep => ep.hasMagnet));
+
+  const allSelected = $derived(
+    upgradeableWithMagnet.length > 0 &&
+    upgradeableWithMagnet.every(ep => batchSelected.has(ep.datasetCrc32))
+  );
+
+  const someSelected = $derived(
+    upgradeableWithMagnet.some(ep => batchSelected.has(ep.datasetCrc32))
+  );
+
+  function toggleAll() {
+    if (allSelected) {
+      batchSelected = new Set();
+    } else {
+      batchSelected = new Set(upgradeableWithMagnet.map(ep => ep.datasetCrc32));
+    }
+  }
+
+  function toggleOne(crc32: string) {
+    const s = new Set(batchSelected);
+    if (s.has(crc32)) s.delete(crc32); else s.add(crc32);
+    batchSelected = s;
+  }
+
+  function openBatchModal() {
+    batchSelected = new Set(upgradeableWithMagnet.map(ep => ep.datasetCrc32));
+    batchOpen = true;
+  }
+
+  function closeBatchModal() {
+    batchOpen = false;
+  }
+
+  async function doBatchUpgrade() {
+    if (batchSelected.size === 0) return;
+    batchUpgrading = true;
+    try {
+      await Promise.all([...batchSelected].map(crc32 => doEpisodeAction(crc32, "upgrade")));
+      closeBatchModal();
+    } finally {
+      batchUpgrading = false;
+    }
+  }
 </script>
 
 <section class="deck-card card bg-base-100/60">
@@ -116,12 +180,16 @@
             <span class="font-display text-2xl tabular-nums text-error/80">{t.missing}</span>
           </div>
         </div>
-        <div class="deck-card card bg-base-100/60">
+        <button
+          class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default"
+          disabled={t.upgradeable === 0}
+          onclick={openBatchModal}
+        >
           <div class="card-body p-3 gap-0.5">
             <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgradeable</span>
             <span class="font-display text-2xl tabular-nums text-warning">{t.upgradeable}</span>
           </div>
-        </div>
+        </button>
         <div class="deck-card card bg-base-100/60">
           <div class="card-body p-3 gap-0.5">
             <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Extras</span>
@@ -228,6 +296,86 @@
     <span class="text-sm break-words {mono ? 'font-mono text-xs' : ''} {highlight ? 'text-warning font-medium' : ''}">{value || "—"}</span>
   </div>
 {/snippet}
+
+<!-- Batch upgrade modal -->
+<dialog bind:this={batchDialogEl} class="modal" onclose={closeBatchModal}>
+  <div class="modal-box max-w-4xl w-full">
+    <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeBatchModal}>✕</button>
+    <h3 class="font-bold text-base">Batch Upgrade</h3>
+    <p class="text-xs opacity-50 mb-4">{allUpgradeable.length} upgradeable episode{allUpgradeable.length === 1 ? "" : "s"}</p>
+
+    <div class="overflow-x-auto max-h-[60vh] rounded-box border border-base-content/10">
+      <table class="table table-sm table-pin-rows">
+        <thead>
+          <tr class="text-xs uppercase tracking-wider">
+            <th class="w-8">
+              <input
+                type="checkbox"
+                class="checkbox checkbox-xs"
+                checked={allSelected}
+                indeterminate={someSelected && !allSelected}
+                onchange={toggleAll}
+                disabled={upgradeableWithMagnet.length === 0}
+              />
+            </th>
+            <th>Arc</th>
+            <th>Ep</th>
+            <th>Title</th>
+            <th class="font-mono">On Disk CRC32</th>
+            <th class="font-mono">Latest CRC32</th>
+          </tr>
+        </thead>
+        <tbody>
+          {#each allUpgradeable as ep (ep.datasetCrc32)}
+            {@const selectable = ep.hasMagnet}
+            <tr class="hover:bg-base-200/40 {!selectable ? 'opacity-40' : ''}">
+              <td>
+                <input
+                  type="checkbox"
+                  class="checkbox checkbox-xs"
+                  checked={batchSelected.has(ep.datasetCrc32)}
+                  onchange={() => toggleOne(ep.datasetCrc32)}
+                  disabled={!selectable}
+                  title={selectable ? undefined : "No download link available yet"}
+                />
+              </td>
+              <td class="whitespace-nowrap">
+                <span class="font-mono text-xs opacity-50">S{String(ep.arcPart).padStart(2, "0")}</span>
+                <span class="text-xs ml-1">{ep.arcTitle}</span>
+              </td>
+              <td class="font-mono text-xs text-primary">E{String(ep.episodeNum).padStart(2, "0")}</td>
+              <td class="text-sm max-w-[16rem] truncate" title={ep.episodeTitle}>{ep.episodeTitle}</td>
+              <td class="font-mono text-xs opacity-60">{ep.diskCrc32 ?? "—"}</td>
+              <td class="font-mono text-xs">
+                {#if ep.hasMagnet}
+                  <span class="text-primary">{ep.datasetCrc32}</span>
+                {:else}
+                  <span class="opacity-50">{ep.datasetCrc32}</span>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="modal-action">
+      {#if batchUpgrading}
+        <button class="btn btn-sm btn-warning loading" disabled>Upgrading…</button>
+      {:else}
+        <button
+          class="btn btn-sm btn-warning"
+          disabled={batchSelected.size === 0}
+          onclick={doBatchUpgrade}
+        >
+          Update Selected ({batchSelected.size})
+        </button>
+      {/if}
+      <button class="btn btn-sm btn-ghost" onclick={closeBatchModal}>Close</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button onclick={closeBatchModal}>close</button></form>
+</dialog>
 
 <!-- Re-release comparison modal -->
 <dialog bind:this={dialogEl} class="modal" onclose={closeModal}>
