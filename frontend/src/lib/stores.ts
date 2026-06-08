@@ -34,9 +34,25 @@ export function toast(msg: string, ok: boolean): void {
   setTimeout(() => toasts.update((t) => t.filter((x) => x.id !== id)), 4000);
 }
 
+// The server stamps a fresh `runtime.startedAt` every boot. We remember the
+// first one we see; if a later poll reports a different value the server was
+// restarted (e.g. a redeploy), so reload the page — that reconnects the SSE
+// stream and pulls the freshly built UI bundle (its asset hash changes).
+let seenStartedAt: number | null = null;
+
 export async function refreshStatus(): Promise<void> {
   try {
-    status.set(await fetchStatus());
+    const s = await fetchStatus();
+    const started = s.runtime?.startedAt ?? null;
+    if (started != null) {
+      if (seenStartedAt == null) {
+        seenStartedAt = started;
+      } else if (started !== seenStartedAt && typeof location !== "undefined") {
+        location.reload();
+        return;
+      }
+    }
+    status.set(s);
   } catch {
     /* transient — keep last status */
   }
