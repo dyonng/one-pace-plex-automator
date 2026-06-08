@@ -8,6 +8,7 @@ import { getData } from "../metadata";
 import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
+import { scanCoverage, getStoredCoverage } from "../coverage";
 import { checkRequestAuth, getAuthState, setPassword, setAuthEnabled, isAuthEnabled } from "./auth";
 import { Router } from "./router";
 import { version } from "../../package.json";
@@ -110,6 +111,17 @@ function buildRouter(): Router {
 
   r.get("/api/status", async (c) => c.json(200, await buildStatus()));
   r.get("/api/logs", (c) => c.json(200, getRecentLogs(500)));
+
+  // GET returns the last stored scan (cheap, survives restarts); POST runs a
+  // fresh disk scan and overwrites the stored report.
+  r.get("/api/coverage", (c) => c.json(200, getStoredCoverage()));
+  r.post("/api/coverage/scan", async (c) => {
+    try {
+      c.json(200, await scanCoverage());
+    } catch (err) {
+      c.json(500, { ok: false, message: (err as Error).message });
+    }
+  });
   r.get("/api/logs/stream", (c) => streamLogs(c.req, c.res));
 
   r.post("/api/actions/:id", async (c) => {

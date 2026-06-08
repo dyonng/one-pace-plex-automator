@@ -121,6 +121,53 @@ export async function resetSettingReq(key: string): Promise<{ ok: boolean; messa
   return r.json();
 }
 
+export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "missing";
+
+export interface CoverageEpisode {
+  arcPart: number;
+  episodeNum: number;
+  seasonEpisodeId: string;
+  episodeTitle: string;
+  datasetCrc32: string;
+  status: CoverageStatus;
+  diskFilename: string | null;
+  diskCrc32: string | null;
+}
+
+export interface CoverageArc {
+  arcPart: number;
+  arcTitle: string;
+  arcSaga: string;
+  total: number;
+  present: number;
+  missing: number;
+  upgradeable: number;
+  episodes: CoverageEpisode[];
+}
+
+export interface CoverageReport {
+  scannedAt: number;
+  mediaPath: string;
+  mediaPathExists: boolean;
+  totals: { episodes: number; present: number; missing: number; upgradeable: number };
+  arcs: CoverageArc[];
+  extras: string[];
+}
+
+/** Last stored scan, or null if none has run yet. */
+export async function fetchCoverage(): Promise<CoverageReport | null> {
+  const r = await fetch("/api/coverage");
+  if (!r.ok) throw new Error("coverage " + r.status);
+  return r.json();
+}
+
+/** Runs a fresh disk scan, overwrites the stored report, returns it. */
+export async function scanCoverageReq(): Promise<CoverageReport> {
+  const r = await fetch("/api/coverage/scan", { method: "POST" });
+  if (!r.ok) throw new Error("coverage scan " + r.status);
+  return r.json();
+}
+
 export interface AuthState {
   enabled: boolean;
   hasPassword: boolean;

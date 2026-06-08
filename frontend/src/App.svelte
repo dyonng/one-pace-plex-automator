@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { startPolling, initLogs, streamLogs, loadSettings, loadAuth } from "./lib/stores";
+  import { startPolling, initLogs, streamLogs, loadSettings, loadAuth, loadCoverage } from "./lib/stores";
   import Navbar from "./lib/Navbar.svelte";
   import NewReleases from "./lib/NewReleases.svelte";
   import Controls from "./lib/Controls.svelte";
   import Stats from "./lib/Stats.svelte";
+  import Coverage from "./lib/Coverage.svelte";
   import InfoCards from "./lib/InfoCards.svelte";
   import Settings from "./lib/Settings.svelte";
   import Episodes from "./lib/Episodes.svelte";
@@ -16,6 +17,7 @@
     const poll = startPolling();
     loadSettings();
     loadAuth();
+    loadCoverage();
     initLogs();
     const es = streamLogs();
     return () => {
@@ -30,6 +32,7 @@
   <NewReleases />
   <Stats />
   <Controls />
+  <Coverage />
   <InfoCards />
   <Settings />
   <Episodes />

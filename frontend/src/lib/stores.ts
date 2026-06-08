@@ -4,17 +4,22 @@ import {
   fetchLogs,
   fetchSettings,
   fetchAuth,
+  fetchCoverage,
+  scanCoverageReq,
   episodeAction,
   type Status,
   type LogEntry,
   type SettingView,
   type AuthState,
+  type CoverageReport,
 } from "./api";
 
 export const status = writable<Status | null>(null);
 export const logs = writable<LogEntry[]>([]);
 export const settings = writable<SettingView[]>([]);
 export const auth = writable<AuthState | null>(null);
+export const coverage = writable<CoverageReport | null>(null);
+export const coverageLoading = writable(false);
 export const toasts = writable<{ id: number; ok: boolean; msg: string }[]>([]);
 
 let _toastId = 0;
@@ -53,6 +58,27 @@ export async function loadSettings(): Promise<void> {
     settings.set(await fetchSettings());
   } catch {
     /* ignore */
+  }
+}
+
+/** Load the last stored scan (e.g. on mount). No-ops quietly if none exists. */
+export async function loadCoverage(): Promise<void> {
+  try {
+    coverage.set(await fetchCoverage());
+  } catch {
+    /* ignore — leave coverage null */
+  }
+}
+
+/** Trigger a fresh disk scan and store the result. */
+export async function runCoverageScan(): Promise<void> {
+  coverageLoading.set(true);
+  try {
+    coverage.set(await scanCoverageReq());
+  } catch {
+    toast("Coverage scan failed", false);
+  } finally {
+    coverageLoading.set(false);
   }
 }
 

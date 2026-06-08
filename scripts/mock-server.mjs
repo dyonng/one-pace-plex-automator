@@ -91,6 +91,68 @@ function buildStatus() {
   };
 }
 
+// ---- coverage (mock) ----
+function mockCoverage() {
+  const arcDefs = [
+    [1, "Romance Dawn", "East Blue", 4],
+    [2, "Orange Town", "East Blue", 3],
+    [3, "Syrup Village", "East Blue", 5],
+    [12, "Little Garden", "Paramount War", 6],
+    [31, "Dressrosa", "Dressrosa", 45],
+  ];
+  const pick = (e, part) => {
+    // deterministic-ish spread of statuses for the mock
+    if (part === 31 && e > 40) return "missing";
+    if (part === 12 && e === 6) return "upgradeable";
+    if (part === 3 && e >= 4) return "missing";
+    if (part === 2 && e === 3) return "present_unknown";
+    return "present";
+  };
+  const arcs = arcDefs.map(([part, title, saga, total]) => {
+    const episodes = [];
+    let present = 0,
+      missing = 0,
+      upgradeable = 0;
+    for (let e = 1; e <= total; e++) {
+      const status = pick(e, part);
+      if (status === "missing") missing++;
+      else if (status === "upgradeable") upgradeable++;
+      else present++;
+      episodes.push({
+        arcPart: part,
+        episodeNum: e,
+        seasonEpisodeId: `s${String(part).padStart(2, "0")}e${String(e).padStart(2, "0")}`,
+        episodeTitle: `${title} ${e}`,
+        datasetCrc32: "AAAA0000",
+        status,
+        diskFilename: status === "missing" ? null : `One Pace - ${title} - S${part}E${e} [1080p][AAAA0000].mkv`,
+        diskCrc32: status === "missing" || status === "present_unknown" ? null : "AAAA0000",
+      });
+    }
+    return { arcPart: part, arcTitle: title, arcSaga: saga, total, present, missing, upgradeable, episodes };
+  });
+  const totals = arcs.reduce(
+    (t, a) => ({
+      episodes: t.episodes + a.total,
+      present: t.present + a.present,
+      missing: t.missing + a.missing,
+      upgradeable: t.upgradeable + a.upgradeable,
+    }),
+    { episodes: 0, present: 0, missing: 0, upgradeable: 0 }
+  );
+  return {
+    scannedAt: Date.now(),
+    mediaPath: "/media/one-pace",
+    mediaPathExists: true,
+    totals,
+    arcs,
+    extras: ["One Pace - Movie - Strong World [1080p][DEADBEEF].mkv"],
+  };
+}
+
+// Latest stored coverage report (null until first scan), mirroring the kv row.
+let lastCoverage = null;
+
 // ---- fake log stream ----
 const sseClients = new Set();
 let logId = 0;
@@ -270,6 +332,13 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (method === "GET" && url.startsWith("/api/logs")) return sendJson(res, 200, recentLogs);
+    if (method === "POST" && url.startsWith("/api/coverage/scan")) {
+      await new Promise((r) => setTimeout(r, 600)); // simulate scan
+      lastCoverage = mockCoverage();
+      emitLog("info", "Coverage scan complete", lastCoverage.totals);
+      return sendJson(res, 200, lastCoverage);
+    }
+    if (method === "GET" && url.startsWith("/api/coverage")) return sendJson(res, 200, lastCoverage);
     if (method === "POST" && url.startsWith("/api/actions/")) {
       const id = url.split("/").pop().split("?")[0];
       const { status, body } = await runMockAction(id);
