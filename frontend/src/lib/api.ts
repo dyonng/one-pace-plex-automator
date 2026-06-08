@@ -77,7 +77,7 @@ export async function postAction(id: string): Promise<{ ok: boolean; message: st
 
 export async function episodeAction(
   crc32: string,
-  action: "download" | "retry" | "resync" | "remove",
+  action: "download" | "retry" | "resync" | "remove" | "upgrade",
   body?: Record<string, unknown>
 ): Promise<{ ok: boolean; message: string }> {
   const r = await fetch(`/api/episodes/${crc32}/${action}`, {

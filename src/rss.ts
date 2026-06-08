@@ -135,6 +135,48 @@ export async function fetchNewEpisodes(
 }
 
 /**
+ * Scans the live RSS feed for an item whose CRC32 matches targetCrc32.
+ * Used to retrieve a magnet link for a re-release that predates the app's
+ * RSS tracking (i.e. the item was never stored in the episodes table).
+ */
+export async function findMagnetByCrc32(targetCrc32: string): Promise<{
+  magnet: string;
+  guid: string;
+  filename: string;
+  changelog: string[];
+} | null> {
+  const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
+  let feed;
+  try {
+    const resp = await fetch(RSS_FEED_URL, { signal: AbortSignal.timeout(20_000) });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    feed = await parser.parseString(await resp.text());
+  } catch (err) {
+    throw new Error(`RSS fetch failed: ${(err as Error).message}`);
+  }
+
+  const upper = targetCrc32.toUpperCase();
+  for (const item of (feed.items ?? []) as RssItem[]) {
+    const magnet = extractMagnet(item);
+    if (!magnet) continue;
+    const filename =
+      cleanTorrentFilename(item.torrentFileName) ??
+      extractFilenameFromMagnet(magnet) ??
+      "";
+    const crc32 = filename ? extractCrc32FromFilename(filename) : null;
+    if (crc32?.toUpperCase() === upper) {
+      return {
+        magnet,
+        guid: item.guid ?? item.link ?? item.title ?? "",
+        filename,
+        changelog: extractChangelog(item.content),
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * First-run seed: marks every GUID currently in the feed as seen WITHOUT
  * downloading. Prevents a fresh install (empty rss_seen) from mass-downloading
  * and replacing files the user already has on disk. Genuinely new releases that

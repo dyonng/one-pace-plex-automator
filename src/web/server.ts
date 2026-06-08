@@ -35,7 +35,7 @@ const ACTION_IDS: ActionId[] = [
   "sync-posters",
   "force-posters",
 ];
-const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove"];
+const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove", "upgrade"];
 
 function serveStatic(res: http.ServerResponse, urlPath: string): void {
   const file = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");

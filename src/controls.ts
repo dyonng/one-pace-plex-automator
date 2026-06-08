@@ -6,6 +6,9 @@ import { getEpisodeByCrc32, updateEpisodeStatus, deleteEpisode } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { syncSingleEpisode } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
+import { findMagnetByCrc32 } from "./rss";
+import { upsertEpisode } from "./db";
+import { extractResolutionFromFilename } from "./metadata";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -115,13 +118,53 @@ function seasonEpisodeId(arcPart: number, episodeNum: number): string {
   return `s${String(arcPart).padStart(2, "0")}e${String(episodeNum).padStart(2, "0")}`;
 }
 
-export type EpisodeActionId = "download" | "retry" | "resync" | "remove";
+export type EpisodeActionId = "download" | "retry" | "resync" | "remove" | "upgrade";
 
 export async function runEpisodeAction(
   action: EpisodeActionId,
   crc32: string,
   opts: { deleteFile?: boolean } = {}
 ): Promise<ActionResult> {
+  if (action === "upgrade") {
+    return withLock("Upgrade episode", async () => {
+      let record = getEpisodeByCrc32(crc32);
+
+      if (!record?.magnet_uri) {
+        logger.info("Magnet not in DB, scanning RSS for upgrade", { crc32 });
+        const rssItem = await findMagnetByCrc32(crc32);
+        if (!rssItem) return { ok: false, message: "No magnet found — episode not in RSS feed" };
+
+        const meta = await resolveEpisodeByCrc32(crc32, extractResolutionFromFilename(rssItem.filename));
+        upsertEpisode({
+          crc32,
+          arc_num: meta.arcIndex,
+          arc_title: meta.arcTitle,
+          arc_part: meta.arcPart,
+          episode_num: meta.episodeNum,
+          resolution: meta.resolution,
+          original_filename: rssItem.filename,
+          final_filename: null,
+          status: "available",
+          torrent_hash: null,
+          magnet_uri: rssItem.magnet,
+          error_message: null,
+          rss_guid: rssItem.guid,
+          changelog: rssItem.changelog,
+        });
+        record = getEpisodeByCrc32(crc32)!;
+      }
+
+      if (record.status === "downloading" || record.status === "processing") {
+        return { ok: false, message: `Already ${record.status}` };
+      }
+
+      const torrentHash = await getQbitClient().addMagnet(record.magnet_uri!);
+      updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+      logger.info("Episode upgrade queued from dashboard", { crc32, torrentHash });
+      return { ok: true, message: `Upgrade started: S${record.arc_part}E${record.episode_num}` };
+    });
+  }
+
   const ep = getEpisodeByCrc32(crc32);
   if (!ep) return { ok: false, message: `Episode ${crc32} not found` };
 
