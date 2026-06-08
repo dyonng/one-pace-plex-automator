@@ -175,6 +175,13 @@ export function updateEpisodeStatus(
   );
 }
 
+/** Updates only the stored final filename (e.g. after a normalize rename). */
+export function setEpisodeFinalFilename(crc32: string, finalFilename: string): void {
+  getDb()
+    .prepare("UPDATE episodes SET final_filename = ?, updated_at = ? WHERE crc32 = ?")
+    .run(finalFilename, Date.now(), crc32);
+}
+
 export function getEpisodesByStatus(status: EpisodeStatus): EpisodeRecord[] {
   return (getDb()
     .prepare("SELECT * FROM episodes WHERE status = ?")

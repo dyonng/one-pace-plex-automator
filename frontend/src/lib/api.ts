@@ -78,6 +78,32 @@ export async function postAction(id: string): Promise<{ ok: boolean; message: st
   return r.json();
 }
 
+export interface NamingCandidate {
+  crc32: string;
+  folder: string;
+  oldName: string;
+  newName: string;
+  arcPart: number;
+  episodeNum: number;
+  episodeTitle: string;
+  extended: boolean;
+}
+
+export async function fetchNamingCandidates(): Promise<NamingCandidate[]> {
+  const r = await fetch("/api/naming/candidates");
+  if (!r.ok) throw new Error("naming " + r.status);
+  return r.json();
+}
+
+export async function normalizeNaming(crc32s: string[]): Promise<{ ok: boolean; message: string }> {
+  const r = await fetch("/api/naming/normalize", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ crc32s }),
+  });
+  return r.json();
+}
+
 export async function episodeAction(
   crc32: string,
   action: "download" | "retry" | "resync" | "remove" | "upgrade",
