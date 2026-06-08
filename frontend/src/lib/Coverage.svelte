@@ -1,8 +1,8 @@
 <script lang="ts">
   import { coverage, coverageLoading, runCoverageScan } from "./stores";
   import { fmtTime } from "./util";
-  import { fetchEpisodeMetadata, episodeAction, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
-  import { toast } from "./stores";
+  import { fetchEpisodeMetadata, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
+  import { toast, doEpisodeAction, status } from "./stores";
 
   // Which arcs are expanded (by arcPart).
   let open = $state<Record<number, boolean>>({});
@@ -54,15 +54,18 @@
 
   let upgrading = $state(false);
 
+  const pipelineEp = $derived(
+    modal
+      ? ($status?.episodes ?? []).find(e => e.crc32.toUpperCase() === modal.ep.datasetCrc32.toUpperCase()) ?? null
+      : null
+  );
+
   async function doUpgrade() {
     if (!modal) return;
     upgrading = true;
     try {
-      const r = await episodeAction(modal.ep.datasetCrc32, "upgrade");
-      toast(r.message, r.ok);
+      const r = await doEpisodeAction(modal.ep.datasetCrc32, "upgrade");
       if (r.ok) closeModal();
-    } catch {
-      toast("Request failed", false);
     } finally {
       upgrading = false;
     }
@@ -271,14 +274,21 @@
       {/if}
 
       <div class="modal-action">
-        <button
-          class="btn btn-sm btn-warning"
-          disabled={upgrading || modal.loading}
-          class:loading={upgrading}
-          onclick={doUpgrade}
-        >
-          {upgrading ? "Starting…" : "Update"}
-        </button>
+        {#if upgrading}
+          <button class="btn btn-sm btn-warning loading" disabled>Starting…</button>
+        {:else if pipelineEp && ["pending", "downloading", "processing"].includes(pipelineEp.status)}
+          <button class="btn btn-sm" disabled title="Already in pipeline">
+            {pipelineEp.status === "pending" ? "Queued" : pipelineEp.status === "downloading" ? "Downloading…" : "Processing…"}
+          </button>
+        {:else}
+          <button
+            class="btn btn-sm btn-warning"
+            disabled={modal.loading}
+            onclick={doUpgrade}
+          >
+            Update
+          </button>
+        {/if}
         <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
       </div>
     </div>
