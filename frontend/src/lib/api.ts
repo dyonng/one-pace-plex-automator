@@ -121,6 +121,46 @@ export async function resetSettingReq(key: string): Promise<{ ok: boolean; messa
   return r.json();
 }
 
+export type HealthStatus = "ok" | "warn" | "error";
+
+export interface HealthCheck {
+  name: string;
+  status: HealthStatus;
+  detail: string;
+  latencyMs: number | null;
+}
+
+export interface DiskInfo {
+  name: string;
+  path: string;
+  status: HealthStatus;
+  freeBytes: number;
+  totalBytes: number;
+  freePct: number;
+}
+
+export interface HealthReport {
+  checkedAt: number;
+  overall: HealthStatus;
+  checks: HealthCheck[];
+  disks: DiskInfo[];
+  lastPollAt: number | null;
+  lastPollAgoSec: number | null;
+  failedCount: number;
+}
+
+export async function fetchHealth(): Promise<HealthReport | null> {
+  const r = await fetch("/api/health/full");
+  if (!r.ok) throw new Error("health " + r.status);
+  return r.json();
+}
+
+export async function runHealthCheckReq(): Promise<HealthReport> {
+  const r = await fetch("/api/health/check", { method: "POST" });
+  if (!r.ok) throw new Error("health check " + r.status);
+  return r.json();
+}
+
 export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "missing";
 
 export interface CoverageEpisode {

@@ -87,6 +87,16 @@ export async function resolvePlexConnection(): Promise<{ plexUrl: string; librar
   return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: "One Pace" };
 }
 
+/** Cheap reachability probe for health checks — hits /identity with a short timeout. */
+export async function pingPlex(): Promise<void> {
+  const { PLEX_URL } = getConfig();
+  await axios.get(`${PLEX_URL}/identity`, {
+    params: baseParams(),
+    headers: { Accept: "application/json" },
+    timeout: 8000,
+  });
+}
+
 export async function triggerLibraryScan(): Promise<void> {
   const sectionId = await resolveSectionId();
   logger.info("Triggering Plex library scan", { sectionId });

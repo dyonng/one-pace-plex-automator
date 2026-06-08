@@ -4,7 +4,7 @@
   import Navbar from "./lib/Navbar.svelte";
   import NewReleases from "./lib/NewReleases.svelte";
   import Controls from "./lib/Controls.svelte";
-  import Stats from "./lib/Stats.svelte";
+  import System from "./lib/System.svelte";
   import Coverage from "./lib/Coverage.svelte";
   import InfoCards from "./lib/InfoCards.svelte";
   import Settings from "./lib/Settings.svelte";
@@ -30,7 +30,7 @@
 <Navbar />
 <main class="p-4 sm:p-6 max-w-screen-2xl mx-auto flex flex-col gap-4">
   <NewReleases />
-  <Stats />
+  <System />
   <Controls />
   <Coverage />
   <InfoCards />

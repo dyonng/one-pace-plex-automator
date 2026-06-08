@@ -9,6 +9,7 @@ import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, ActionId, EpisodeActionId } from "../controls";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { scanCoverage, getStoredCoverage } from "../coverage";
+import { getStoredHealth, runHealthCheck } from "../health";
 import { checkRequestAuth, getAuthState, setPassword, setAuthEnabled, isAuthEnabled } from "./auth";
 import { Router } from "./router";
 import { version } from "../../package.json";
@@ -145,6 +146,16 @@ function buildRouter(): Router {
       c.json(result.ok ? 200 : 409, result);
     } catch (err) {
       c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  // GET returns the last poller snapshot; POST forces an immediate re-check.
+  r.get("/api/health/full", (c) => c.json(200, getStoredHealth()));
+  r.post("/api/health/check", async (c) => {
+    try {
+      c.json(200, await runHealthCheck());
+    } catch (err) {
+      c.json(500, { ok: false, message: (err as Error).message });
     }
   });
 

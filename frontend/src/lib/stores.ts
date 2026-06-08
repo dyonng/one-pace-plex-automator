@@ -6,12 +6,15 @@ import {
   fetchAuth,
   fetchCoverage,
   scanCoverageReq,
+  fetchHealth,
+  runHealthCheckReq,
   episodeAction,
   type Status,
   type LogEntry,
   type SettingView,
   type AuthState,
   type CoverageReport,
+  type HealthReport,
 } from "./api";
 
 export const status = writable<Status | null>(null);
@@ -20,6 +23,8 @@ export const settings = writable<SettingView[]>([]);
 export const auth = writable<AuthState | null>(null);
 export const coverage = writable<CoverageReport | null>(null);
 export const coverageLoading = writable(false);
+export const health = writable<HealthReport | null>(null);
+export const healthLoading = writable(false);
 export const toasts = writable<{ id: number; ok: boolean; msg: string }[]>([]);
 
 let _toastId = 0;
@@ -58,6 +63,27 @@ export async function loadSettings(): Promise<void> {
     settings.set(await fetchSettings());
   } catch {
     /* ignore */
+  }
+}
+
+/** Load the last health snapshot from the poller (cheap; safe to call often). */
+export async function refreshHealth(): Promise<void> {
+  try {
+    health.set(await fetchHealth());
+  } catch {
+    /* transient — keep last snapshot */
+  }
+}
+
+/** Force an immediate health re-check (the "Check now" button). */
+export async function runHealthCheck(): Promise<void> {
+  healthLoading.set(true);
+  try {
+    health.set(await runHealthCheckReq());
+  } catch {
+    toast("Health check failed", false);
+  } finally {
+    healthLoading.set(false);
   }
 }
 
@@ -116,5 +142,9 @@ export function streamLogs(): EventSource {
 
 export function startPolling(): ReturnType<typeof setInterval> {
   refreshStatus();
-  return setInterval(refreshStatus, 5000);
+  refreshHealth();
+  return setInterval(() => {
+    refreshStatus();
+    refreshHealth();
+  }, 5000);
 }

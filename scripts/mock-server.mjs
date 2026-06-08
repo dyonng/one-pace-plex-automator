@@ -153,6 +153,29 @@ function mockCoverage() {
 // Latest stored coverage report (null until first scan), mirroring the kv row.
 let lastCoverage = null;
 
+// ---- health (mock) ----
+const GB = 1024 ** 3;
+function mockHealth() {
+  return {
+    checkedAt: Date.now(),
+    overall: "warn",
+    checks: [
+      { name: "Plex", status: "ok", detail: "reachable", latencyMs: 42 },
+      { name: "qBittorrent", status: "ok", detail: "v4.6.2", latencyMs: 18 },
+      { name: "RSS feed", status: "ok", detail: "reachable", latencyMs: 230 },
+      { name: "Metadata", status: "ok", detail: "dataset loaded", latencyMs: null },
+    ],
+    disks: [
+      { name: "Media", path: "/media/one-pace", status: "ok", freeBytes: 412 * GB, totalBytes: 2000 * GB, freePct: 20.6 },
+      { name: "Downloads", path: "/downloads", status: "warn", freeBytes: 3.4 * GB, totalBytes: 500 * GB, freePct: 0.68 },
+    ],
+    lastPollAt: Date.now() - 1000 * 60 * 4,
+    lastPollAgoSec: 240,
+    failedCount: 1,
+  };
+}
+let lastHealth = mockHealth();
+
 // ---- fake log stream ----
 const sseClients = new Set();
 let logId = 0;
@@ -321,7 +344,7 @@ const server = http.createServer(async (req, res) => {
   const method = req.method ?? "GET";
 
   if (url.startsWith("/api/")) {
-    if (method === "GET" && url.startsWith("/api/health"))
+    if (method === "GET" && url.split("?")[0] === "/api/health")
       return sendJson(res, 200, { ok: true, version: "0.1.2-mock", uptimeSec: Math.floor(process.uptime()) });
     if (method === "GET" && url.startsWith("/api/status")) return sendJson(res, 200, buildStatus());
     if (method === "GET" && url.startsWith("/api/logs/stream")) {
@@ -339,6 +362,12 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, 200, lastCoverage);
     }
     if (method === "GET" && url.startsWith("/api/coverage")) return sendJson(res, 200, lastCoverage);
+    if (method === "POST" && url.startsWith("/api/health/check")) {
+      await new Promise((r) => setTimeout(r, 500));
+      lastHealth = mockHealth();
+      return sendJson(res, 200, lastHealth);
+    }
+    if (method === "GET" && url.startsWith("/api/health/full")) return sendJson(res, 200, lastHealth);
     if (method === "POST" && url.startsWith("/api/actions/")) {
       const id = url.split("/").pop().split("?")[0];
       const { status, body } = await runMockAction(id);

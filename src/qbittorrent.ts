@@ -117,6 +117,11 @@ class QBittorrentClient {
     return hash;
   }
 
+  /** Cheap reachability probe for health checks — authenticates then reads the app version. */
+  async ping(): Promise<string> {
+    return this.request<string>("get", "/app/version");
+  }
+
   async getTorrents(hashes?: string[]): Promise<TorrentInfo[]> {
     const params = new URLSearchParams({ category: getConfig().QBIT_CATEGORY });
     if (hashes?.length) params.set("hashes", hashes.join("|"));

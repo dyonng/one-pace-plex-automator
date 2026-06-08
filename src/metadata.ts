@@ -86,6 +86,11 @@ export async function refreshMetadata(): Promise<boolean> {
   return true;
 }
 
+/** True once the dataset has been successfully loaded into memory at least once. */
+export function isMetadataLoaded(): boolean {
+  return _data !== null;
+}
+
 export function clearMetadataCache(): void {
   _data = null;
   _etag = null;

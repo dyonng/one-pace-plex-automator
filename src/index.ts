@@ -3,6 +3,7 @@ import { runCycle } from "./cycle";
 import { boot } from "./boot";
 import { startDashboard } from "./web/server";
 import { startScheduler, stopScheduler } from "./scheduler";
+import { startHealthMonitor, stopHealthMonitor } from "./health";
 import { closeDb } from "./db";
 
 async function bootstrap(): Promise<void> {
@@ -11,6 +12,7 @@ async function bootstrap(): Promise<void> {
 
   await runCycle();
   startScheduler();
+  startHealthMonitor();
 
   // Graceful shutdown — stop timers, close the dashboard + DB on container stop.
   let shuttingDown = false;
@@ -19,6 +21,7 @@ async function bootstrap(): Promise<void> {
     shuttingDown = true;
     logger.info("Shutting down", { signal });
     stopScheduler();
+    stopHealthMonitor();
     try { dashboard?.close(); } catch { /* ignore */ }
     try { closeDb(); } catch { /* ignore */ }
     process.exit(0);
