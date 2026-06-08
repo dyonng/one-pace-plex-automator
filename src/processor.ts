@@ -8,6 +8,8 @@ import { resolveEpisodeByCrc32, buildPlexFilename, getAllArcs, getAllEpisodes } 
 import { findDownloadedFile, moveAndRename } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
+import { ensureSeasonPoster } from "./posters";
+import { getAutoPosters } from "./settings";
 
 let _processing = false;
 
@@ -75,6 +77,10 @@ async function _processDownloading(): Promise<void> {
       });
 
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
+
+      // Auto-apply this season's poster if it's a newly-created season (no-op if
+      // already covered or seeded). Never let a poster hiccup fail the ingest.
+      if (getAutoPosters()) await ensureSeasonPoster(ep.arc_part);
 
       await sendDiscordNotification({
         type: replaced.length > 0 ? "episode_updated" : "download_complete",

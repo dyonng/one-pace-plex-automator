@@ -7,6 +7,8 @@
     { id: "sync", label: "Full Plex sync", cls: "btn-secondary" },
     { id: "refresh-metadata", label: "Refresh metadata", cls: "btn-outline" },
     { id: "retry-failed", label: "Retry failed", cls: "btn-outline btn-warning" },
+    { id: "sync-posters", label: "Sync posters", cls: "btn-outline" },
+    { id: "force-posters", label: "Force re-sync posters", cls: "btn-outline btn-warning" },
   ];
 
   let pending = $state<string | null>(null);

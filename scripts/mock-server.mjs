@@ -216,22 +216,28 @@ const SETTING_ENV = {
   POLL_CRON: "*/5 * * * *",
   DOWNLOAD_CHECK_SECONDS: "30",
   AUTO_DOWNLOAD: "false",
+  AUTO_POSTERS: "true",
   DISCORD_WEBHOOK_URL: "",
   RSS_FEED_URL: "https://onepace.net/en/releases/rss.xml",
+  POSTER_REPO_RAW_BASE: "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/One%20Pace",
 };
 const SETTING_LABEL = {
   POLL_CRON: "RSS poll schedule (cron)",
   DOWNLOAD_CHECK_SECONDS: "Download check interval (seconds)",
   AUTO_DOWNLOAD: "Auto-download new releases",
+  AUTO_POSTERS: "Auto-apply posters to new seasons",
   DISCORD_WEBHOOK_URL: "Discord webhook URL (blank = off)",
   RSS_FEED_URL: "RSS feed URL",
+  POSTER_REPO_RAW_BASE: "Poster repo raw base URL",
 };
 const SETTING_TYPE = {
   POLL_CRON: "cron",
   DOWNLOAD_CHECK_SECONDS: "int",
   AUTO_DOWNLOAD: "bool",
+  AUTO_POSTERS: "bool",
   DISCORD_WEBHOOK_URL: "url_or_empty",
   RSS_FEED_URL: "url",
+  POSTER_REPO_RAW_BASE: "url",
 };
 const settingOverrides = {};
 
@@ -282,13 +288,15 @@ const ACTION_MSG = {
   sync: "Full Plex metadata sync complete",
   "refresh-metadata": "Metadata cache refreshed",
   "retry-failed": "Failed episodes re-queued",
+  "sync-posters": "Posters: 2 applied, 35 skipped, 1 not in repo, 0 failed",
+  "force-posters": "Posters: 38 applied, 0 skipped, 1 not in repo, 0 failed",
 };
 
 async function runMockAction(id) {
   if (!(id in ACTION_MSG)) return { status: 404, body: { ok: false, message: "Unknown action" } };
   if (state.busy) return { status: 409, body: { ok: false, message: `Busy: "${state.busyLabel}"` } };
 
-  const labels = { poll: "Poll RSS", sync: "Full Plex sync", "refresh-metadata": "Refresh metadata", "retry-failed": "Retry failed" };
+  const labels = { poll: "Poll RSS", sync: "Full Plex sync", "refresh-metadata": "Refresh metadata", "retry-failed": "Retry failed", "sync-posters": "Sync posters", "force-posters": "Force re-sync posters" };
   state.busy = true;
   state.busyLabel = labels[id];
   emitLog("info", `Manual action: ${labels[id]}`);

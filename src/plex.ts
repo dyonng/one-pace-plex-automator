@@ -87,6 +87,29 @@ export async function resolvePlexConnection(): Promise<{ plexUrl: string; librar
   return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: "One Pace" };
 }
 
+/** Resolves the show ratingKey plus a season-index → ratingKey map (index 0 = Specials). */
+export async function getShowAndSeasonKeys(): Promise<{
+  showKey: string;
+  seasonMap: Map<number, string>;
+}> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
+  const seasonMap = await buildSeasonKeyMap(showKey);
+  return { showKey, seasonMap };
+}
+
+/** Uploads a poster image (bytes) to a metadata item; Plex makes it the selected art. */
+export async function uploadPoster(ratingKey: string, image: Buffer, contentType = "image/png"): Promise<void> {
+  const { PLEX_URL } = getConfig();
+  await axios.post(`${PLEX_URL}/library/metadata/${ratingKey}/posters`, image, {
+    params: baseParams(),
+    headers: { "Content-Type": contentType },
+    timeout: 20_000,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  });
+}
+
 /** Cheap reachability probe for health checks — hits /identity with a short timeout. */
 export async function pingPlex(): Promise<void> {
   const { PLEX_URL } = getConfig();

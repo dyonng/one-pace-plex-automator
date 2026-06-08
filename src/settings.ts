@@ -7,8 +7,10 @@ export type SettingKey =
   | "POLL_CRON"
   | "DOWNLOAD_CHECK_SECONDS"
   | "AUTO_DOWNLOAD"
+  | "AUTO_POSTERS"
   | "DISCORD_WEBHOOK_URL"
-  | "RSS_FEED_URL";
+  | "RSS_FEED_URL"
+  | "POSTER_REPO_RAW_BASE";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty";
 
 type ValidateResult = { ok: true; value: string } | { ok: false; error: string };
@@ -81,6 +83,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().AUTO_DOWNLOAD),
     validate: validateBool,
   },
+  AUTO_POSTERS: {
+    key: "AUTO_POSTERS",
+    label: "Auto-apply posters to new seasons",
+    type: "bool",
+    envValue: () => String(getConfig().AUTO_POSTERS),
+    validate: validateBool,
+  },
   DISCORD_WEBHOOK_URL: {
     key: "DISCORD_WEBHOOK_URL",
     label: "Discord webhook URL (blank = off)",
@@ -93,6 +102,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     label: "RSS feed URL",
     type: "url",
     envValue: () => getConfig().RSS_FEED_URL,
+    validate: validateUrl,
+  },
+  POSTER_REPO_RAW_BASE: {
+    key: "POSTER_REPO_RAW_BASE",
+    label: "Poster repo raw base URL",
+    type: "url",
+    envValue: () => getConfig().POSTER_REPO_RAW_BASE,
     validate: validateUrl,
   },
 };
@@ -109,6 +125,10 @@ export function getDownloadCheckMs(): number {
 
 export function getAutoDownload(): boolean {
   return getSettingValue("AUTO_DOWNLOAD") === "true";
+}
+
+export function getAutoPosters(): boolean {
+  return getSettingValue("AUTO_POSTERS") === "true";
 }
 
 export interface SettingView {

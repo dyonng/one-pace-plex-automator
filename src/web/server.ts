@@ -26,7 +26,14 @@ const MIME: Record<string, string> = {
   ".svg": "image/svg+xml",
 };
 
-const ACTION_IDS: ActionId[] = ["poll", "sync", "refresh-metadata", "retry-failed"];
+const ACTION_IDS: ActionId[] = [
+  "poll",
+  "sync",
+  "refresh-metadata",
+  "retry-failed",
+  "sync-posters",
+  "force-posters",
+];
 const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove"];
 
 function serveStatic(res: http.ServerResponse, urlPath: string): void {

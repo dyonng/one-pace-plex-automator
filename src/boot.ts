@@ -5,6 +5,7 @@ import { ensureDir, detectSeasonFormat, buildSeasonFolder } from "./fileops";
 import { getDb, insertLog, getKv, setKv, markGuidSeen } from "./db";
 import { logBus, LogEntry, logger } from "./logger";
 import { seedSeenGuids } from "./rss";
+import { seedPostersOnFirstRun } from "./posters";
 import { DATA_DIR, DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { version as VERSION } from "../package.json";
 
@@ -98,6 +99,10 @@ export async function boot(): Promise<void> {
   // continue without it; later syncs re-resolve the connection on demand.
   const plex = await connectPlexWithRetry();
   process.stdout.write(plex ? ` "${plex.showTitle}" in "${plex.libraryName}"\n\n` : " unreachable\n\n");
+
+  // Mark existing posters as applied so auto-posters only touches future seasons
+  // (preserves any art the user set manually). Needs Plex; retries next boot if down.
+  if (plex) await seedPostersOnFirstRun();
 
   const top    = `┌${"─".repeat(WIDTH)}┐`;
   const bottom = `└${"─".repeat(WIDTH)}┘`;

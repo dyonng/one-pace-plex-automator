@@ -18,6 +18,8 @@ services:
       - POLL_CRON=${POLL_CRON:-*/5 * * * *}
       - DOWNLOAD_CHECK_SECONDS=${DOWNLOAD_CHECK_SECONDS:-30}
       - AUTO_DOWNLOAD=${AUTO_DOWNLOAD:-true}
+      - AUTO_POSTERS=${AUTO_POSTERS:-true}
+      - POSTER_REPO_RAW_BASE=${POSTER_REPO_RAW_BASE:-https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/One%20Pace}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - DASHBOARD_TOKEN_HASH=${DASHBOARD_TOKEN_HASH:-}
       - DASHBOARD_TOKEN=${DASHBOARD_TOKEN:-}

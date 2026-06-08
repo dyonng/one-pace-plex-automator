@@ -1,5 +1,6 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
+import { syncPosters } from "./posters";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32 } from "./metadata";
 import { getEpisodeByCrc32, updateEpisodeStatus, deleteEpisode } from "./db";
 import { getQbitClient } from "./qbittorrent";
@@ -48,7 +49,13 @@ async function withLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export type ActionId = "poll" | "sync" | "refresh-metadata" | "retry-failed";
+export type ActionId =
+  | "poll"
+  | "sync"
+  | "refresh-metadata"
+  | "retry-failed"
+  | "sync-posters"
+  | "force-posters";
 
 export interface ActionResult {
   ok: boolean;
@@ -85,6 +92,16 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         await dispatchPending();
         runtime.lastRetryAt = Date.now();
         return { ok: true, message: "Failed episodes re-queued" };
+      });
+
+    case "sync-posters":
+    case "force-posters":
+      return withLock(id === "force-posters" ? "Force re-sync posters" : "Sync posters", async () => {
+        const r = await syncPosters({ force: id === "force-posters" });
+        return {
+          ok: true,
+          message: `Posters: ${r.applied} applied, ${r.skipped} skipped, ${r.missing} not in repo, ${r.failed} failed`,
+        };
       });
 
     default:

@@ -28,6 +28,16 @@ const ConfigSchema = z.object({
     .default(
       "https://raw.githubusercontent.com/ladyisatis/one-pace-metadata/v2"
     ),
+  // Fan-made season/show posters (SpykerNZ/one-pace-for-plex). Files:
+  // poster.png, season-specials-poster.png, seasonNN-poster.png (zero-padded).
+  POSTER_REPO_RAW_BASE: z
+    .string()
+    .url()
+    .default(
+      "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/One%20Pace"
+    ),
+  // Auto-apply a season's poster when a brand-new season first appears.
+  AUTO_POSTERS: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
