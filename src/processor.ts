@@ -5,7 +5,8 @@ import { DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode, deleteEpisode, type EpisodeRecord } from "./db";
 import { getQbitClient, type TorrentInfo } from "./qbittorrent";
-import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, type ResolvedEpisode } from "./metadata";
+import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, parseResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, type ResolvedEpisode } from "./metadata";
+import { getArcResolution } from "./onepace-sheet";
 import { buildSeasonFolder, findDownloadedFile, moveAndRename, scanBatchFiles, type BatchFile } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
@@ -152,7 +153,12 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
     : videos.reduce((a, b) => (fileSize(b.filePath) > fileSize(a.filePath) ? b : a));
 
   const realCrc32 = primary.crc32;
-  const resolution = extractResolutionFromFilename(primary.filename);
+  // Filename tag first; fall back to the arc's known resolution (e.g. Loguetown
+  // is 480p) before the hardcoded 1080p, so a tagless release isn't mislabeled.
+  const resolution =
+    parseResolutionFromFilename(primary.filename)
+    ?? (await getArcResolution(ep.arc_title))
+    ?? "1080p";
   const ext = path.extname(primary.filePath);
 
   // Prefer full metadata if the catalog now lists this CRC32; otherwise build a

@@ -429,7 +429,12 @@ export function extractCrc32FromFilename(filename: string): string | null {
   return matches.length ? matches[matches.length - 1][1].toUpperCase() : null;
 }
 
-export function extractResolutionFromFilename(filename: string): string {
+/** The resolution tag in a filename (e.g. "1080p"), or null when absent. */
+export function parseResolutionFromFilename(filename: string): string | null {
   const match = filename.match(/\[(\d{3,4}p)\]/i);
-  return match ? match[1] : "1080p";
+  return match ? match[1] : null;
+}
+
+export function extractResolutionFromFilename(filename: string): string {
+  return parseResolutionFromFilename(filename) ?? "1080p";
 }
