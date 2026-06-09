@@ -11,7 +11,6 @@
   } from "./api";
   import { doEpisodeAction, status } from "./stores";
 
-  // Which arcs are expanded (by arcPart).
   let open = $state<Record<number, boolean>>({});
   const toggle = (part: number) => (open[part] = !open[part]);
 
@@ -35,17 +34,15 @@
 
   const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
 
-  type ModalTab = "info" | "search";
-
   interface ModalState {
     ep: CoverageEpisode;
-    tab: ModalTab;
-    // Info tab
+    view: "compare" | "search";
+    // Compare view
     infoLoading: boolean;
     old: EpisodeMetadata | null;
     curr: EpisodeMetadata | null;
     upgrading: boolean;
-    // Search tab
+    // Search view
     searchQuery: string;
     searching: boolean;
     searchResults: TorrentSearchResult[] | null;
@@ -70,10 +67,9 @@
   );
 
   async function openModal(ep: CoverageEpisode) {
-    const defaultTab: ModalTab = ep.hasMagnet ? "info" : "search";
     modal = {
       ep,
-      tab: defaultTab,
+      view: "compare",
       infoLoading: true,
       old: null,
       curr: null,
@@ -84,26 +80,11 @@
       searchError: null,
       downloadingIdx: null,
     };
-
-    // Load comparison metadata for info tab in the background
     const [oldMeta, currMeta] = await Promise.all([
       ep.diskCrc32 ? fetchEpisodeMetadata(ep.diskCrc32) : Promise.resolve(null),
       fetchEpisodeMetadata(ep.datasetCrc32),
     ]);
     if (modal) modal = { ...modal, infoLoading: false, old: oldMeta, curr: currMeta };
-
-    // Auto-search when opening to search tab
-    if (defaultTab === "search" && modal) doSearch();
-  }
-
-  function switchTab(tab: ModalTab) {
-    if (!modal) return;
-    const wasOnSearch = modal.tab === "search";
-    modal = { ...modal, tab };
-    // Auto-search the first time the search tab is opened
-    if (tab === "search" && !wasOnSearch && modal.searchResults === null && !modal.searching) {
-      doSearch();
-    }
   }
 
   function closeModal() {
@@ -119,6 +100,12 @@
     } finally {
       if (modal) modal = { ...modal, upgrading: false };
     }
+  }
+
+  function openSearch() {
+    if (!modal) return;
+    modal = { ...modal, view: "search" };
+    doSearch();
   }
 
   async function doSearch() {
@@ -286,7 +273,6 @@
         </div>
       </div>
 
-      <!-- Per-arc -->
       <div class="flex flex-col gap-1.5">
         {#each $coverage.arcs as arc (arc.arcPart)}
           {@const complete = arc.missing === 0 && arc.upgradeable === 0 && arc.downloading === 0}
@@ -317,11 +303,7 @@
                 {arc.present}/{arc.total}
               </span>
               <div class="hidden sm:block w-24">
-                <progress
-                  class="progress progress-success h-1.5"
-                  value={arc.present}
-                  max={arc.total}
-                ></progress>
+                <progress class="progress progress-success h-1.5" value={arc.present} max={arc.total}></progress>
               </div>
             </button>
 
@@ -351,7 +333,6 @@
         {/each}
       </div>
 
-      <!-- Legend + extras -->
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-info/50"></span> upgradeable (link ready)</span>
@@ -467,47 +448,27 @@
   <form method="dialog" class="modal-backdrop"><button onclick={closeBatchModal}>close</button></form>
 </dialog>
 
-<!-- Episode modal -->
 
 <dialog bind:this={dialogEl} class="modal" onclose={closeModal}>
   {#if modal}
-    <div class="modal-box max-w-3xl w-full flex flex-col gap-0">
+    <div class="modal-box max-w-3xl w-full">
       <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeModal}>✕</button>
 
-      <!-- Header -->
-      <div class="mb-3 pr-8">
-        <h3 class="font-bold text-base">
-          {modal.ep.episodeTitle}
-          <span class="font-mono text-sm opacity-50 ml-1">
-            S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
-          </span>
-        </h3>
-        <p class="text-xs opacity-40">
-          {#if modal.ep.extended}<span class="mr-1">Extended cut ·</span>{/if}
-          <span class="font-mono">{modal.ep.datasetCrc32}</span>
-          <span class="mx-1 opacity-60">·</span>
-          {modal.ep.arcTitle}
-        </p>
-      </div>
+      <h3 class="font-bold text-base">
+        {modal.ep.episodeTitle}
+        <span class="font-mono text-sm opacity-50 ml-1">
+          S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
+        </span>
+      </h3>
+      <p class="text-xs opacity-40 mb-4">
+        {#if modal.ep.extended}<span class="mr-1">Extended cut ·</span>{/if}
+        <span class="font-mono">{modal.ep.datasetCrc32}</span>
+        <span class="mx-1">·</span>
+        {modal.ep.arcTitle}
+      </p>
 
-      <!-- Tabs -->
-      <div role="tablist" class="tabs tabs-bordered mb-4 -mx-1">
-        <button
-          role="tab"
-          class="tab"
-          class:tab-active={modal.tab === "info"}
-          onclick={() => switchTab("info")}
-        >Release Info</button>
-        <button
-          role="tab"
-          class="tab"
-          class:tab-active={modal.tab === "search"}
-          onclick={() => switchTab("search")}
-        >Find Torrent</button>
-      </div>
-
-      <!-- ── Info tab ── -->
-      {#if modal.tab === "info"}
+      <!-- ── Compare view ── -->
+      {#if modal.view === "compare"}
         {#if modal.infoLoading}
           <div class="flex justify-center py-10">
             <span class="loading loading-spinner loading-md"></span>
@@ -529,7 +490,6 @@
                 <p class="text-sm opacity-40 italic">Not on disk</p>
               {/if}
             </div>
-
             <div class="rounded-lg border border-success/40 bg-success/5 p-3 flex flex-col gap-3">
               <div class="text-xs font-semibold text-success uppercase tracking-wider">Latest Release</div>
               {@render metaField("CRC32", modal.curr?.crc32 ?? modal.ep.datasetCrc32, false, true)}
@@ -544,7 +504,7 @@
           </div>
         {/if}
 
-        <div class="modal-action mt-4">
+        <div class="modal-action">
           {#if modal.upgrading}
             <button class="btn btn-sm btn-warning loading" disabled>Starting…</button>
           {:else if pipelineEp && ["pending", "downloading", "processing"].includes(pipelineEp.status)}
@@ -553,15 +513,19 @@
             </button>
           {:else if modal.ep.hasMagnet}
             <button class="btn btn-sm btn-warning" disabled={modal.infoLoading} onclick={doUpgrade}>
-              Quick Upgrade
+              Update
+            </button>
+          {:else}
+            <button class="btn btn-sm btn-primary" onclick={openSearch}>
+              Search for torrent
             </button>
           {/if}
           <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
         </div>
       {/if}
 
-      <!-- ── Search tab ── -->
-      {#if modal.tab === "search"}
+      <!-- ── Search view ── -->
+      {#if modal.view === "search"}
         <div class="flex gap-2 mb-4">
           <input
             class="input input-sm input-bordered flex-1 font-mono"
@@ -587,7 +551,6 @@
               <p class="text-sm opacity-50">No results for <span class="font-mono">[{modal.ep.datasetCrc32}]</span></p>
               <p class="text-xs opacity-40 max-w-xs">
                 This episode may only be available as part of a batch release.
-                Try searching by arc name instead.
               </p>
               <button
                 class="btn btn-sm btn-outline"
@@ -626,12 +589,8 @@
                       <td class="max-w-[14rem]">
                         <div class="flex items-center gap-1 min-w-0">
                           {#if result.pageUrl}
-                            <a
-                              href={result.pageUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              class="link link-hover font-mono text-xs truncate"
-                              title={result.title}
+                            <a href={result.pageUrl} target="_blank" rel="noopener noreferrer"
+                              class="link link-hover font-mono text-xs truncate" title={result.title}
                             >{result.title}</a>
                           {:else}
                             <span class="font-mono text-xs truncate" title={result.title}>{result.title}</span>
@@ -657,11 +616,7 @@
                         <button
                           class="btn btn-xs btn-primary"
                           disabled={(!result.magnet && !result.torrentUrl) || modal.downloadingIdx !== null}
-                          title={result.magnet
-                            ? "Download via magnet"
-                            : result.torrentUrl
-                              ? "Download via .torrent"
-                              : "No download source available"}
+                          title={result.magnet ? "Download via magnet" : result.torrentUrl ? "Download via .torrent" : "No download source available"}
                           onclick={() => doDownloadSource(i)}
                         >
                           {#if modal.downloadingIdx === i}
@@ -678,10 +633,13 @@
             </div>
           {/if}
         {:else}
-          <p class="text-sm opacity-40 text-center py-8">Click Search to find torrents on AniTosho and Nyaa</p>
+          <p class="text-sm opacity-40 text-center py-8">Searching AniTosho and Nyaa…</p>
         {/if}
 
-        <div class="modal-action mt-4">
+        <div class="modal-action">
+          <button class="btn btn-sm btn-ghost" onclick={() => { if (modal) modal = { ...modal, view: "compare" }; }}>
+            ← Back
+          </button>
           <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
         </div>
       {/if}
