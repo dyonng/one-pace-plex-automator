@@ -12,6 +12,26 @@ function displayArcTitle(raw: string): string {
   return raw;
 }
 
+// Arc titles that have multiple accepted spellings in the wild. Each set maps to
+// a single canonical form so a lookup matches regardless of which spelling the
+// RSS title (or the official sheet) uses. The dataset spells these "Alabasta"
+// and "Whisky Peak"; users/feeds sometimes write "Arabasta"/"Whiskey Peak".
+const ARC_TITLE_ALIASES: Record<string, string> = {
+  arabasta: "alabasta",
+  "whiskey peak": "whisky peak",
+};
+
+/**
+ * Normalizes an arc title for matching: lowercased, whitespace-collapsed, with
+ * known spelling variants folded to a single canonical form. Use this whenever
+ * comparing arc titles from external sources (RSS, the Google Sheet) so the two
+ * accepted spellings are treated interchangeably.
+ */
+export function canonicalizeArcTitle(raw: string): string {
+  const t = (raw ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return ARC_TITLE_ALIASES[t] ?? t;
+}
+
 // ── Richer v2 metadata schema (metadata/data.min.json) ───────────────────────
 // arcs.en[]            — one entry per arc; episodes[] maps each episode to its
 //                        standard + (optional) extended CRC32.
@@ -277,9 +297,8 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
   if (!parsed) return null;
 
   const data = await _getData();
-  const arc = data.arcs.en.find(
-    (a) => a.title.toLowerCase() === parsed.arcTitle.toLowerCase()
-  );
+  const wanted = canonicalizeArcTitle(parsed.arcTitle);
+  const arc = data.arcs.en.find((a) => canonicalizeArcTitle(a.title) === wanted);
   if (!arc) {
     logger.warn("Arc not found in metadata", { arcTitle: parsed.arcTitle });
     return null;
@@ -301,9 +320,8 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
  */
 export async function resolveArcByTitle(arcTitle: string): Promise<ArcSummary | null> {
   const data = await _getData();
-  const idx = data.arcs.en.findIndex(
-    (a) => a.title.toLowerCase() === arcTitle.trim().toLowerCase()
-  );
+  const wanted = canonicalizeArcTitle(arcTitle);
+  const idx = data.arcs.en.findIndex((a) => canonicalizeArcTitle(a.title) === wanted);
   if (idx === -1) return null;
   const a = data.arcs.en[idx];
   return {

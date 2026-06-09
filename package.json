@@ -1,6 +1,6 @@
 {
   "name": "one-pace-plex-automator",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "private": true,
   "description": "Automates One Pace fan-edit downloads, renaming, and Plex metadata management",
   "main": "dist/index.js",
