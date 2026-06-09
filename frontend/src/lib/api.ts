@@ -196,7 +196,7 @@ export async function runHealthCheckReq(): Promise<HealthReport> {
   return r.json();
 }
 
-export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "downloading" | "missing";
+export type CoverageStatus = "present" | "present_unknown" | "present_uncatalogued" | "upgradeable" | "downloading" | "missing";
 
 export interface CoverageEpisode {
   arcPart: number;

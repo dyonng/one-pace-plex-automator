@@ -17,6 +17,7 @@
   const CHIP: Record<CoverageStatus, string> = {
     present: "bg-success/20 text-success border-success/30",
     present_unknown: "bg-base-content/10 text-base-content/60 border-base-content/20",
+    present_uncatalogued: "bg-success/10 text-success/70 border-success/30 border-dashed",
     upgradeable: "bg-warning/20 text-warning border-warning/40",
     downloading: "bg-accent/20 text-accent border-accent/40 animate-pulse",
     missing: "bg-error/10 text-error/80 border-error/30 border-dashed",
@@ -27,6 +28,7 @@
   const LABEL: Record<CoverageStatus, string> = {
     present: "present",
     present_unknown: "present (no CRC in name)",
+    present_uncatalogued: "present (not in catalog yet)",
     upgradeable: "upgradeable",
     downloading: "downloading…",
     missing: "missing",
@@ -315,7 +317,7 @@
 
             {#if open[arc.arcPart]}
               <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
-                {#each arc.episodes as ep (ep.datasetCrc32)}
+                {#each arc.episodes as ep (ep.seasonEpisodeId)}
                   {#if ep.status === "upgradeable"}
                     <button
                       class="badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
@@ -346,6 +348,7 @@
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-accent/50"></span> downloading</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
+        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm border border-dashed border-success/50"></span> not in catalog yet</span>
       </div>
 
       {#if $coverage.extras.length > 0}
