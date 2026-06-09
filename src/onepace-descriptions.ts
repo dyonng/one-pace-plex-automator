@@ -111,6 +111,7 @@ async function buildIndex(): Promise<TextIndex | null> {
   if (!key) return null;
   const sheetId = getConfig().ONEPACE_METADATA_SHEET_ID;
 
+  logger.info("Fetching One Pace metadata sheet", { sheetId });
   const ranges = ["Episodes!A1:D2000", "Arcs!A1:D200"]
     .map((r) => `ranges=${encodeURIComponent(r)}`)
     .join("&");
