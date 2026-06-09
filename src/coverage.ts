@@ -24,6 +24,7 @@ export type CoverageStatus =
 
 export interface CoverageEpisode {
   arcPart: number;
+  arcTitle: string;
   episodeNum: number;
   seasonEpisodeId: string;
   episodeTitle: string;
@@ -174,6 +175,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
 
     arc.episodes.push({
       arcPart: ep.arcPart,
+      arcTitle: ep.arcTitle,
       episodeNum: ep.episodeNum,
       seasonEpisodeId: ep.seasonEpisodeId,
       episodeTitle: ep.episodeTitle,
