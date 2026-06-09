@@ -135,6 +135,7 @@ async function buildIndex(): Promise<SheetIndex | null> {
   if (!key) return null;
   const sheetId = getConfig().ONEPACE_SHEET_ID;
 
+  logger.info("Fetching One Pace episode guide sheet", { sheetId });
   const titles = await fetchArcTabTitles(sheetId, key);
   if (titles.length === 0) {
     logger.warn("One Pace sheet: no arc tabs found");
