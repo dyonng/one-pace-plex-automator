@@ -13,8 +13,9 @@ export type SettingKey =
   | "PREFER_ARABASTA"
   | "DISCORD_WEBHOOK_URL"
   | "RSS_FEED_URL"
-  | "POSTER_REPO_RAW_BASE";
-export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty";
+  | "POSTER_REPO_RAW_BASE"
+  | "ANIMETOSHO_API_KEY";
+export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
 export type SettingCategory = "service" | "preference";
 
 // Splits the settings UI: "service" = infrastructure/integration config,
@@ -26,6 +27,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   RSS_FEED_URL: "service",
   DISCORD_WEBHOOK_URL: "service",
   POSTER_REPO_RAW_BASE: "service",
+  ANIMETOSHO_API_KEY: "service",
   AUTO_DOWNLOAD: "preference",
   AUTO_POSTERS: "preference",
   PREFER_EXTENDED: "preference",
@@ -81,6 +83,10 @@ function validateDiscordWebhook(raw: string): ValidateResult {
     return { ok: false, error: "Not a Discord webhook URL (expected .../webhooks/{id}/{token})" };
   }
   return { ok: true, value: base.value };
+}
+
+function validateText(raw: string): ValidateResult {
+  return { ok: true, value: raw.trim() };
 }
 
 function validateBool(raw: string): ValidateResult {
@@ -160,6 +166,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => getConfig().POSTER_REPO_RAW_BASE,
     validate: validateUrl,
   },
+  ANIMETOSHO_API_KEY: {
+    key: "ANIMETOSHO_API_KEY",
+    label: "AnimeTosho API key (optional — increases rate limits)",
+    type: "text",
+    envValue: () => getConfig().ANIMETOSHO_API_KEY,
+    validate: validateText,
+  },
 };
 
 /** Effective value: DB override > env > default. Always a string. */
@@ -190,6 +203,10 @@ export function getPreferExtended(): boolean {
 
 export function getPreferArabasta(): boolean {
   return getSettingValue("PREFER_ARABASTA") === "true";
+}
+
+export function getAnimeToshoApiKey(): string {
+  return getSettingValue("ANIMETOSHO_API_KEY");
 }
 
 export interface SettingView {

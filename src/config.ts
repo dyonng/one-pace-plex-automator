@@ -49,6 +49,7 @@ const ConfigSchema = z.object({
   // (coverage, filenames, Plex). The metadata uses "Alabasta"; this is a spelling
   // preference.
   PREFER_ARABASTA: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  ANIMETOSHO_API_KEY: z.string().default(""),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

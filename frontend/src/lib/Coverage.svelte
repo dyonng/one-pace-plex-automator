@@ -1,7 +1,14 @@
 <script lang="ts">
   import { coverage, coverageLoading, runCoverageScan } from "./stores";
-  import { fmtTime } from "./util";
-  import { fetchEpisodeMetadata, type CoverageStatus, type CoverageEpisode, type EpisodeMetadata } from "./api";
+  import { fmtTime, fmtBytes, fmtAge } from "./util";
+  import {
+    fetchEpisodeMetadata,
+    searchTorrents,
+    type CoverageStatus,
+    type CoverageEpisode,
+    type EpisodeMetadata,
+    type TorrentSearchResult,
+  } from "./api";
   import { doEpisodeAction, status } from "./stores";
 
   // Which arcs are expanded (by arcPart).
@@ -28,11 +35,22 @@
 
   const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
 
+  type ModalTab = "info" | "search";
+
   interface ModalState {
     ep: CoverageEpisode;
-    loading: boolean;
+    tab: ModalTab;
+    // Info tab
+    infoLoading: boolean;
     old: EpisodeMetadata | null;
     curr: EpisodeMetadata | null;
+    upgrading: boolean;
+    // Search tab
+    searchQuery: string;
+    searching: boolean;
+    searchResults: TorrentSearchResult[] | null;
+    searchError: string | null;
+    downloadingIdx: number | null;
   }
 
   let modal = $state<ModalState | null>(null);
@@ -43,35 +61,89 @@
     else dialogEl?.close();
   });
 
+  const pipelineEp = $derived(
+    modal
+      ? ($status?.episodes ?? []).find(
+          (e) => e.crc32.toUpperCase() === modal!.ep.datasetCrc32.toUpperCase()
+        ) ?? null
+      : null
+  );
+
   async function openModal(ep: CoverageEpisode) {
-    modal = { ep, loading: true, old: null, curr: null };
+    const defaultTab: ModalTab = ep.hasMagnet ? "info" : "search";
+    modal = {
+      ep,
+      tab: defaultTab,
+      infoLoading: true,
+      old: null,
+      curr: null,
+      upgrading: false,
+      searchQuery: ep.datasetCrc32,
+      searching: false,
+      searchResults: null,
+      searchError: null,
+      downloadingIdx: null,
+    };
+
+    // Load comparison metadata for info tab in the background
     const [oldMeta, currMeta] = await Promise.all([
       ep.diskCrc32 ? fetchEpisodeMetadata(ep.diskCrc32) : Promise.resolve(null),
       fetchEpisodeMetadata(ep.datasetCrc32),
     ]);
-    if (modal) modal = { ...modal, loading: false, old: oldMeta, curr: currMeta };
+    if (modal) modal = { ...modal, infoLoading: false, old: oldMeta, curr: currMeta };
+
+    // Auto-search when opening to search tab
+    if (defaultTab === "search" && modal) doSearch();
+  }
+
+  function switchTab(tab: ModalTab) {
+    if (!modal) return;
+    const wasOnSearch = modal.tab === "search";
+    modal = { ...modal, tab };
+    // Auto-search the first time the search tab is opened
+    if (tab === "search" && !wasOnSearch && modal.searchResults === null && !modal.searching) {
+      doSearch();
+    }
   }
 
   function closeModal() {
     modal = null;
   }
 
-  let upgrading = $state(false);
-
-  const pipelineEp = $derived(
-    modal
-      ? ($status?.episodes ?? []).find(e => e.crc32.toUpperCase() === modal.ep.datasetCrc32.toUpperCase()) ?? null
-      : null
-  );
-
   async function doUpgrade() {
     if (!modal) return;
-    upgrading = true;
+    modal = { ...modal, upgrading: true };
     try {
       const r = await doEpisodeAction(modal.ep.datasetCrc32, "upgrade");
       if (r.ok) closeModal();
     } finally {
-      upgrading = false;
+      if (modal) modal = { ...modal, upgrading: false };
+    }
+  }
+
+  async function doSearch() {
+    if (!modal) return;
+    modal = { ...modal, searching: true, searchResults: null, searchError: null };
+    try {
+      const results = await searchTorrents(modal.searchQuery);
+      if (modal) modal = { ...modal, searching: false, searchResults: results };
+    } catch (err) {
+      if (modal) modal = { ...modal, searching: false, searchError: String(err) };
+    }
+  }
+
+  async function doDownloadSource(idx: number) {
+    if (!modal) return;
+    const result = modal.searchResults?.[idx];
+    if (!result) return;
+    const source = result.magnet ?? result.torrentUrl;
+    if (!source) return;
+    modal = { ...modal, downloadingIdx: idx };
+    const r = await doEpisodeAction(modal.ep.datasetCrc32, "download-source", { source });
+    if (r.ok) {
+      closeModal();
+    } else {
+      if (modal) modal = { ...modal, downloadingIdx: null };
     }
   }
 
@@ -395,73 +467,202 @@
   <form method="dialog" class="modal-backdrop"><button onclick={closeBatchModal}>close</button></form>
 </dialog>
 
-<!-- Re-release comparison modal -->
+<!-- Episode modal -->
+
 <dialog bind:this={dialogEl} class="modal" onclose={closeModal}>
   {#if modal}
-    <div class="modal-box max-w-3xl w-full">
+    <div class="modal-box max-w-3xl w-full flex flex-col gap-0">
       <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeModal}>✕</button>
-      <h3 class="font-bold text-base">
-        {modal.ep.episodeTitle}
-        <span class="font-mono text-sm opacity-50 ml-1">
-          S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
-        </span>
-      </h3>
-      <p class="text-xs opacity-50 mb-4">Re-release comparison{modal.ep.extended ? " · target is the Extended cut" : ""}</p>
 
-      {#if modal.loading}
-        <div class="flex justify-center py-10">
-          <span class="loading loading-spinner loading-md"></span>
-        </div>
-      {:else}
-        <div class="grid grid-cols-2 gap-3">
-          <!-- On disk (old) -->
-          <div class="rounded-lg border border-warning/40 bg-warning/5 p-3 flex flex-col gap-3">
-            <div class="text-xs font-semibold text-warning uppercase tracking-wider">On Disk</div>
-            {@render metaField("CRC32", modal.ep.diskCrc32 ?? "unknown", false, true)}
-            {@render metaField("Cut", modal.old ? (modal.old.extended ? "Extended" : "Standard") : "unknown", modal.old?.extended !== modal.curr?.extended)}
-            {@render metaField("Released", modal.old?.released ?? "unknown")}
-            {@render metaField("Title", modal.old?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
-            {@render metaField("Chapters", modal.old?.chapters ?? "—")}
-            {@render metaField("Original episodes", modal.old?.originalEpisodes ?? "—")}
-            {#if modal.old?.episodeDescription}
-              {@render metaField("Description", modal.old.episodeDescription, modal.old.episodeDescription !== modal.curr?.episodeDescription)}
-            {/if}
-          </div>
+      <!-- Header -->
+      <div class="mb-3 pr-8">
+        <h3 class="font-bold text-base">
+          {modal.ep.episodeTitle}
+          <span class="font-mono text-sm opacity-50 ml-1">
+            S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
+          </span>
+        </h3>
+        <p class="text-xs opacity-40">{modal.ep.extended ? "Extended cut · " : ""}<span class="font-mono">{modal.ep.datasetCrc32}</span></p>
+      </div>
 
-          <!-- Latest (new) -->
-          <div class="rounded-lg border border-success/40 bg-success/5 p-3 flex flex-col gap-3">
-            <div class="text-xs font-semibold text-success uppercase tracking-wider">Latest Release</div>
-            {@render metaField("CRC32", modal.curr?.crc32 ?? modal.ep.datasetCrc32, false, true)}
-            {@render metaField("Cut", modal.curr ? (modal.curr.extended ? "Extended" : "Standard") : "unknown", modal.old?.extended !== modal.curr?.extended)}
-            {@render metaField("Released", modal.curr?.released ?? "unknown")}
-            {@render metaField("Title", modal.curr?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
-            {@render metaField("Chapters", modal.curr?.chapters ?? "—")}
-            {@render metaField("Original episodes", modal.curr?.originalEpisodes ?? "—")}
-            {#if modal.curr?.episodeDescription}
-              {@render metaField("Description", modal.curr.episodeDescription, modal.old?.episodeDescription !== modal.curr?.episodeDescription)}
-            {/if}
+      <!-- Tabs -->
+      <div role="tablist" class="tabs tabs-bordered mb-4 -mx-1">
+        <button
+          role="tab"
+          class="tab"
+          class:tab-active={modal.tab === "info"}
+          onclick={() => switchTab("info")}
+        >Release Info</button>
+        <button
+          role="tab"
+          class="tab"
+          class:tab-active={modal.tab === "search"}
+          onclick={() => switchTab("search")}
+        >Find Torrent</button>
+      </div>
+
+      <!-- ── Info tab ── -->
+      {#if modal.tab === "info"}
+        {#if modal.infoLoading}
+          <div class="flex justify-center py-10">
+            <span class="loading loading-spinner loading-md"></span>
           </div>
+        {:else}
+          <div class="grid grid-cols-2 gap-3">
+            <div class="rounded-lg border border-warning/40 bg-warning/5 p-3 flex flex-col gap-3">
+              <div class="text-xs font-semibold text-warning uppercase tracking-wider">On Disk</div>
+              {#if modal.ep.diskCrc32}
+                {@render metaField("CRC32", modal.ep.diskCrc32, false, true)}
+                {@render metaField("Released", modal.old?.released ?? "unknown")}
+                {@render metaField("Title", modal.old?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
+                {@render metaField("Chapters", modal.old?.chapters ?? "—")}
+                {@render metaField("Original episodes", modal.old?.originalEpisodes ?? "—")}
+                {#if modal.old?.episodeDescription}
+                  {@render metaField("Description", modal.old.episodeDescription, modal.old.episodeDescription !== modal.curr?.episodeDescription)}
+                {/if}
+              {:else}
+                <p class="text-sm opacity-40 italic">Not on disk</p>
+              {/if}
+            </div>
+
+            <div class="rounded-lg border border-success/40 bg-success/5 p-3 flex flex-col gap-3">
+              <div class="text-xs font-semibold text-success uppercase tracking-wider">Latest Release</div>
+              {@render metaField("CRC32", modal.curr?.crc32 ?? modal.ep.datasetCrc32, false, true)}
+              {@render metaField("Released", modal.curr?.released ?? "unknown")}
+              {@render metaField("Title", modal.curr?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
+              {@render metaField("Chapters", modal.curr?.chapters ?? "—")}
+              {@render metaField("Original episodes", modal.curr?.originalEpisodes ?? "—")}
+              {#if modal.curr?.episodeDescription}
+                {@render metaField("Description", modal.curr.episodeDescription, modal.old?.episodeDescription !== modal.curr?.episodeDescription)}
+              {/if}
+            </div>
+          </div>
+        {/if}
+
+        <div class="modal-action mt-4">
+          {#if modal.upgrading}
+            <button class="btn btn-sm btn-warning loading" disabled>Starting…</button>
+          {:else if pipelineEp && ["pending", "downloading", "processing"].includes(pipelineEp.status)}
+            <button class="btn btn-sm" disabled>
+              {pipelineEp.status === "pending" ? "Queued" : pipelineEp.status === "downloading" ? "Downloading…" : "Processing…"}
+            </button>
+          {:else if modal.ep.hasMagnet}
+            <button class="btn btn-sm btn-warning" disabled={modal.infoLoading} onclick={doUpgrade}>
+              Quick Upgrade
+            </button>
+          {/if}
+          <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
         </div>
       {/if}
 
-      <div class="modal-action">
-        {#if upgrading}
-          <button class="btn btn-sm btn-warning loading" disabled>Starting…</button>
-        {:else if pipelineEp && ["pending", "downloading", "processing"].includes(pipelineEp.status)}
-          <button class="btn btn-sm" disabled title="Already in pipeline">
-            {pipelineEp.status === "pending" ? "Queued" : pipelineEp.status === "downloading" ? "Downloading…" : "Processing…"}
+      <!-- ── Search tab ── -->
+      {#if modal.tab === "search"}
+        <div class="flex gap-2 mb-4">
+          <input
+            class="input input-sm input-bordered flex-1 font-mono"
+            bind:value={modal.searchQuery}
+            placeholder="Search query…"
+            onkeydown={(e) => { if (e.key === "Enter") doSearch(); }}
+          />
+          <button class="btn btn-sm btn-primary gap-1" disabled={modal.searching} onclick={doSearch}>
+            {#if modal.searching}<span class="loading loading-spinner loading-xs"></span>{/if}
+            Search
           </button>
+        </div>
+
+        {#if modal.searching}
+          <div class="flex justify-center py-10">
+            <span class="loading loading-spinner loading-md"></span>
+          </div>
+        {:else if modal.searchError}
+          <div class="alert alert-error text-sm py-2">{modal.searchError}</div>
+        {:else if modal.searchResults !== null}
+          {#if modal.searchResults.length === 0}
+            <p class="text-sm opacity-50 text-center py-8">No results found — try a different query</p>
+          {:else}
+            <div class="overflow-x-auto max-h-72 overflow-y-auto">
+              <table class="table table-xs">
+                <thead class="sticky top-0 bg-base-100">
+                  <tr>
+                    <th>Source</th>
+                    <th>Title</th>
+                    <th class="text-right">Size</th>
+                    <th class="text-right" title="Seeders">↑</th>
+                    <th class="text-right" title="Leechers">↓</th>
+                    <th class="text-right">Age</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each modal.searchResults as result, i}
+                    <tr class="hover">
+                      <td>
+                        <span class="badge badge-xs {result.source === 'animetosho' ? 'badge-info' : 'badge-success'} whitespace-nowrap">
+                          {result.source === "animetosho" ? "AniTosho" : "Nyaa"}
+                        </span>
+                      </td>
+                      <td class="max-w-[14rem]">
+                        <div class="flex items-center gap-1 min-w-0">
+                          {#if result.pageUrl}
+                            <a
+                              href={result.pageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              class="link link-hover font-mono text-xs truncate"
+                              title={result.title}
+                            >{result.title}</a>
+                          {:else}
+                            <span class="font-mono text-xs truncate" title={result.title}>{result.title}</span>
+                          {/if}
+                          {#if result.isBatch}
+                            <span class="badge badge-xs badge-warning shrink-0">batch</span>
+                          {/if}
+                        </div>
+                      </td>
+                      <td class="text-right tabular-nums text-xs whitespace-nowrap">
+                        {result.size ? fmtBytes(result.size) : "—"}
+                      </td>
+                      <td class="text-right tabular-nums text-xs text-success">
+                        {result.seeders !== null ? result.seeders : "?"}
+                      </td>
+                      <td class="text-right tabular-nums text-xs text-error/70">
+                        {result.leechers !== null ? result.leechers : "?"}
+                      </td>
+                      <td class="text-right text-xs opacity-50 whitespace-nowrap">
+                        {result.publishedAt ? fmtAge(result.publishedAt) : "—"}
+                      </td>
+                      <td>
+                        <button
+                          class="btn btn-xs btn-primary"
+                          disabled={(!result.magnet && !result.torrentUrl) || modal.downloadingIdx !== null}
+                          title={result.magnet
+                            ? "Download via magnet"
+                            : result.torrentUrl
+                              ? "Download via .torrent"
+                              : "No download source available"}
+                          onclick={() => doDownloadSource(i)}
+                        >
+                          {#if modal.downloadingIdx === i}
+                            <span class="loading loading-spinner loading-xs"></span>
+                          {:else}
+                            ↓
+                          {/if}
+                        </button>
+                      </td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
         {:else}
-          <button
-            class="btn btn-sm btn-warning"
-            disabled={modal.loading}
-            onclick={doUpgrade}
-          >
-            {modal.ep.extended ? "Update to Extended" : "Update"}
-          </button>
+          <p class="text-sm opacity-40 text-center py-8">Click Search to find torrents on AniTosho and Nyaa</p>
         {/if}
-        <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
-      </div>
+
+        <div class="modal-action mt-4">
+          <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>
+        </div>
+      {/if}
     </div>
     <form method="dialog" class="modal-backdrop"><button onclick={closeModal}>close</button></form>
   {/if}

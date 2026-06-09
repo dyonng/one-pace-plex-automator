@@ -49,6 +49,21 @@ export function fmtEta(sec: number): string {
   return rm ? `${h}h ${rm}m` : `${h}h`;
 }
 
+export function fmtAge(ts: number): string {
+  const diff = Date.now() - ts;
+  const s = Math.floor(diff / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 30) return `${d}d`;
+  const mo = Math.floor(d / 30);
+  if (mo < 12) return `${mo}mo`;
+  return `${Math.floor(mo / 12)}y`;
+}
+
 export const STATUS_BADGE: Record<string, string> = {
   available: "badge-accent",
   pending: "badge-neutral",
