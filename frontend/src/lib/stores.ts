@@ -79,7 +79,7 @@ export async function refreshStatus(): Promise<void> {
 
 export async function doEpisodeAction(
   crc32: string,
-  action: "download" | "retry" | "resync" | "remove" | "upgrade",
+  action: "download" | "retry" | "resync" | "remove" | "upgrade" | "download-source",
   body?: Record<string, unknown>
 ): Promise<{ ok: boolean; message: string }> {
   let r: { ok: boolean; message: string };
