@@ -12,6 +12,7 @@ import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
 import { getAutoPosters } from "./settings";
 import { scanCoverage, getStoredCoverage } from "./coverage";
+import { lookupEpisodeText, lookupArcText } from "./onepace-descriptions";
 
 interface BatchResult {
   crc32: string;
@@ -160,19 +161,26 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
   try {
     meta = await resolveEpisodeByCrc32(realCrc32, resolution);
   } catch {
-    logger.info("Provisional episode still not in dataset — using parsed metadata", {
-      crc32: realCrc32, arc: ep.arc_title, episode: ep.episode_num,
+    // The dataset doesn't list this CRC32 yet. Pull what we can from ladyisatis'
+    // metadata sheet (episode/arc titles + descriptions) so Plex still gets real
+    // text instead of blanks; fall back to empties when the sheet is off/missing.
+    const [epText, arcText] = await Promise.all([
+      lookupEpisodeText(ep.arc_title, ep.episode_num),
+      lookupArcText(ep.arc_title),
+    ]);
+    logger.info("Provisional episode still not in dataset — using sheet/parsed metadata", {
+      crc32: realCrc32, arc: ep.arc_title, episode: ep.episode_num, sheetHit: Boolean(epText),
     });
     meta = {
       crc32: realCrc32,
       arcIndex: ep.arc_num,
       arcTitle: ep.arc_title,
-      arcSaga: "",
+      arcSaga: arcText?.saga ?? "",
       arcPart: ep.arc_part,
-      arcDescription: "",
+      arcDescription: arcText?.description ?? "",
       episodeNum: ep.episode_num,
-      episodeTitle: "",
-      episodeDescription: "",
+      episodeTitle: epText?.title ?? "",
+      episodeDescription: epText?.description ?? "",
       chapters: "",
       originalEpisodes: "",
       released: "",
