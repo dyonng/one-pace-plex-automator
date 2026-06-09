@@ -5,6 +5,7 @@ import { logger } from "./logger";
 import { getKv, setKv, getEpisodeByCrc32, getEpisodesByStatus } from "./db";
 import { getAllEpisodes, extractCrc32FromFilename } from "./metadata";
 import { getRssMagnetMap } from "./rss";
+import { lookupEpisodeText } from "./onepace-descriptions";
 
 // Latest report only — a single upserted kv row, so it never grows and survives
 // restarts. The dashboard reads this; a scan overwrites it.
@@ -16,11 +17,12 @@ const KV_SCANNED_AT = "coverage_scanned_at";
 const VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
 
 export type CoverageStatus =
-  | "present"         // on disk, CRC32 matches the dataset's current release
-  | "present_unknown" // on disk, but filename has no CRC32 so we can't verify
-  | "upgradeable"     // on disk with old CRC32 — a newer version exists
-  | "downloading"     // the canonical release is in the pipeline right now
-  | "missing";        // not on disk
+  | "present"             // on disk, CRC32 matches the dataset's current release
+  | "present_unknown"     // on disk, but filename has no CRC32 so we can't verify
+  | "present_uncatalogued"// on disk, but the dataset doesn't list this episode yet
+  | "upgradeable"         // on disk with old CRC32 — a newer version exists
+  | "downloading"         // the canonical release is in the pipeline right now
+  | "missing";            // not on disk
 
 export interface CoverageEpisode {
   arcPart: number;
@@ -188,6 +190,35 @@ export async function scanCoverage(): Promise<CoverageReport> {
     });
   }
 
+  // Whatever's left on disk matched no dataset episode. If it belongs to an arc
+  // we know (e.g. a provisional download that's ahead of the catalog), show it in
+  // that arc's foldout as "uncatalogued" instead of a faceless extra. Files for an
+  // unknown arc stay in the extras list. These don't count toward the arc's
+  // present/total — those metrics track coverage of the catalog itself.
+  const extraFilenames: string[] = [];
+  for (const [key, file] of disk) {
+    const [season, episode] = key.split("-").map(Number);
+    const arc = arcMap.get(season);
+    if (!arc) {
+      extraFilenames.push(file.filename);
+      continue;
+    }
+    if (!arc.seasonFolder) arc.seasonFolder = file.folder;
+    arc.episodes.push({
+      arcPart: season,
+      arcTitle: arc.arcTitle,
+      episodeNum: episode,
+      seasonEpisodeId: `s${String(season).padStart(2, "0")}e${String(episode).padStart(2, "0")}`,
+      episodeTitle: (await lookupEpisodeText(arc.arcTitle, episode))?.title ?? "",
+      datasetCrc32: "",
+      status: "present_uncatalogued",
+      diskFilename: file.filename,
+      diskCrc32: file.crc32,
+      hasMagnet: false,
+      extended: /\[Extended\]/i.test(file.filename),
+    });
+  }
+
   const arcs = [...arcMap.values()].sort((a, b) => a.arcPart - b.arcPart);
   for (const arc of arcs) arc.episodes.sort((a, b) => a.episodeNum - b.episodeNum);
 
@@ -202,7 +233,7 @@ export async function scanCoverage(): Promise<CoverageReport> {
     { episodes: 0, present: 0, missing: 0, upgradeable: 0, downloading: 0 }
   );
 
-  const extras = [...disk.values()].map((f) => f.filename).sort();
+  const extras = extraFilenames.sort();
 
   logger.info("Coverage scan complete", {
     present: totals.present,
