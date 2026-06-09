@@ -130,11 +130,12 @@ export type EpisodeActionId = "download" | "retry" | "resync" | "remove" | "upgr
 export async function runEpisodeAction(
   action: EpisodeActionId,
   crc32: string,
-  opts: { deleteFile?: boolean; source?: string } = {}
+  opts: { deleteFile?: boolean; source?: string; title?: string } = {}
 ): Promise<ActionResult> {
   if (action === "download-source") {
     const source = opts.source ?? "";
     if (!source) return { ok: false, message: "No source URL provided" };
+    const resolution = extractResolutionFromFilename(opts.title ?? "") || undefined;
     return withLock("Download episode", async () => {
       const existing = getEpisodeByCrc32(crc32);
       if (existing?.status === "downloading" || existing?.status === "processing") {
@@ -144,7 +145,7 @@ export async function runEpisodeAction(
       if (!record) {
         let meta;
         try {
-          meta = await resolveEpisodeByCrc32(crc32);
+          meta = await resolveEpisodeByCrc32(crc32, resolution);
         } catch {
           return { ok: false, message: `Episode metadata not found for ${crc32}` };
         }
