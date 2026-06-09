@@ -1,6 +1,11 @@
 import { getConfig } from "./config";
 import { logger } from "./logger";
 import { getPreferExtended, getPreferArabasta } from "./settings";
+import { canonicalizeArcTitle } from "./arc-titles";
+import { lookupSheetEpisode, lookupSheetEpisodeByCrc32, listSheetEpisodes, getArcResolution } from "./onepace-sheet";
+import { lookupEpisodeText } from "./onepace-descriptions";
+
+export { canonicalizeArcTitle };
 
 /**
  * The dataset spells arc 14 "Alabasta"; some users prefer "Arabasta". When the
@@ -10,26 +15,6 @@ import { getPreferExtended, getPreferArabasta } from "./settings";
 function displayArcTitle(raw: string): string {
   if (getPreferArabasta() && raw) return raw.replace(/Alabasta/g, "Arabasta");
   return raw;
-}
-
-// Arc titles that have multiple accepted spellings in the wild. Each set maps to
-// a single canonical form so a lookup matches regardless of which spelling the
-// RSS title (or the official sheet) uses. The dataset spells these "Alabasta"
-// and "Whisky Peak"; users/feeds sometimes write "Arabasta"/"Whiskey Peak".
-const ARC_TITLE_ALIASES: Record<string, string> = {
-  arabasta: "alabasta",
-  "whiskey peak": "whisky peak",
-};
-
-/**
- * Normalizes an arc title for matching: lowercased, whitespace-collapsed, with
- * known spelling variants folded to a single canonical form. Use this whenever
- * comparing arc titles from external sources (RSS, the Google Sheet) so the two
- * accepted spellings are treated interchangeably.
- */
-export function canonicalizeArcTitle(raw: string): string {
-  const t = (raw ?? "").trim().toLowerCase().replace(/\s+/g, " ");
-  return ARC_TITLE_ALIASES[t] ?? t;
 }
 
 // ── Richer v2 metadata schema (metadata/data.min.json) ───────────────────────
@@ -203,7 +188,7 @@ export async function resolveEpisodeByCrc32(
   const data = await _getData();
   const key = crc32.toUpperCase();
   const ep = data.episodes[key];
-  if (!ep) throw new Error(`CRC32 ${key} not found in metadata dataset`);
+  if (!ep) return resolveFromSheet(key, resolution);
   const arcEntry = _arcByPart!.get(ep.arc);
   if (!arcEntry) throw new Error(`Arc part ${ep.arc} not found in metadata dataset`);
   const epNum = Number(ep.episode);
@@ -227,13 +212,77 @@ export async function resolveEpisodeByCrc32(
 }
 
 /**
+ * Resolves a CRC32 the dataset doesn't list via the episode guide sheet (which
+ * is often updated first). The arc must exist in the dataset — only the episode
+ * itself may be new. Titles/descriptions come from the dataset's descriptions
+ * when present, else ladyisatis' metadata sheet. Throws when the hash is unknown
+ * to both sources, preserving the original error contract.
+ */
+async function resolveFromSheet(key: string, resolution: string): Promise<ResolvedEpisode> {
+  const sheetEp = await lookupSheetEpisodeByCrc32(key);
+  const arcEntry = sheetEp ? findArcByTitle(sheetEp.arcTitle) : null;
+  if (!sheetEp || !arcEntry) throw new Error(`CRC32 ${key} not found in metadata dataset`);
+
+  const epNum = sheetEp.episodeNum;
+  const desc = _descByKey!.get(epKey(arcEntry.arc.part, epNum));
+  const text = desc ? null : await lookupEpisodeText(arcEntry.arc.title, epNum);
+  return {
+    crc32: key,
+    arcIndex: arcEntry.index,
+    arcTitle: displayArcTitle(arcEntry.arc.title),
+    arcSaga: arcEntry.arc.saga,
+    arcPart: arcEntry.arc.part,
+    arcDescription: arcEntry.arc.description,
+    episodeNum: epNum,
+    episodeTitle: desc?.title ?? text?.title ?? "",
+    episodeDescription: desc?.description ?? text?.description ?? "",
+    chapters: sheetEp.chapters.replace(/^Ch\.\s*/i, ""),
+    originalEpisodes: sheetEp.animeEpisodes.replace(/^Ep\.\s*/i, ""),
+    released: sheetEp.releaseDate,
+    resolution,
+    extended: key === sheetEp.extendedCrc32,
+  };
+}
+
+// ── Sheet union ───────────────────────────────────────────────────────────────
+// The official episode guide (Google Sheet) often lists a release's CRC32s
+// before data.min.json is regenerated. Lookups below treat the sheet as an
+// additive source: the dataset always wins when it knows an episode; the sheet
+// only fills in episodes the dataset doesn't have yet. Everything degrades to
+// dataset-only behavior when no Sheets API key is configured.
+
+interface EpisodeVariants {
+  standard: string;
+  extended: string;
+}
+
+/** Dataset arc matching a (possibly differently spelled) external arc title. */
+function findArcByTitle(arcTitle: string): { arc: DataJsonArc; index: number } | null {
+  if (!_data) return null;
+  const wanted = canonicalizeArcTitle(arcTitle);
+  const idx = _data.arcs.en.findIndex((a) => canonicalizeArcTitle(a.title) === wanted);
+  return idx === -1 ? null : { arc: _data.arcs.en[idx], index: idx };
+}
+
+/** Standard/extended CRC32s for an episode: dataset first, sheet as fallback. */
+async function getVariants(arcPart: number, episodeNum: number): Promise<EpisodeVariants | null> {
+  const v = _variantByKey!.get(epKey(arcPart, episodeNum));
+  if (v) return v;
+  const arcEntry = _arcByPart!.get(arcPart);
+  if (!arcEntry) return null;
+  const sheetEp = await lookupSheetEpisode(arcEntry.arc.title, episodeNum);
+  if (!sheetEp) return null;
+  return { standard: sheetEp.standardCrc32 ?? "", extended: sheetEp.extendedCrc32 ?? "" };
+}
+
+/**
  * The preferred CRC32 for an episode: the extended cut when one exists and the
  * "prefer extended" setting is on, otherwise the standard cut. Returns null if
- * the episode is unknown.
+ * the episode is unknown to both the dataset and the sheet.
  */
 export async function getCanonicalCrc32(arcPart: number, episodeNum: number): Promise<string | null> {
   await _getData();
-  const v = _variantByKey!.get(epKey(arcPart, episodeNum));
+  const v = await getVariants(arcPart, episodeNum);
   if (!v) return null;
   if (getPreferExtended() && v.extended) return v.extended;
   return v.standard || v.extended || null;
@@ -249,10 +298,18 @@ export async function isPreferredRelease(crc32: string): Promise<boolean> {
   const data = await _getData();
   const key = crc32.toUpperCase();
   const ep = data.episodes[key];
-  if (!ep) return true;
-  const preferred = await getCanonicalCrc32(ep.arc, Number(ep.episode));
-  if (!preferred) return true;
-  return preferred === key;
+  if (ep) {
+    const preferred = await getCanonicalCrc32(ep.arc, Number(ep.episode));
+    return !preferred || preferred === key;
+  }
+  // Not in the dataset — the sheet may already know which cut this hash is.
+  const sheetEp = await lookupSheetEpisodeByCrc32(key);
+  if (!sheetEp) return true;
+  const preferred =
+    getPreferExtended() && sheetEp.extendedCrc32
+      ? sheetEp.extendedCrc32
+      : sheetEp.standardCrc32 ?? sheetEp.extendedCrc32;
+  return !preferred || preferred === key;
 }
 
 /**
@@ -296,17 +353,24 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
   const parsed = parseReleaseTitle(rssTitle);
   if (!parsed) return null;
 
-  const data = await _getData();
-  const wanted = canonicalizeArcTitle(parsed.arcTitle);
-  const arc = data.arcs.en.find((a) => canonicalizeArcTitle(a.title) === wanted);
-  if (!arc) {
+  await _getData();
+  const arcEntry = findArcByTitle(parsed.arcTitle);
+  if (!arcEntry) {
     logger.warn("Arc not found in metadata", { arcTitle: parsed.arcTitle });
     return null;
   }
 
-  const crc = await getCanonicalCrc32(arc.part, parsed.epNum);
+  // Match the cut named by the title — a standard release must never be keyed
+  // to the extended cut's CRC32 (or vice versa). If the named cut isn't known
+  // yet, return null so the provisional flow recovers the hash from the file.
+  const v = await getVariants(arcEntry.arc.part, parsed.epNum);
+  const crc = parsed.extended ? v?.extended : v?.standard;
   if (!crc) {
-    logger.warn("Episode not found in metadata", { arcTitle: parsed.arcTitle, epNum: parsed.epNum });
+    logger.warn("Episode not found in metadata", {
+      arcTitle: parsed.arcTitle,
+      epNum: parsed.epNum,
+      extended: parsed.extended,
+    });
     return null;
   }
   return crc;
@@ -319,17 +383,15 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
  * into the right season folder before the episode appears in the dataset.
  */
 export async function resolveArcByTitle(arcTitle: string): Promise<ArcSummary | null> {
-  const data = await _getData();
-  const wanted = canonicalizeArcTitle(arcTitle);
-  const idx = data.arcs.en.findIndex((a) => canonicalizeArcTitle(a.title) === wanted);
-  if (idx === -1) return null;
-  const a = data.arcs.en[idx];
+  await _getData();
+  const entry = findArcByTitle(arcTitle);
+  if (!entry) return null;
   return {
-    arcIndex: idx,
-    arcPart: a.part,
-    arcTitle: displayArcTitle(a.title),
-    arcSaga: a.saga,
-    arcDescription: a.description,
+    arcIndex: entry.index,
+    arcPart: entry.arc.part,
+    arcTitle: displayArcTitle(entry.arc.title),
+    arcSaga: entry.arc.saga,
+    arcDescription: entry.arc.description,
   };
 }
 
@@ -363,47 +425,82 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
   const data = await _getData();
   const preferExtended = getPreferExtended();
   const cacheKey = `${preferExtended}|${getPreferArabasta()}`;
-  if (_episodesCache && _episodesCache.pref === cacheKey) return _episodesCache.list;
 
-  // The arc episode list gives the current canonical standard + extended CRC32
-  // per (arc, episode). Pick the preferred variant; everything else (titles,
-  // technical fields) hangs off that CRC32.
-  const list: EpisodeSummary[] = [];
-  for (const { arc, index } of _arcByPart!.values()) {
-    if (arc.part <= 0) continue; // skip specials
-    for (const ve of arc.episodes) {
-      const epNum = Number(ve.episode);
-      const isExtended = Boolean(preferExtended && ve.extended);
-      const crc = (isExtended ? ve.extended : ve.standard || ve.extended || "").toUpperCase();
-      if (!crc) continue;
+  if (!_episodesCache || _episodesCache.pref !== cacheKey) {
+    // The arc episode list gives the current canonical standard + extended CRC32
+    // per (arc, episode). Pick the preferred variant; everything else (titles,
+    // technical fields) hangs off that CRC32.
+    const list: EpisodeSummary[] = [];
+    for (const { arc, index } of _arcByPart!.values()) {
+      if (arc.part <= 0) continue; // skip specials
+      for (const ve of arc.episodes) {
+        const epNum = Number(ve.episode);
+        const isExtended = Boolean(preferExtended && ve.extended);
+        const crc = (isExtended ? ve.extended : ve.standard || ve.extended || "").toUpperCase();
+        if (!crc) continue;
 
-      const epData = data.episodes[crc];
-      const desc = _descByKey!.get(epKey(arc.part, epNum));
-      const season = String(arc.part).padStart(2, "0");
-      const episode = String(epNum).padStart(2, "0");
+        const epData = data.episodes[crc];
+        const desc = _descByKey!.get(epKey(arc.part, epNum));
+        const season = String(arc.part).padStart(2, "0");
+        const episode = String(epNum).padStart(2, "0");
 
-      list.push({
-        crc32: crc,
-        arcIndex: index,
-        arcTitle: displayArcTitle(arc.title),
-        arcSaga: arc.saga,
-        arcPart: arc.part,
-        arcDescription: arc.description,
-        episodeNum: epNum,
-        episodeTitle: desc?.title ?? "",
-        episodeDescription: desc?.description ?? "",
-        chapters: epData?.manga_chapters ?? "",
-        originalEpisodes: epData?.anime_episodes ?? "",
-        released: epData?.released ?? "",
-        resolution: extractResolutionFromFilename(epData?.file?.name ?? ""),
-        extended: Boolean(epData?.extended),
-        seasonEpisodeId: `s${season}e${episode}`,
-      });
+        list.push({
+          crc32: crc,
+          arcIndex: index,
+          arcTitle: displayArcTitle(arc.title),
+          arcSaga: arc.saga,
+          arcPart: arc.part,
+          arcDescription: arc.description,
+          episodeNum: epNum,
+          episodeTitle: desc?.title ?? "",
+          episodeDescription: desc?.description ?? "",
+          chapters: epData?.manga_chapters ?? "",
+          originalEpisodes: epData?.anime_episodes ?? "",
+          released: epData?.released ?? "",
+          resolution: extractResolutionFromFilename(epData?.file?.name ?? ""),
+          extended: Boolean(epData?.extended),
+          seasonEpisodeId: `s${season}e${episode}`,
+        });
+      }
     }
+    _episodesCache = { pref: cacheKey, list };
   }
 
-  _episodesCache = { pref: cacheKey, list };
-  return list;
+  // Union in episodes the sheet knows but the dataset doesn't yet (the guide is
+  // often updated first). Appended fresh on every call — the sheet refreshes on
+  // its own TTL, so these mustn't be frozen into the dataset-keyed cache above.
+  const merged = [..._episodesCache.list];
+  for (const sheetEp of await listSheetEpisodes()) {
+    const arcEntry = findArcByTitle(sheetEp.arcTitle);
+    if (!arcEntry || arcEntry.arc.part <= 0) continue;
+    if (_variantByKey!.has(epKey(arcEntry.arc.part, sheetEp.episodeNum))) continue; // dataset wins
+
+    const isExtended = Boolean(preferExtended && sheetEp.extendedCrc32);
+    const crc = isExtended ? sheetEp.extendedCrc32! : sheetEp.standardCrc32 ?? sheetEp.extendedCrc32;
+    if (!crc) continue;
+
+    const desc = _descByKey!.get(epKey(arcEntry.arc.part, sheetEp.episodeNum));
+    const text = desc ? null : await lookupEpisodeText(arcEntry.arc.title, sheetEp.episodeNum);
+    merged.push({
+      crc32: crc,
+      arcIndex: arcEntry.index,
+      arcTitle: displayArcTitle(arcEntry.arc.title),
+      arcSaga: arcEntry.arc.saga,
+      arcPart: arcEntry.arc.part,
+      arcDescription: arcEntry.arc.description,
+      episodeNum: sheetEp.episodeNum,
+      episodeTitle: desc?.title ?? text?.title ?? "",
+      episodeDescription: desc?.description ?? text?.description ?? "",
+      chapters: sheetEp.chapters.replace(/^Ch\.\s*/i, ""),
+      originalEpisodes: sheetEp.animeEpisodes.replace(/^Ep\.\s*/i, ""),
+      released: sheetEp.releaseDate,
+      resolution: (await getArcResolution(arcEntry.arc.title)) ?? "1080p",
+      extended: crc === sheetEp.extendedCrc32,
+      seasonEpisodeId: `s${String(arcEntry.arc.part).padStart(2, "0")}e${String(sheetEp.episodeNum).padStart(2, "0")}`,
+    });
+  }
+
+  return merged;
 }
 
 export function buildPlexFilename(

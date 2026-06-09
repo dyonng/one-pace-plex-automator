@@ -1,6 +1,6 @@
 import { getConfig } from "./config";
 import { getGoogleSheetsApiKey } from "./settings";
-import { canonicalizeArcTitle } from "./metadata";
+import { canonicalizeArcTitle } from "./arc-titles";
 import { logger } from "./logger";
 
 // ladyisatis' One Pace metadata sheet — the dataset maintainer's working source,
