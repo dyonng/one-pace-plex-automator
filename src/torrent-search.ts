@@ -64,8 +64,9 @@ function sanitizeCount(n: number | undefined): number | null {
 }
 
 async function searchAnimeTosho(query: string): Promise<TorrentSearchResult[]> {
+  const base = getSettingValue("ANIMETOSHO_BASE_URL").replace(/\/$/, "");
   const apiKey = getSettingValue("ANIMETOSHO_API_KEY");
-  let url = `https://feed.animetosho.xyz/json?q=${encodeURIComponent(query)}&only_tor=1`;
+  let url = `${base}/json?q=${encodeURIComponent(query)}&only_tor=1`;
   if (apiKey) url += `&api_key=${encodeURIComponent(apiKey)}`;
 
   const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
@@ -112,7 +113,8 @@ function parseNyaaSize(s: string | undefined): number | null {
 }
 
 async function searchNyaa(query: string): Promise<TorrentSearchResult[]> {
-  const url = `https://nyaa.si/?page=rss&q=${encodeURIComponent(query)}&c=1_2&f=0`;
+  const base = getSettingValue("NYAA_BASE_URL").replace(/\/$/, "");
+  const url = `${base}/?page=rss&q=${encodeURIComponent(query)}&c=1_2&f=0`;
   const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
 

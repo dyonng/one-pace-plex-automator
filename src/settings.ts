@@ -14,7 +14,9 @@ export type SettingKey =
   | "DISCORD_WEBHOOK_URL"
   | "RSS_FEED_URL"
   | "POSTER_REPO_RAW_BASE"
-  | "ANIMETOSHO_API_KEY";
+  | "ANIMETOSHO_API_KEY"
+  | "ANIMETOSHO_BASE_URL"
+  | "NYAA_BASE_URL";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
 export type SettingCategory = "service" | "preference";
 
@@ -172,6 +174,20 @@ const DEFS: Record<SettingKey, SettingDef> = {
     type: "text",
     envValue: () => getConfig().ANIMETOSHO_API_KEY,
     validate: validateText,
+  },
+  ANIMETOSHO_BASE_URL: {
+    key: "ANIMETOSHO_BASE_URL",
+    label: "AnimeTosho base URL",
+    type: "url",
+    envValue: () => getConfig().ANIMETOSHO_BASE_URL,
+    validate: validateUrl,
+  },
+  NYAA_BASE_URL: {
+    key: "NYAA_BASE_URL",
+    label: "Nyaa base URL",
+    type: "url",
+    envValue: () => getConfig().NYAA_BASE_URL,
+    validate: validateUrl,
   },
 };
 
