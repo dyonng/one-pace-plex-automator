@@ -1,11 +1,12 @@
+import fs from "fs";
 import path from "path";
 import { getConfig } from "./config";
-import { DOWNLOAD_PATH } from "./constants";
+import { DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, getAllArcs, getAllEpisodes, type ResolvedEpisode } from "./metadata";
-import { findDownloadedFile, moveAndRename, scanBatchFiles } from "./fileops";
+import { buildSeasonFolder, findDownloadedFile, moveAndRename, scanBatchFiles } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
@@ -42,6 +43,35 @@ async function processBatchSiblings(
       const finalFilename = buildPlexFilename(
         meta.arcTitle, meta.arcPart, meta.episodeNum, meta.resolution, sibling.crc32, ext
       );
+
+      // If the file is already on disk at the correct path, just record it in the DB
+      // rather than copying it over itself (avoids redundant I/O for already-imported episodes).
+      const destPath = path.join(MEDIA_PATH, buildSeasonFolder(meta.arcTitle, meta.arcPart), finalFilename);
+      if (fs.existsSync(destPath)) {
+        if (!existing) {
+          upsertEpisode({
+            crc32: sibling.crc32,
+            arc_num: meta.arcIndex,
+            arc_title: meta.arcTitle,
+            arc_part: meta.arcPart,
+            episode_num: meta.episodeNum,
+            resolution: meta.resolution,
+            original_filename: sibling.filename,
+            final_filename: finalFilename,
+            status: "done",
+            torrent_hash: torrentHash,
+            magnet_uri: null,
+            error_message: null,
+            rss_guid: "",
+            changelog: [],
+          });
+        } else {
+          updateEpisodeStatus(sibling.crc32, "done", { final_filename: finalFilename });
+        }
+        logger.debug("Batch sibling already on disk, recorded in DB", { crc32: sibling.crc32, filename: finalFilename });
+        continue;
+      }
+
       const { replaced } = moveAndRename(
         sibling.filePath, finalFilename, meta.arcTitle, meta.arcPart, meta.episodeNum
       );
@@ -145,27 +175,33 @@ async function _processDownloading(): Promise<void> {
         ? await processBatchSiblings(sourceDir, ep.torrent_hash, ep.crc32)
         : [];
 
-
-      await triggerLibraryScan();
-      await new Promise((resolve) => setTimeout(resolve, 5000));
-
-      await syncSingleEpisode({
-        ...epMeta,
-        seasonEpisodeId: `s${String(ep.arc_part).padStart(2, "0")}e${String(ep.episode_num).padStart(2, "0")}`,
-      });
-      for (const s of siblings) {
-        try {
-          await syncSingleEpisode({
-            ...s.meta,
-            seasonEpisodeId: `s${String(s.meta.arcPart).padStart(2, "0")}e${String(s.meta.episodeNum).padStart(2, "0")}`,
-          });
-        } catch (err) {
-          logger.warn("Plex sync failed for batch sibling", { crc32: s.crc32, error: (err as Error).message });
-        }
-      }
-
+      // Mark done now — the file is safely on disk. Plex scan/sync is best-effort;
+      // a transient Plex error must not flip a successfully-moved episode to "failed".
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
       completed++;
+
+      try {
+        await triggerLibraryScan();
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+        await syncSingleEpisode({
+          ...epMeta,
+          seasonEpisodeId: `s${String(ep.arc_part).padStart(2, "0")}e${String(ep.episode_num).padStart(2, "0")}`,
+        });
+        for (const s of siblings) {
+          try {
+            await syncSingleEpisode({
+              ...s.meta,
+              seasonEpisodeId: `s${String(s.meta.arcPart).padStart(2, "0")}e${String(s.meta.episodeNum).padStart(2, "0")}`,
+            });
+          } catch (err) {
+            logger.warn("Plex sync failed for batch sibling", { crc32: s.crc32, error: (err as Error).message });
+          }
+        }
+      } catch (err) {
+        logger.warn("Plex scan/sync failed after ingest — file is on disk, use Full Sync to recover", {
+          crc32: ep.crc32, error: (err as Error).message,
+        });
+      }
 
       // Auto-apply season posters for all arc parts encountered (primary + siblings).
       if (getAutoPosters()) {

@@ -170,6 +170,7 @@ function buildRouter(): Router {
       const result = await runEpisodeAction(action, c.params.crc32.toUpperCase(), {
         deleteFile: Boolean(body?.deleteFile),
         source: typeof body?.source === "string" ? body.source : undefined,
+        title: typeof body?.title === "string" ? body.title : undefined,
       });
       c.json(result.ok ? 200 : 409, result);
     } catch (err) {
