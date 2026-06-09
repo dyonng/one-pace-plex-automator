@@ -9,7 +9,10 @@ export interface RssEpisode {
   title: string;
   magnet: string;
   filename: string;
-  crc32: string;
+  // null when no CRC32 could be determined (not in the filename and the episode
+  // isn't in the dataset yet). The cycle then attempts a provisional download,
+  // resolving the real CRC32 from the downloaded file after it completes.
+  crc32: string | null;
   pubDate: string;
   changelog: string[];
 }
@@ -137,12 +140,14 @@ export async function fetchNewEpisodes(
       crc32 = await lookupCrc32ByTitle(item.title).catch(() => null);
     }
 
+    // No CRC32 yet (not in the filename, episode not in the dataset). Keep the
+    // item with crc32: null so the cycle can attempt a provisional download —
+    // the real CRC32 is recovered from the downloaded file once it finishes.
     if (!crc32) {
-      logger.warn("Could not determine CRC32 for RSS item, skipping", {
+      logger.info("No CRC32 for RSS item — will attempt provisional download", {
         title: item.title,
         filename,
       });
-      continue;
     }
 
     newEpisodes.push({

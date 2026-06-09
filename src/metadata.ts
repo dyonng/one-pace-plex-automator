@@ -12,6 +12,26 @@ function displayArcTitle(raw: string): string {
   return raw;
 }
 
+// Arc titles that have multiple accepted spellings in the wild. Each set maps to
+// a single canonical form so a lookup matches regardless of which spelling the
+// RSS title (or the official sheet) uses. The dataset spells these "Alabasta"
+// and "Whisky Peak"; users/feeds sometimes write "Arabasta"/"Whiskey Peak".
+const ARC_TITLE_ALIASES: Record<string, string> = {
+  arabasta: "alabasta",
+  "whiskey peak": "whisky peak",
+};
+
+/**
+ * Normalizes an arc title for matching: lowercased, whitespace-collapsed, with
+ * known spelling variants folded to a single canonical form. Use this whenever
+ * comparing arc titles from external sources (RSS, the Google Sheet) so the two
+ * accepted spellings are treated interchangeably.
+ */
+export function canonicalizeArcTitle(raw: string): string {
+  const t = (raw ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return ARC_TITLE_ALIASES[t] ?? t;
+}
+
 // ── Richer v2 metadata schema (metadata/data.min.json) ───────────────────────
 // arcs.en[]            — one entry per arc; episodes[] maps each episode to its
 //                        standard + (optional) extended CRC32.
@@ -236,26 +256,49 @@ export async function isPreferredRelease(crc32: string): Promise<boolean> {
 }
 
 /**
- * Parses an RSS title like "Little Garden 05" into {arcTitle, epNum}.
- * Last whitespace-separated token that is purely numeric is the episode number.
+ * Parses an RSS title like "Little Garden 05" or "Egghead 21 Extended Cut" into
+ * {arcTitle, epNum, extended}. A trailing "Extended Cut"/"Extended" marker is
+ * stripped and flagged; the last remaining whitespace-separated token must be
+ * purely numeric and is taken as the episode number.
  */
-function parseRssTitle(title: string): { arcTitle: string; epNum: number } | null {
-  const parts = title.trim().split(/\s+/);
+// Provisional episode records use a synthetic key (no real CRC32 known yet).
+// The processor recognizes these by prefix and recovers the real CRC32 from the
+// downloaded file, then re-keys the record.
+const PROVISIONAL_PREFIX = "PROV-";
+
+export function provisionalKey(arcPart: number, episodeNum: number, extended: boolean): string {
+  return `${PROVISIONAL_PREFIX}${arcPart}-${episodeNum}${extended ? "-E" : ""}`;
+}
+
+export function isProvisionalKey(crc32: string): boolean {
+  return crc32.startsWith(PROVISIONAL_PREFIX);
+}
+
+export function parseReleaseTitle(
+  title: string
+): { arcTitle: string; epNum: number; extended: boolean } | null {
+  let t = title.trim();
+  let extended = false;
+  const extMatch = t.match(/\s+extended(?:\s+cut)?\s*$/i);
+  if (extMatch) {
+    extended = true;
+    t = t.slice(0, extMatch.index).trim();
+  }
+  const parts = t.split(/\s+/);
   if (parts.length < 2) return null;
   const last = parts[parts.length - 1];
   const epNum = parseInt(last, 10);
   if (isNaN(epNum) || !/^\d+$/.test(last)) return null;
-  return { arcTitle: parts.slice(0, -1).join(" "), epNum };
+  return { arcTitle: parts.slice(0, -1).join(" "), epNum, extended };
 }
 
 export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | null> {
-  const parsed = parseRssTitle(rssTitle);
+  const parsed = parseReleaseTitle(rssTitle);
   if (!parsed) return null;
 
   const data = await _getData();
-  const arc = data.arcs.en.find(
-    (a) => a.title.toLowerCase() === parsed.arcTitle.toLowerCase()
-  );
+  const wanted = canonicalizeArcTitle(parsed.arcTitle);
+  const arc = data.arcs.en.find((a) => canonicalizeArcTitle(a.title) === wanted);
   if (!arc) {
     logger.warn("Arc not found in metadata", { arcTitle: parsed.arcTitle });
     return null;
@@ -267,6 +310,27 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
     return null;
   }
   return crc;
+}
+
+/**
+ * Resolves an arc by its title (e.g. "Egghead") to its summary, including the
+ * season part number. Unlike lookupCrc32ByTitle this succeeds even when the
+ * specific episode isn't catalogued yet — used to place a provisional download
+ * into the right season folder before the episode appears in the dataset.
+ */
+export async function resolveArcByTitle(arcTitle: string): Promise<ArcSummary | null> {
+  const data = await _getData();
+  const wanted = canonicalizeArcTitle(arcTitle);
+  const idx = data.arcs.en.findIndex((a) => canonicalizeArcTitle(a.title) === wanted);
+  if (idx === -1) return null;
+  const a = data.arcs.en[idx];
+  return {
+    arcIndex: idx,
+    arcPart: a.part,
+    arcTitle: displayArcTitle(a.title),
+    arcSaga: a.saga,
+    arcDescription: a.description,
+  };
 }
 
 export interface ArcSummary {
@@ -365,7 +429,12 @@ export function extractCrc32FromFilename(filename: string): string | null {
   return matches.length ? matches[matches.length - 1][1].toUpperCase() : null;
 }
 
-export function extractResolutionFromFilename(filename: string): string {
+/** The resolution tag in a filename (e.g. "1080p"), or null when absent. */
+export function parseResolutionFromFilename(filename: string): string | null {
   const match = filename.match(/\[(\d{3,4}p)\]/i);
-  return match ? match[1] : "1080p";
+  return match ? match[1] : null;
+}
+
+export function extractResolutionFromFilename(filename: string): string {
+  return parseResolutionFromFilename(filename) ?? "1080p";
 }

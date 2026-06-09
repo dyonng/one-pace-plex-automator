@@ -52,6 +52,15 @@ const ConfigSchema = z.object({
   ANIMETOSHO_API_KEY: z.string().default(""),
   ANIMETOSHO_BASE_URL: z.string().url().default("https://feed.animetosho.xyz"),
   NYAA_BASE_URL: z.string().url().default("https://nyaa.si"),
+  // The official One Pace episode guide (Google Sheet). Used as an extra source
+  // to recover an episode's CRC32 when a release lands before the metadata repo
+  // is regenerated. Requires a Google Sheets API key with the Sheets API enabled.
+  GOOGLE_SHEETS_API_KEY: z.string().default(""),
+  ONEPACE_SHEET_ID: z.string().default("1HQRMJgu_zArp-sLnvFMDzOyjdsht87eFLECxMK858lA"),
+  // ladyisatis' One Pace metadata sheet (the dataset maintainer's source). Holds
+  // episode titles/descriptions and arc titles/descriptions — used to fill in
+  // Plex metadata for episodes not yet present in data.min.json. Same API key.
+  ONEPACE_METADATA_SHEET_ID: z.string().default("1M0Aa2p5x7NioaH9-u8FyHq6rH3t5s6Sccs8GoC6pHAM"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
