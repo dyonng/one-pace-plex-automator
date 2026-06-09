@@ -200,6 +200,7 @@ export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "do
 
 export interface CoverageEpisode {
   arcPart: number;
+  arcTitle: string;
   episodeNum: number;
   seasonEpisodeId: string;
   episodeTitle: string;

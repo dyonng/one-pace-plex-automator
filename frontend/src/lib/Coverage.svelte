@@ -482,7 +482,12 @@
             S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}
           </span>
         </h3>
-        <p class="text-xs opacity-40">{modal.ep.extended ? "Extended cut · " : ""}<span class="font-mono">{modal.ep.datasetCrc32}</span></p>
+        <p class="text-xs opacity-40">
+          {#if modal.ep.extended}<span class="mr-1">Extended cut ·</span>{/if}
+          <span class="font-mono">{modal.ep.datasetCrc32}</span>
+          <span class="mx-1 opacity-60">·</span>
+          {modal.ep.arcTitle}
+        </p>
       </div>
 
       <!-- Tabs -->
@@ -578,7 +583,24 @@
           <div class="alert alert-error text-sm py-2">{modal.searchError}</div>
         {:else if modal.searchResults !== null}
           {#if modal.searchResults.length === 0}
-            <p class="text-sm opacity-50 text-center py-8">No results found — try a different query</p>
+            <div class="text-center py-8 flex flex-col items-center gap-3">
+              <p class="text-sm opacity-50">No results for <span class="font-mono">[{modal.ep.datasetCrc32}]</span></p>
+              <p class="text-xs opacity-40 max-w-xs">
+                This episode may only be available as part of a batch release.
+                Try searching by arc name instead.
+              </p>
+              <button
+                class="btn btn-sm btn-outline"
+                onclick={() => {
+                  if (modal) {
+                    modal = { ...modal, searchQuery: `One Pace ${modal.ep.arcTitle}` };
+                    doSearch();
+                  }
+                }}
+              >
+                Search: "One Pace {modal.ep.arcTitle}"
+              </button>
+            </div>
           {:else}
             <div class="overflow-x-auto max-h-72 overflow-y-auto">
               <table class="table table-xs">

@@ -30,6 +30,8 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   DISCORD_WEBHOOK_URL: "service",
   POSTER_REPO_RAW_BASE: "service",
   ANIMETOSHO_API_KEY: "service",
+  ANIMETOSHO_BASE_URL: "service",
+  NYAA_BASE_URL: "service",
   AUTO_DOWNLOAD: "preference",
   AUTO_POSTERS: "preference",
   PREFER_EXTENDED: "preference",

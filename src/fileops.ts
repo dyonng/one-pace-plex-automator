@@ -159,6 +159,35 @@ export function getEpisodeFileSize(arcTitle: string, arcPart: number, finalFilen
   }
 }
 
+export interface BatchFile {
+  filePath: string;
+  filename: string;
+  crc32: string;
+}
+
+const BATCH_VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
+
+/**
+ * Returns all video files in `dir` whose filename contains a bracketed 8-hex
+ * CRC32. Used by the processor to pick up sibling episodes from a batch torrent.
+ */
+export function scanBatchFiles(dir: string): BatchFile[] {
+  if (!fs.existsSync(dir)) return [];
+  const results: BatchFile[] = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!BATCH_VIDEO_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
+    const m = entry.name.match(/\[([0-9A-Fa-f]{8})\]/);
+    if (!m) continue;
+    results.push({
+      filePath: path.join(dir, entry.name),
+      filename: entry.name,
+      crc32: m[1].toUpperCase(),
+    });
+  }
+  return results;
+}
+
 export function findDownloadedFile(downloadDir: string, crc32: string): string | null {
   if (!fs.existsSync(downloadDir)) return null;
 
