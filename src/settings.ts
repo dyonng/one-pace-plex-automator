@@ -16,7 +16,8 @@ export type SettingKey =
   | "POSTER_REPO_RAW_BASE"
   | "ANIMETOSHO_API_KEY"
   | "ANIMETOSHO_BASE_URL"
-  | "NYAA_BASE_URL";
+  | "NYAA_BASE_URL"
+  | "GOOGLE_SHEETS_API_KEY";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
 export type SettingCategory = "service" | "preference";
 
@@ -32,6 +33,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   ANIMETOSHO_API_KEY: "service",
   ANIMETOSHO_BASE_URL: "service",
   NYAA_BASE_URL: "service",
+  GOOGLE_SHEETS_API_KEY: "service",
   AUTO_DOWNLOAD: "preference",
   AUTO_POSTERS: "preference",
   PREFER_EXTENDED: "preference",
@@ -191,6 +193,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => getConfig().NYAA_BASE_URL,
     validate: validateUrl,
   },
+  GOOGLE_SHEETS_API_KEY: {
+    key: "GOOGLE_SHEETS_API_KEY",
+    label: "Google Sheets API key (optional — reads the One Pace episode guide)",
+    type: "text",
+    envValue: () => getConfig().GOOGLE_SHEETS_API_KEY,
+    validate: validateText,
+  },
 };
 
 /** Effective value: DB override > env > default. Always a string. */
@@ -225,6 +234,10 @@ export function getPreferArabasta(): boolean {
 
 export function getAnimeToshoApiKey(): string {
   return getSettingValue("ANIMETOSHO_API_KEY");
+}
+
+export function getGoogleSheetsApiKey(): string {
+  return getSettingValue("GOOGLE_SHEETS_API_KEY");
 }
 
 export interface SettingView {
