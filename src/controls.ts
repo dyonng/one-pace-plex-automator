@@ -9,6 +9,8 @@ import { deleteEpisodeFile } from "./fileops";
 import { findMagnetByCrc32 } from "./rss";
 import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
+import { clearSheetCache } from "./onepace-sheet";
+import { clearDescriptionsCache } from "./onepace-descriptions";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -85,6 +87,10 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
     case "refresh-metadata":
       return withLock("Refresh metadata", async () => {
         clearMetadataCache();
+        // Drop the Google Sheet caches too so a manual refresh picks up sheet
+        // edits immediately rather than waiting out their 6h TTL.
+        clearSheetCache();
+        clearDescriptionsCache();
         await refreshMetadata();
         runtime.lastRefreshAt = Date.now();
         return { ok: true, message: "Metadata cache refreshed" };
