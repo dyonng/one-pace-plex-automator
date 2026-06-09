@@ -50,6 +50,8 @@ const ConfigSchema = z.object({
   // preference.
   PREFER_ARABASTA: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   ANIMETOSHO_API_KEY: z.string().default(""),
+  ANIMETOSHO_BASE_URL: z.string().url().default("https://feed.animetosho.xyz"),
+  NYAA_BASE_URL: z.string().url().default("https://nyaa.si"),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
