@@ -4,11 +4,13 @@ import { fetchNewEpisodes, RssEpisode } from "./rss";
 import {
   resolveEpisodeByCrc32,
   extractResolutionFromFilename,
+  parseResolutionFromFilename,
   isPreferredRelease,
   parseReleaseTitle,
   resolveArcByTitle,
   provisionalKey,
 } from "./metadata";
+import { getArcResolution } from "./onepace-sheet";
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
@@ -181,7 +183,13 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
     const { rssEp, arcIndex, arcPart, arcTitle, epNum, extended } = chosen;
     try {
       const key = provisionalKey(arcPart, epNum, extended);
-      const resolution = extractResolutionFromFilename(rssEp.filename);
+      // RSS titles for provisional items rarely carry a resolution tag; fall back
+      // to the arc's known resolution so the record isn't mislabeled before the
+      // real value is read off the downloaded file.
+      const resolution =
+        parseResolutionFromFilename(rssEp.filename)
+        ?? (await getArcResolution(arcTitle))
+        ?? "1080p";
 
       upsertEpisode({
         crc32: key,

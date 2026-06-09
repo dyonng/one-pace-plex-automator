@@ -26,7 +26,8 @@ export interface SheetEpisode {
 
 interface SheetIndex {
   loadedAt: number;
-  byKey: Map<string, SheetEpisode>; // key = `${canonicalizeArcTitle(arc)}-${epNum}`
+  byKey: Map<string, SheetEpisode>;    // key = `${canonicalizeArcTitle(arc)}-${epNum}`
+  arcResolution: Map<string, string>;  // key = canonicalizeArcTitle(arc) → e.g. "480p"
 }
 
 let _index: SheetIndex | null = null;
@@ -103,6 +104,31 @@ function parseArcTab(arcTitle: string, rows: string[][]): SheetEpisode[] {
   return out;
 }
 
+/**
+ * Parses the "Arc Overview" tab into a per-arc resolution map. Arc names there
+ * carry status suffixes like "(TBR)"/"(WIP)" which are stripped before matching;
+ * a cell may list several resolutions (e.g. "720p,1080p") — we keep the highest.
+ */
+function parseArcResolution(rows: string[][]): Map<string, string> {
+  const out = new Map<string, string>();
+  if (rows.length < 2) return out;
+  const col = colFinder(rows[0].map((h) => (h ?? "").trim()));
+  const cArc = col("Arcs");
+  const cRes = col("Resolution");
+  if (cArc === -1 || cRes === -1) return out;
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const arcRaw = (row[cArc] ?? "").replace(/\([^)]*\)/g, "").trim(); // drop "(TBR)"/"(WIP)"
+    if (!arcRaw) continue;
+    const resCell = (row[cRes] ?? "").trim();
+    const found = [...resCell.matchAll(/(\d{3,4})p/gi)].map((m) => parseInt(m[1], 10));
+    if (found.length === 0) continue;
+    out.set(canonicalizeArcTitle(arcRaw), `${Math.max(...found)}p`);
+  }
+  return out;
+}
+
 async function buildIndex(): Promise<SheetIndex | null> {
   const key = getGoogleSheetsApiKey().trim();
   if (!key) return null;
@@ -111,24 +137,26 @@ async function buildIndex(): Promise<SheetIndex | null> {
   const titles = await fetchArcTabTitles(sheetId, key);
   if (titles.length === 0) {
     logger.warn("One Pace sheet: no arc tabs found");
-    return { loadedAt: Date.now(), byKey: new Map() };
+    return { loadedAt: Date.now(), byKey: new Map(), arcResolution: new Map() };
   }
 
-  // One batchGet pulls every arc tab in a single request.
-  const ranges = titles.map((t) => `ranges=${encodeURIComponent(`'${t}'!A1:Z1000`)}`).join("&");
+  // One batchGet pulls the Arc Overview tab plus every arc tab in a single request.
+  const tabs = [OVERVIEW_TAB, ...titles];
+  const ranges = tabs.map((t) => `ranges=${encodeURIComponent(`'${t}'!A1:Z1000`)}`).join("&");
   const url = `${SHEETS_API}/${sheetId}/values:batchGet?key=${key}&${ranges}`;
   const data = (await getJson(url)) as { valueRanges?: { values?: string[][] }[] };
   const valueRanges = data.valueRanges ?? [];
 
+  const arcResolution = parseArcResolution(valueRanges[0]?.values ?? []);
   const byKey = new Map<string, SheetEpisode>();
-  valueRanges.forEach((vr, i) => {
-    for (const ep of parseArcTab(titles[i], vr.values ?? [])) {
+  titles.forEach((title, i) => {
+    for (const ep of parseArcTab(title, valueRanges[i + 1]?.values ?? [])) {
       byKey.set(indexKey(ep.arcTitle, ep.episodeNum), ep);
     }
   });
 
-  logger.info("One Pace sheet loaded", { arcs: titles.length, episodes: byKey.size });
-  return { loadedAt: Date.now(), byKey };
+  logger.info("One Pace sheet loaded", { arcs: titles.length, episodes: byKey.size, arcResolutions: arcResolution.size });
+  return { loadedAt: Date.now(), byKey, arcResolution };
 }
 
 /** Returns the parsed sheet index, fetching (and caching) it on first use.
@@ -187,4 +215,16 @@ export async function getSheetCrc32(
   if (!ep) return null;
   if (preferExtended && ep.extendedCrc32) return ep.extendedCrc32;
   return ep.standardCrc32 ?? ep.extendedCrc32;
+}
+
+/**
+ * The resolution an arc is released in (e.g. "480p" for Loguetown), per the Arc
+ * Overview tab. Used as a smarter default than a hardcoded 1080p when a release
+ * filename carries no resolution tag. Null when the sheet is disabled or the arc
+ * isn't listed. Arc spelling variants match either way.
+ */
+export async function getArcResolution(arcTitle: string): Promise<string | null> {
+  const index = await getIndex();
+  if (!index) return null;
+  return index.arcResolution.get(canonicalizeArcTitle(arcTitle)) ?? null;
 }
