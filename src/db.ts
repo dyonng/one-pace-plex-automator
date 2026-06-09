@@ -25,12 +25,19 @@ export interface EpisodeRecord {
   error_message: string | null;
   rss_guid: string;
   changelog: string[];
+  // True when this release is the extended cut. Persisted so a provisional
+  // download (one started before the catalog listed the episode) still names
+  // the file with the [Extended] tag once it completes.
+  extended: boolean;
   created_at: number;
   updated_at: number;
 }
 
-// Raw row as stored in SQLite: changelog is a JSON-encoded string.
-type EpisodeRow = Omit<EpisodeRecord, "changelog"> & { changelog: string };
+// Raw row as stored in SQLite: changelog is a JSON string, extended an int 0/1.
+type EpisodeRow = Omit<EpisodeRecord, "changelog" | "extended"> & {
+  changelog: string;
+  extended: number;
+};
 
 function rowToRecord(row: EpisodeRow): EpisodeRecord {
   let changelog: string[] = [];
@@ -39,7 +46,7 @@ function rowToRecord(row: EpisodeRow): EpisodeRecord {
   } catch {
     changelog = [];
   }
-  return { ...row, changelog };
+  return { ...row, changelog, extended: Boolean(row.extended) };
 }
 
 let _db: Database.Database | null = null;
@@ -108,6 +115,7 @@ function migrate(db: Database.Database) {
 
   // Add columns introduced after initial release (no-op on fresh DBs).
   addColumnIfMissing(db, "episodes", "changelog", "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, "episodes", "extended", "INTEGER NOT NULL DEFAULT 0");
 }
 
 function addColumnIfMissing(
@@ -141,8 +149,8 @@ export function upsertEpisode(ep: Omit<EpisodeRecord, "created_at" | "updated_at
   db.prepare(`
     INSERT INTO episodes (crc32, arc_num, arc_title, arc_part, episode_num, resolution,
       original_filename, final_filename, status, torrent_hash, magnet_uri, error_message,
-      rss_guid, changelog, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rss_guid, changelog, extended, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(crc32) DO UPDATE SET
       status = excluded.status,
       final_filename = excluded.final_filename,
@@ -150,11 +158,12 @@ export function upsertEpisode(ep: Omit<EpisodeRecord, "created_at" | "updated_at
       magnet_uri = COALESCE(excluded.magnet_uri, magnet_uri),
       error_message = excluded.error_message,
       changelog = excluded.changelog,
+      extended = excluded.extended,
       updated_at = excluded.updated_at
   `).run(
     ep.crc32, ep.arc_num, ep.arc_title, ep.arc_part, ep.episode_num, ep.resolution,
     ep.original_filename, ep.final_filename, ep.status, ep.torrent_hash, ep.magnet_uri,
-    ep.error_message, ep.rss_guid, JSON.stringify(ep.changelog ?? []), now, now
+    ep.error_message, ep.rss_guid, JSON.stringify(ep.changelog ?? []), ep.extended ? 1 : 0, now, now
   );
 }
 

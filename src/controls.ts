@@ -164,6 +164,7 @@ export async function runEpisodeAction(
           error_message: null,
           rss_guid: "",
           changelog: [],
+          extended: meta.extended,
         });
         record = getEpisodeByCrc32(crc32)!;
       } else {
@@ -206,6 +207,7 @@ export async function runEpisodeAction(
           error_message: null,
           rss_guid: rssItem.guid,
           changelog: rssItem.changelog,
+          extended: meta.extended,
         });
         record = getEpisodeByCrc32(crc32)!;
       }

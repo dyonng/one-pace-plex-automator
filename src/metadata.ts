@@ -236,20 +236,44 @@ export async function isPreferredRelease(crc32: string): Promise<boolean> {
 }
 
 /**
- * Parses an RSS title like "Little Garden 05" into {arcTitle, epNum}.
- * Last whitespace-separated token that is purely numeric is the episode number.
+ * Parses an RSS title like "Little Garden 05" or "Egghead 21 Extended Cut" into
+ * {arcTitle, epNum, extended}. A trailing "Extended Cut"/"Extended" marker is
+ * stripped and flagged; the last remaining whitespace-separated token must be
+ * purely numeric and is taken as the episode number.
  */
-function parseRssTitle(title: string): { arcTitle: string; epNum: number } | null {
-  const parts = title.trim().split(/\s+/);
+// Provisional episode records use a synthetic key (no real CRC32 known yet).
+// The processor recognizes these by prefix and recovers the real CRC32 from the
+// downloaded file, then re-keys the record.
+const PROVISIONAL_PREFIX = "PROV-";
+
+export function provisionalKey(arcPart: number, episodeNum: number, extended: boolean): string {
+  return `${PROVISIONAL_PREFIX}${arcPart}-${episodeNum}${extended ? "-E" : ""}`;
+}
+
+export function isProvisionalKey(crc32: string): boolean {
+  return crc32.startsWith(PROVISIONAL_PREFIX);
+}
+
+export function parseReleaseTitle(
+  title: string
+): { arcTitle: string; epNum: number; extended: boolean } | null {
+  let t = title.trim();
+  let extended = false;
+  const extMatch = t.match(/\s+extended(?:\s+cut)?\s*$/i);
+  if (extMatch) {
+    extended = true;
+    t = t.slice(0, extMatch.index).trim();
+  }
+  const parts = t.split(/\s+/);
   if (parts.length < 2) return null;
   const last = parts[parts.length - 1];
   const epNum = parseInt(last, 10);
   if (isNaN(epNum) || !/^\d+$/.test(last)) return null;
-  return { arcTitle: parts.slice(0, -1).join(" "), epNum };
+  return { arcTitle: parts.slice(0, -1).join(" "), epNum, extended };
 }
 
 export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | null> {
-  const parsed = parseRssTitle(rssTitle);
+  const parsed = parseReleaseTitle(rssTitle);
   if (!parsed) return null;
 
   const data = await _getData();
@@ -267,6 +291,28 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
     return null;
   }
   return crc;
+}
+
+/**
+ * Resolves an arc by its title (e.g. "Egghead") to its summary, including the
+ * season part number. Unlike lookupCrc32ByTitle this succeeds even when the
+ * specific episode isn't catalogued yet — used to place a provisional download
+ * into the right season folder before the episode appears in the dataset.
+ */
+export async function resolveArcByTitle(arcTitle: string): Promise<ArcSummary | null> {
+  const data = await _getData();
+  const idx = data.arcs.en.findIndex(
+    (a) => a.title.toLowerCase() === arcTitle.trim().toLowerCase()
+  );
+  if (idx === -1) return null;
+  const a = data.arcs.en[idx];
+  return {
+    arcIndex: idx,
+    arcPart: a.part,
+    arcTitle: displayArcTitle(a.title),
+    arcSaga: a.saga,
+    arcDescription: a.description,
+  };
 }
 
 export interface ArcSummary {
