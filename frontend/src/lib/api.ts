@@ -279,6 +279,7 @@ export interface EpisodeMetadata {
   originalEpisodes: string;
   released: string;
   extended: boolean;
+  resolution: string | null;
 }
 
 export async function fetchEpisodeMetadata(crc32: string): Promise<EpisodeMetadata | null> {

@@ -500,6 +500,7 @@
             <div class="rounded-lg border border-success/40 bg-success/5 p-3 flex flex-col gap-3">
               <div class="text-xs font-semibold text-success uppercase tracking-wider">Latest Release</div>
               {@render metaField("CRC32", modal.curr?.crc32 ?? modal.ep.datasetCrc32, false, true)}
+              {@render metaField("Resolution", modal.curr?.resolution ?? "unknown")}
               {@render metaField("Released", modal.curr?.released ?? "unknown")}
               {@render metaField("Title", modal.curr?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
               {@render metaField("Chapters", modal.curr?.chapters ?? "—")}

@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { getConfig } from "../config";
 import { logger, logBus, LogEntry } from "../logger";
-import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus } from "../db";
+import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus, getEpisodeByCrc32 } from "../db";
 import { getData, resolveEpisodeByCrc32 } from "../metadata";
 import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, runNormalizeNaming, ActionId, EpisodeActionId } from "../controls";
@@ -199,7 +199,10 @@ function buildRouter(): Router {
 
   r.get("/api/metadata/:crc32", async (c) => {
     try {
-      c.json(200, await resolveEpisodeByCrc32(c.params.crc32.toUpperCase()));
+      const crc32 = c.params.crc32.toUpperCase();
+      const dbEp = getEpisodeByCrc32(crc32);
+      const resolved = await resolveEpisodeByCrc32(crc32);
+      c.json(200, { ...resolved, resolution: dbEp?.resolution ?? null });
     } catch (err) {
       c.json(404, { ok: false, message: (err as Error).message });
     }
