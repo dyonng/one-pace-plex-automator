@@ -119,6 +119,12 @@
     }
   }
 
+  function parseResolution(filename: string | null): string | null {
+    if (!filename) return null;
+    const m = filename.match(/\[(\d{3,4}p)\]/i);
+    return m ? m[1] : null;
+  }
+
   async function doDownloadSource(idx: number) {
     if (!modal) return;
     const result = modal.searchResults?.[idx];
@@ -479,6 +485,7 @@
               <div class="text-xs font-semibold text-warning uppercase tracking-wider">On Disk</div>
               {#if modal.ep.diskCrc32}
                 {@render metaField("CRC32", modal.ep.diskCrc32, false, true)}
+                {@render metaField("Resolution", parseResolution(modal.ep.diskFilename) ?? "unknown")}
                 {@render metaField("Released", modal.old?.released ?? "unknown")}
                 {@render metaField("Title", modal.old?.episodeTitle ?? "unknown", modal.old?.episodeTitle !== modal.curr?.episodeTitle)}
                 {@render metaField("Chapters", modal.old?.chapters ?? "—")}
