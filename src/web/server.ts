@@ -3,7 +3,7 @@ import fs from "fs";
 import path from "path";
 import { getConfig } from "../config";
 import { logger, logBus, LogEntry } from "../logger";
-import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus } from "../db";
+import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus, getEpisodeByCrc32 } from "../db";
 import { getData, resolveEpisodeByCrc32 } from "../metadata";
 import { resolvePlexConnection } from "../plex";
 import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, runNormalizeNaming, ActionId, EpisodeActionId } from "../controls";
@@ -11,6 +11,7 @@ import { scanNamingCandidates } from "../naming";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage, getCoverageScannedAt } from "../coverage";
+import { searchTorrents } from "../torrent-search";
 import { getQbitClient } from "../qbittorrent";
 import { getEpisodeFileSize } from "../fileops";
 import { getStoredHealth, runHealthCheck } from "../health";
@@ -39,7 +40,7 @@ const ACTION_IDS: ActionId[] = [
   "force-posters",
   "clear-done",
 ];
-const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove", "upgrade"];
+const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove", "upgrade", "download-source"];
 
 function serveStatic(res: http.ServerResponse, urlPath: string): void {
   const file = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
@@ -141,6 +142,16 @@ function buildRouter(): Router {
   });
   r.get("/api/logs/stream", (c) => streamLogs(c.req, c.res));
 
+  r.get("/api/search/torrents", async (c) => {
+    const q = c.query.get("q") ?? "";
+    if (!q.trim()) return c.json(400, { ok: false, message: "q is required" });
+    try {
+      c.json(200, await searchTorrents(q));
+    } catch (err) {
+      c.json(500, { ok: false, message: (err as Error).message });
+    }
+  });
+
   r.post("/api/actions/:id", async (c) => {
     const id = c.params.id as ActionId;
     if (!ACTION_IDS.includes(id)) return c.json(404, { ok: false, message: "Unknown action" });
@@ -154,10 +165,11 @@ function buildRouter(): Router {
   r.post("/api/episodes/:crc32/:action", async (c) => {
     const action = c.params.action as EpisodeActionId;
     if (!EPISODE_ACTIONS.includes(action)) return c.json(404, { ok: false, message: "Unknown episode action" });
-    const body = action === "remove" ? await c.body() : {};
+    const body = (action === "remove" || action === "download-source") ? await c.body() : {};
     try {
       const result = await runEpisodeAction(action, c.params.crc32.toUpperCase(), {
         deleteFile: Boolean(body?.deleteFile),
+        source: typeof body?.source === "string" ? body.source : undefined,
       });
       c.json(result.ok ? 200 : 409, result);
     } catch (err) {
@@ -187,7 +199,10 @@ function buildRouter(): Router {
 
   r.get("/api/metadata/:crc32", async (c) => {
     try {
-      c.json(200, await resolveEpisodeByCrc32(c.params.crc32.toUpperCase()));
+      const crc32 = c.params.crc32.toUpperCase();
+      const dbEp = getEpisodeByCrc32(crc32);
+      const resolved = await resolveEpisodeByCrc32(crc32);
+      c.json(200, { ...resolved, resolution: dbEp?.resolution ?? null });
     } catch (err) {
       c.json(404, { ok: false, message: (err as Error).message });
     }
