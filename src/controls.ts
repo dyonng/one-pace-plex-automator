@@ -125,13 +125,57 @@ function seasonEpisodeId(arcPart: number, episodeNum: number): string {
   return `s${String(arcPart).padStart(2, "0")}e${String(episodeNum).padStart(2, "0")}`;
 }
 
-export type EpisodeActionId = "download" | "retry" | "resync" | "remove" | "upgrade";
+export type EpisodeActionId = "download" | "retry" | "resync" | "remove" | "upgrade" | "download-source";
 
 export async function runEpisodeAction(
   action: EpisodeActionId,
   crc32: string,
-  opts: { deleteFile?: boolean } = {}
+  opts: { deleteFile?: boolean; source?: string } = {}
 ): Promise<ActionResult> {
+  if (action === "download-source") {
+    const source = opts.source ?? "";
+    if (!source) return { ok: false, message: "No source URL provided" };
+    return withLock("Download episode", async () => {
+      const existing = getEpisodeByCrc32(crc32);
+      if (existing?.status === "downloading" || existing?.status === "processing") {
+        return { ok: false, message: `Already ${existing.status}` };
+      }
+      let record = existing;
+      if (!record) {
+        let meta;
+        try {
+          meta = await resolveEpisodeByCrc32(crc32);
+        } catch {
+          return { ok: false, message: `Episode metadata not found for ${crc32}` };
+        }
+        upsertEpisode({
+          crc32,
+          arc_num: meta.arcIndex,
+          arc_title: meta.arcTitle,
+          arc_part: meta.arcPart,
+          episode_num: meta.episodeNum,
+          resolution: meta.resolution,
+          original_filename: "",
+          final_filename: null,
+          status: "available",
+          torrent_hash: null,
+          magnet_uri: source,
+          error_message: null,
+          rss_guid: "",
+          changelog: [],
+        });
+        record = getEpisodeByCrc32(crc32)!;
+      } else {
+        upsertEpisode({ ...record, magnet_uri: source, status: "available", error_message: null });
+        record = getEpisodeByCrc32(crc32)!;
+      }
+      const torrentHash = await getQbitClient().addMagnet(source);
+      updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+      logger.info("Episode download started via interactive search", { crc32, torrentHash });
+      return { ok: true, message: `Download started: S${record.arc_part}E${record.episode_num}` };
+    });
+  }
+
   if (action === "upgrade") {
     return withLock("Upgrade episode", async () => {
       let record = getEpisodeByCrc32(crc32);

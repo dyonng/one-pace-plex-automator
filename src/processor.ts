@@ -2,15 +2,81 @@ import path from "path";
 import { getConfig } from "./config";
 import { DOWNLOAD_PATH } from "./constants";
 import { logger } from "./logger";
-import { getEpisodesByStatus, updateEpisodeStatus } from "./db";
+import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode } from "./db";
 import { getQbitClient } from "./qbittorrent";
-import { resolveEpisodeByCrc32, buildPlexFilename, getAllArcs, getAllEpisodes } from "./metadata";
-import { findDownloadedFile, moveAndRename } from "./fileops";
+import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, getAllArcs, getAllEpisodes, type ResolvedEpisode } from "./metadata";
+import { findDownloadedFile, moveAndRename, scanBatchFiles } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
 import { getAutoPosters } from "./settings";
 import { scanCoverage, getStoredCoverage } from "./coverage";
+
+interface BatchResult {
+  crc32: string;
+  meta: ResolvedEpisode;
+  finalFilename: string;
+  replaced: string[];
+}
+
+/**
+ * After the primary episode file has been moved, scan the same torrent subfolder
+ * for sibling files. Each file whose CRC32 matches the dataset is moved to the
+ * Plex library and marked done. Unresolvable files are skipped with a warning.
+ */
+async function processBatchSiblings(
+  batchDir: string,
+  torrentHash: string,
+  primaryCrc32: string
+): Promise<BatchResult[]> {
+  const results: BatchResult[] = [];
+  for (const sibling of scanBatchFiles(batchDir)) {
+    if (sibling.crc32 === primaryCrc32.toUpperCase()) continue;
+    const existing = getEpisodeByCrc32(sibling.crc32);
+    if (existing?.status === "done") continue;
+    if (existing?.status === "downloading" || existing?.status === "processing") continue;
+    try {
+      const resolution = extractResolutionFromFilename(sibling.filename);
+      const meta = await resolveEpisodeByCrc32(sibling.crc32, resolution);
+      const ext = path.extname(sibling.filePath);
+      const finalFilename = buildPlexFilename(
+        meta.arcTitle, meta.arcPart, meta.episodeNum, meta.resolution, sibling.crc32, ext
+      );
+      const { replaced } = moveAndRename(
+        sibling.filePath, finalFilename, meta.arcTitle, meta.arcPart, meta.episodeNum
+      );
+      if (!existing) {
+        upsertEpisode({
+          crc32: sibling.crc32,
+          arc_num: meta.arcIndex,
+          arc_title: meta.arcTitle,
+          arc_part: meta.arcPart,
+          episode_num: meta.episodeNum,
+          resolution: meta.resolution,
+          original_filename: sibling.filename,
+          final_filename: finalFilename,
+          status: "done",
+          torrent_hash: torrentHash,
+          magnet_uri: null,
+          error_message: null,
+          rss_guid: "",
+          changelog: [],
+        });
+      } else {
+        updateEpisodeStatus(sibling.crc32, "done", { final_filename: finalFilename });
+      }
+      results.push({ crc32: sibling.crc32, meta, finalFilename, replaced });
+      logger.info("Processed batch sibling", { crc32: sibling.crc32, filename: finalFilename });
+    } catch (err) {
+      logger.warn("Skipping unresolvable batch file", {
+        crc32: sibling.crc32,
+        file: sibling.filename,
+        error: (err as Error).message,
+      });
+    }
+  }
+  return results;
+}
 
 let _processing = false;
 
@@ -72,19 +138,40 @@ async function _processDownloading(): Promise<void> {
         ep.episode_num
       );
 
+      // If the source was in a torrent subfolder (i.e. a batch release), process
+      // any sibling episodes before triggering the Plex scan — one scan covers all.
+      const sourceDir = path.dirname(sourcePath);
+      const siblings = sourceDir !== DOWNLOAD_PATH
+        ? await processBatchSiblings(sourceDir, ep.torrent_hash, ep.crc32)
+        : [];
+
+
       await triggerLibraryScan();
       await new Promise((resolve) => setTimeout(resolve, 5000));
+
       await syncSingleEpisode({
         ...epMeta,
         seasonEpisodeId: `s${String(ep.arc_part).padStart(2, "0")}e${String(ep.episode_num).padStart(2, "0")}`,
       });
+      for (const s of siblings) {
+        try {
+          await syncSingleEpisode({
+            ...s.meta,
+            seasonEpisodeId: `s${String(s.meta.arcPart).padStart(2, "0")}e${String(s.meta.episodeNum).padStart(2, "0")}`,
+          });
+        } catch (err) {
+          logger.warn("Plex sync failed for batch sibling", { crc32: s.crc32, error: (err as Error).message });
+        }
+      }
 
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
       completed++;
 
-      // Auto-apply this season's poster if it's a newly-created season (no-op if
-      // already covered or seeded). Never let a poster hiccup fail the ingest.
-      if (getAutoPosters()) await ensureSeasonPoster(ep.arc_part);
+      // Auto-apply season posters for all arc parts encountered (primary + siblings).
+      if (getAutoPosters()) {
+        const arcParts = new Set([ep.arc_part, ...siblings.map((s) => s.meta.arcPart)]);
+        for (const arcPart of arcParts) await ensureSeasonPoster(arcPart);
+      }
 
       await sendDiscordNotification({
         type: replaced.length > 0 ? "episode_updated" : "download_complete",
@@ -97,6 +184,19 @@ async function _processDownloading(): Promise<void> {
         replacedFilenames: replaced,
         changelog: ep.changelog,
       });
+      for (const s of siblings) {
+        await sendDiscordNotification({
+          type: s.replaced.length > 0 ? "episode_updated" : "download_complete",
+          crc32: s.crc32,
+          arcTitle: s.meta.arcTitle,
+          arcPart: s.meta.arcPart,
+          episodeNum: s.meta.episodeNum,
+          episodeTitle: s.meta.episodeTitle,
+          filename: s.finalFilename,
+          replacedFilenames: s.replaced,
+          changelog: [],
+        });
+      }
 
       // Remove torrent from qBit (keep file)
       await qbit.deleteTorrent(ep.torrent_hash, false);

@@ -106,7 +106,7 @@ export async function normalizeNaming(crc32s: string[]): Promise<{ ok: boolean; 
 
 export async function episodeAction(
   crc32: string,
-  action: "download" | "retry" | "resync" | "remove" | "upgrade",
+  action: "download" | "retry" | "resync" | "remove" | "upgrade" | "download-source",
   body?: Record<string, unknown>
 ): Promise<{ ok: boolean; message: string }> {
   const r = await fetch(`/api/episodes/${crc32}/${action}`, {
@@ -200,6 +200,7 @@ export type CoverageStatus = "present" | "present_unknown" | "upgradeable" | "do
 
 export interface CoverageEpisode {
   arcPart: number;
+  arcTitle: string;
   episodeNum: number;
   seasonEpisodeId: string;
   episodeTitle: string;
@@ -233,6 +234,26 @@ export interface CoverageReport {
   extras: string[];
 }
 
+export interface TorrentSearchResult {
+  source: "animetosho" | "nyaa";
+  title: string;
+  magnet: string | null;
+  torrentUrl: string | null;
+  infoHash: string | null;
+  size: number | null;
+  seeders: number | null;
+  leechers: number | null;
+  publishedAt: number | null;
+  pageUrl: string | null;
+  isBatch: boolean;
+}
+
+export async function searchTorrents(query: string): Promise<TorrentSearchResult[]> {
+  const r = await fetch(`/api/search/torrents?q=${encodeURIComponent(query)}`);
+  if (!r.ok) throw new Error("search " + r.status);
+  return r.json();
+}
+
 export interface TorrentProgress {
   progress: number; // 0–1
   dlspeed: number;  // bytes/s
@@ -258,6 +279,7 @@ export interface EpisodeMetadata {
   originalEpisodes: string;
   released: string;
   extended: boolean;
+  resolution: string | null;
 }
 
 export async function fetchEpisodeMetadata(crc32: string): Promise<EpisodeMetadata | null> {
