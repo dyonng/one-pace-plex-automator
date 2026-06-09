@@ -1,6 +1,6 @@
 import { getConfig } from "./config";
 import { getGoogleSheetsApiKey } from "./settings";
-import { canonicalizeArcTitle } from "./metadata";
+import { canonicalizeArcTitle } from "./arc-titles";
 import { logger } from "./logger";
 
 // The official One Pace episode guide is a Google Sheet with one tab per arc
@@ -27,6 +27,7 @@ export interface SheetEpisode {
 interface SheetIndex {
   loadedAt: number;
   byKey: Map<string, SheetEpisode>;    // key = `${canonicalizeArcTitle(arc)}-${epNum}`
+  byCrc32: Map<string, SheetEpisode>;  // key = uppercase CRC32 (standard and extended)
   arcResolution: Map<string, string>;  // key = canonicalizeArcTitle(arc) → e.g. "480p"
 }
 
@@ -137,7 +138,7 @@ async function buildIndex(): Promise<SheetIndex | null> {
   const titles = await fetchArcTabTitles(sheetId, key);
   if (titles.length === 0) {
     logger.warn("One Pace sheet: no arc tabs found");
-    return { loadedAt: Date.now(), byKey: new Map(), arcResolution: new Map() };
+    return { loadedAt: Date.now(), byKey: new Map(), byCrc32: new Map(), arcResolution: new Map() };
   }
 
   // One batchGet pulls the Arc Overview tab plus every arc tab in a single request.
@@ -149,14 +150,17 @@ async function buildIndex(): Promise<SheetIndex | null> {
 
   const arcResolution = parseArcResolution(valueRanges[0]?.values ?? []);
   const byKey = new Map<string, SheetEpisode>();
+  const byCrc32 = new Map<string, SheetEpisode>();
   titles.forEach((title, i) => {
     for (const ep of parseArcTab(title, valueRanges[i + 1]?.values ?? [])) {
       byKey.set(indexKey(ep.arcTitle, ep.episodeNum), ep);
+      if (ep.standardCrc32) byCrc32.set(ep.standardCrc32, ep);
+      if (ep.extendedCrc32) byCrc32.set(ep.extendedCrc32, ep);
     }
   });
 
   logger.info("One Pace sheet loaded", { arcs: titles.length, episodes: byKey.size, arcResolutions: arcResolution.size });
-  return { loadedAt: Date.now(), byKey, arcResolution };
+  return { loadedAt: Date.now(), byKey, byCrc32, arcResolution };
 }
 
 /** Returns the parsed sheet index, fetching (and caching) it on first use.
@@ -199,6 +203,22 @@ export async function lookupSheetEpisode(
   const index = await getIndex();
   if (!index) return null;
   return index.byKey.get(indexKey(arcTitle, episodeNum)) ?? null;
+}
+
+/**
+ * Looks up a sheet episode by either of its CRC32s (standard or extended).
+ * Returns null if the sheet is disabled, unreachable, or the hash is unknown.
+ */
+export async function lookupSheetEpisodeByCrc32(crc32: string): Promise<SheetEpisode | null> {
+  const index = await getIndex();
+  if (!index) return null;
+  return index.byCrc32.get(crc32.toUpperCase()) ?? null;
+}
+
+/** Every episode the sheet knows about. Empty when the sheet is disabled. */
+export async function listSheetEpisodes(): Promise<SheetEpisode[]> {
+  const index = await getIndex();
+  return index ? [...index.byKey.values()] : [];
 }
 
 /**
