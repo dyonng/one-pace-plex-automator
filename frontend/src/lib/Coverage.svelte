@@ -132,7 +132,7 @@
     const source = result.magnet ?? result.torrentUrl;
     if (!source) return;
     modal = { ...modal, downloadingIdx: idx };
-    const r = await doEpisodeAction(modal.ep.datasetCrc32, "download-source", { source });
+    const r = await doEpisodeAction(modal.ep.datasetCrc32, "download-source", { source, title: result.title });
     if (r.ok) {
       closeModal();
     } else {
