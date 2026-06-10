@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>One Pace Automator</title>
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <!-- Apply stored/system theme before first paint to prevent FOUC. -->
+  <link rel="icon" type="image/svg+xml" href="/logos/straw-hat.svg" />
+  <!-- Apply stored/system theme + chosen logo before first paint to prevent FOUC. -->
   <script>
     (function () {
       var p = localStorage.getItem("one-pace-theme");
@@ -13,6 +13,11 @@
       var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
       var theme = p === "light" ? "light" : p === "dark" ? "dark" : p === "other" ? custom : dark ? "dark" : "light";
       document.documentElement.setAttribute("data-theme", theme);
+      var logo = localStorage.getItem("one-pace-logo");
+      if (logo) {
+        var link = document.querySelector('link[rel="icon"]');
+        if (link) link.setAttribute("href", "/logos/" + logo + ".svg");
+      }
     })();
   </script>
 </head>

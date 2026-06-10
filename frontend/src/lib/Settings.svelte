@@ -4,6 +4,7 @@
   import { humanCron } from "./util";
   import Auth from "./Auth.svelte";
   import { themePref, customTheme, DAISYUI_THEMES } from "./theme";
+  import { logo, logoUrl, LOGOS } from "./logo";
 
   const themeOptions = [
     { value: "auto",  label: "Auto" },
@@ -89,6 +90,7 @@
       <div>
         <h3 class="text-xs uppercase tracking-wider opacity-60 mb-2">Appearance</h3>
         <div class="flex flex-wrap items-center gap-2">
+          <span class="text-sm w-14 opacity-70">Theme</span>
           <div class="join">
           {#each themeOptions as opt (opt.value)}
             <button
@@ -130,6 +132,22 @@
           {/if}
         </div>
         <p class="text-xs opacity-45 mt-1.5">Auto follows your system preference; falls back to Dark.</p>
+
+        <div class="flex flex-wrap items-center gap-2 mt-3">
+          <span class="text-sm w-14 opacity-70">Logo</span>
+          <div class="join">
+            {#each LOGOS as l (l.id)}
+              <button
+                class="join-item btn btn-sm gap-1.5 {$logo === l.id ? 'btn-primary' : 'btn-ghost opacity-60 hover:opacity-100'}"
+                onclick={() => ($logo = l.id)}
+              >
+                <img src={logoUrl(l.id)} alt="" class="size-4" />
+                {l.label}
+              </button>
+            {/each}
+          </div>
+        </div>
+        <p class="text-xs opacity-45 mt-1.5">Used as the favicon and navbar icon.</p>
       </div>
 
       <div>
