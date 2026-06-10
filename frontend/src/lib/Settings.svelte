@@ -3,12 +3,13 @@
   import { saveSetting, resetSettingReq, testDiscordReq, type SettingView } from "./api";
   import { humanCron } from "./util";
   import Auth from "./Auth.svelte";
-  import { themePref } from "./theme";
+  import { themePref, customTheme, DAISYUI_THEMES } from "./theme";
 
   const themeOptions = [
     { value: "auto",  label: "Auto" },
     { value: "light", label: "Light" },
     { value: "dark",  label: "Dark" },
+    { value: "other", label: "Other" },
   ] as const;
 
   let dialogEl = $state<HTMLDialogElement | null>(null);
@@ -103,15 +104,29 @@
                   <circle cx="12" cy="12" r="4"/>
                   <path stroke-linecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
                 </svg>
-              {:else}
+              {:else if opt.value === "dark"}
                 <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                </svg>
+              {:else}
+                <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3"/><path stroke-linecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/><path stroke-linecap="round" d="M17 7l-2 2M9 15l-2 2"/>
                 </svg>
               {/if}
               {opt.label}
             </button>
           {/each}
         </div>
+        {#if $themePref === "other"}
+          <select
+            class="select select-bordered select-sm mt-2 w-full sm:w-56 font-mono capitalize"
+            bind:value={$customTheme}
+          >
+            {#each DAISYUI_THEMES as t (t)}
+              <option value={t}>{t}</option>
+            {/each}
+          </select>
+        {/if}
         <p class="text-xs opacity-45 mt-1.5">Auto follows your system preference; falls back to Dark.</p>
       </div>
 
