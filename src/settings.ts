@@ -104,14 +104,14 @@ function validateBool(raw: string): ValidateResult {
 const DEFS: Record<SettingKey, SettingDef> = {
   POLL_ENABLED: {
     key: "POLL_ENABLED",
-    label: "Scheduled RSS polling (off = manual only)",
+    label: "Scheduled refresh (off = manual Refresh Sources only)",
     type: "bool",
     envValue: () => String(getConfig().POLL_ENABLED),
     validate: validateBool,
   },
   POLL_CRON: {
     key: "POLL_CRON",
-    label: "RSS poll schedule (cron)",
+    label: "Refresh Sources schedule (cron)",
     type: "cron",
     envValue: () => getConfig().POLL_CRON,
     validate: validateCron,
