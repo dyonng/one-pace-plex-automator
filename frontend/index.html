@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="sunset">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -9,8 +9,9 @@
   <script>
     (function () {
       var p = localStorage.getItem("one-pace-theme");
+      var custom = localStorage.getItem("one-pace-theme-custom") || "synthwave";
       var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-      var theme = p === "light" ? "fantasy" : p === "dark" ? "sunset" : dark ? "sunset" : "fantasy";
+      var theme = p === "light" ? "light" : p === "dark" ? "dark" : p === "other" ? custom : dark ? "dark" : "light";
       document.documentElement.setAttribute("data-theme", theme);
     })();
   </script>

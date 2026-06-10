@@ -28,7 +28,7 @@
     background-attachment: fixed;
   }
 
-  [data-theme="sunset"] body {
+  [data-theme="dark"] body {
     background-color: oklch(0.19 0.035 25);
     background-image:
       radial-gradient(900px circle at 10% -5%,  oklch(0.72 0.18 48  / 0.18), transparent 55%),
@@ -36,9 +36,9 @@
       linear-gradient(175deg, oklch(0.17 0.030 20), oklch(0.21 0.038 30));
   }
 
-  /* ── Fantasy (light) body ───────────────────────────────────────────────
+  /* ── Light body ─────────────────────────────────────────────────────────
      Airy parchment: soft violet glow top-left, warm rose hint top-right. */
-  [data-theme="fantasy"] body {
+  [data-theme="light"] body {
     background-color: oklch(0.96 0.012 300);
     background-image:
       radial-gradient(900px circle at 10% -5%,  oklch(0.62 0.14 290 / 0.10), transparent 55%),
@@ -64,12 +64,12 @@
     backdrop-filter: blur(2px);
   }
 
-  [data-theme="sunset"] .deck-card {
+  [data-theme="dark"] .deck-card {
     border: 1px solid oklch(0.75 0.12 45 / 0.14);
     box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 8px 28px -12px oklch(0 0 0 / 0.65);
   }
 
-  [data-theme="fantasy"] .deck-card {
+  [data-theme="light"] .deck-card {
     border: 1px solid oklch(0.50 0.08 290 / 0.16);
     box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.70) inset, 0 8px 28px -12px oklch(0 0 0 / 0.10);
   }
@@ -83,11 +83,11 @@
     text-transform: uppercase;
   }
 
-  [data-theme="sunset"] .eyebrow {
+  [data-theme="dark"] .eyebrow {
     color: oklch(0.72 0.08 45);
   }
 
-  [data-theme="fantasy"] .eyebrow {
+  [data-theme="light"] .eyebrow {
     color: oklch(0.45 0.08 290);
   }
 }
