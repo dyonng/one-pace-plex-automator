@@ -192,6 +192,12 @@ export function clearSheetCache(): void {
   _index = null;
 }
 
+/** Eagerly warms the sheet cache. Use after clearing caches so the fetch
+ *  result is visible in logs immediately rather than on the next lazy lookup. */
+export async function prefetchSheet(): Promise<void> {
+  await getIndex();
+}
+
 /**
  * Looks up an episode in the official sheet by arc title + episode number. Arc
  * spelling variants (Arabasta/Alabasta, Whiskey/Whisky Peak) match either way.

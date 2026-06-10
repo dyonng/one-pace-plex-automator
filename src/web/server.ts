@@ -32,12 +32,9 @@ const MIME: Record<string, string> = {
 };
 
 const ACTION_IDS: ActionId[] = [
-  "poll",
+  "refresh-sources",
   "sync",
-  "refresh-metadata",
   "retry-failed",
-  "sync-posters",
-  "force-posters",
   "clear-done",
 ];
 const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove", "upgrade", "download-source"];

@@ -157,6 +157,12 @@ export function clearDescriptionsCache(): void {
   _index = null;
 }
 
+/** Eagerly warms the descriptions cache. Use after clearing caches so the fetch
+ *  result is visible in logs immediately rather than on the next lazy lookup. */
+export async function prefetchDescriptions(): Promise<void> {
+  await getIndex();
+}
+
 /**
  * Episode title + description for a (arc, episode), or null when the sheet is
  * disabled, unreachable, or the episode is absent. Arc spelling variants
