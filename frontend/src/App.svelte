@@ -35,8 +35,8 @@
   <Controls />
   <Coverage />
   <InfoCards />
-  <Settings />
   <Episodes />
   <Logs />
 </main>
+<Settings />
 <Toasts />
