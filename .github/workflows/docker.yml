@@ -4,7 +4,10 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
     # Skip image builds for changes that don't affect the software.
+    # (Not evaluated for tag pushes — those always build.)
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -42,6 +45,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha,prefix=sha-
+            type=semver,pattern={{version}}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
