@@ -13,9 +13,24 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 7. Applies fan-made season posters to new seasons (see [Posters](#posters))
 8. Sends Discord webhook notifications
 
-A web dashboard (port `8282`) provides live logs, manual controls, editable
-settings, a **library coverage report**, **live download progress**, and a system
-health panel.
+A web dashboard (port `8282`) provides live logs, manual controls, a **library
+coverage report**, **live download progress**, and a system health panel.
+Settings live behind the gear icon in the navbar, including appearance options
+(light/dark/auto theme, any DaisyUI theme, and a choice of logo).
+
+### Dashboard controls
+
+| Control | What it does |
+|---------|--------------|
+| **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. |
+| **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, then syncs season posters (skipping any whose image hasn't changed). Heavy — hence the confirmation prompt. Day-to-day metadata is applied per episode automatically as downloads complete, so this is only needed after broad metadata changes. |
+| **Retry failed** | Re-queues episodes whose download or processing failed. |
+| **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
+| **Clear done** | Removes completed rows from the pipeline table (files are kept). |
+
+Each pipeline row also has per-episode actions (download, retry, re-sync
+metadata, upgrade, remove), and the coverage report can queue upgrades
+individually or in batch.
 
 ### Library coverage & upgrades
 
@@ -131,8 +146,8 @@ rest fall back to the defaults shown.
 | `QBIT_USERNAME` | | qBittorrent username (default `admin`) |
 | `QBIT_CATEGORY` | | Category applied to added torrents (default `one-pace`) |
 | `PLEX_LIBRARY_NAME` | | Plex library holding One Pace (default `TV Shows`) |
-| `POLL_CRON` | | RSS poll schedule (default `*/5 * * * *`) |
-| `POLL_ENABLED` | | Gate the scheduled RSS poll; `false` = manual-only (default `true`) |
+| `POLL_CRON` | | Refresh Sources schedule (default `*/5 * * * *`) |
+| `POLL_ENABLED` | | Gate the scheduled refresh; `false` = manual Refresh Sources only (default `true`) |
 | `DOWNLOAD_CHECK_SECONDS` | | qBittorrent completion-check interval (default `30`) |
 | `AUTO_DOWNLOAD` | | Auto-download discovered releases (default `true`) |
 | `AUTO_POSTERS` | | Auto-apply posters to new seasons (default `true`) |
@@ -140,6 +155,8 @@ rest fall back to the defaults shown.
 | `PREFER_ARABASTA` | | Render arc 14's title as "Arabasta" instead of the dataset's "Alabasta" (default `true`) |
 | `POSTER_REPO_RAW_BASE` | | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
 | `DISCORD_WEBHOOK_URL` | | Discord webhook URL for notifications |
+| `GOOGLE_SHEETS_API_KEY` | | Enables reading the official One Pace episode-guide sheets — an early metadata source for releases the dataset doesn't list yet |
+| `ANIMETOSHO_API_KEY` | | Optional AnimeTosho key (raises rate limits for torrent search) |
 | `TZ` | | Timezone for cron schedules (default `UTC`) |
 
 Two host paths are bound as volumes: your One Pace show root → `/media/one-pace`,
@@ -163,12 +180,22 @@ carry the info hash inline; for a `.torrent` URL the hash is resolved from
 qBittorrent right after adding. There's no plain direct/HTTP *file* download
 (only torrents/magnets).
 
+For episodes the feed no longer carries (older releases that show as
+*upgradeable* or *missing* in coverage), the dashboard can **search AnimeTosho
+and Nyaa** for a matching torrent and queue it directly.
+
 ## Metadata source
 
 Episode metadata (titles, descriptions, arc mappings, and the standard/extended
 CRC32 for every episode) is sourced from
 [ladyisatis/one-pace-metadata](https://github.com/ladyisatis/one-pace-metadata)
 (`v2/metadata/data.min.json`).
+
+With a `GOOGLE_SHEETS_API_KEY` set, two Google Sheets supplement the dataset —
+the official One Pace **episode guide** and the metadata maintainer's working
+sheet. These are usually updated before the published dataset, so brand-new
+releases can be resolved (CRC32, titles, descriptions) without waiting for the
+dataset to catch up. Without a key the sheets are simply skipped.
 
 ## Posters
 
@@ -178,9 +205,10 @@ poster set goes to them. The images are pulled from the
 [SpykerNZ/one-pace-for-plex](https://github.com/SpykerNZ/one-pace-for-plex) repo,
 which distributes them. When a brand-new season first appears,
 its poster is applied automatically (`AUTO_POSTERS`, on by default); existing
-seasons are left untouched so any art you set manually is preserved. Use **Sync
-posters** in the dashboard to fill gaps, or **Force re-sync posters** to re-apply
-everything. Point `POSTER_REPO_RAW_BASE` elsewhere to use a different source.
+seasons are left untouched so any art you set manually is preserved. A **Full
+Plex sync** from the dashboard also re-checks every season's poster — change
+detection is ETag-based, so unchanged images are skipped without re-downloading.
+Point `POSTER_REPO_RAW_BASE` elsewhere to use a different source.
 
 ## Development
 

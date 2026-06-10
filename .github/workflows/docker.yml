@@ -4,6 +4,12 @@ on:
   push:
     branches:
       - main
+    # Skip image builds for changes that don't affect the software.
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".github/**"
+      - ".githooks/**"
   workflow_dispatch:
 
 env:

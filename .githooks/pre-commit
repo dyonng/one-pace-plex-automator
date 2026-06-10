@@ -1,10 +1,17 @@
 #!/bin/sh
-node -e "
-const fs = require('fs');
-const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-const [maj, min, pat] = pkg.version.split('.').map(Number);
-pkg.version = maj + '.' + min + '.' + (pat + 1);
-fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-process.stdout.write('version bumped to ' + pkg.version + '\n');
-"
-git add package.json
+# Bump the patch version on every commit that touches the software itself.
+# Docs-only commits (markdown, CI config, hooks) skip the bump so they don't
+# produce a new "version" with identical behavior.
+if git diff --cached --name-only | grep -qvE '(\.md$|^docs/|^\.github/|^\.githooks/)'; then
+  node -e "
+  const fs = require('fs');
+  const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+  const [maj, min, pat] = pkg.version.split('.').map(Number);
+  pkg.version = maj + '.' + min + '.' + (pat + 1);
+  fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+  process.stdout.write('version bumped to ' + pkg.version + '\n');
+  "
+  git add package.json
+else
+  echo "docs-only commit — skipping version bump"
+fi
