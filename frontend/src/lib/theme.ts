@@ -3,8 +3,8 @@ import { writable } from "svelte/store";
 export type ThemePref = "auto" | "light" | "dark";
 
 const STORAGE_KEY = "one-pace-theme";
-const DARK_THEME  = "onepace";
-const LIGHT_THEME = "onepace-light";
+const DARK_THEME  = "sunset";
+const LIGHT_THEME = "fantasy";
 
 function getStored(): ThemePref {
   try {
