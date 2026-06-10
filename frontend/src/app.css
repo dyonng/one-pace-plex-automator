@@ -11,8 +11,9 @@
 
 @plugin "daisyui";
 
-/* "Command deck" — deep slate, warm amber-gold accent (One Piece sunset),
-   sea-cyan secondary, coral accent. */
+/* ── Dark theme — "Command Deck" ────────────────────────────────────────────
+   Deep slate hull, warm amber-gold primary (One Piece sunset), sea-cyan
+   secondary, coral accent.                                                  */
 @plugin "daisyui/theme" {
   name: "onepace";
   default: true;
@@ -43,6 +44,38 @@
   --border: 1px;
 }
 
+/* ── Light theme — "Open Sea" ───────────────────────────────────────────────
+   Canvas-white hull, richer amber primary (more contrast on light), same
+   palette family. Feels like the same ship in full daylight.               */
+@plugin "daisyui/theme" {
+  name: "onepace-light";
+  color-scheme: light;
+  --color-base-100: oklch(0.98 0.006 255);
+  --color-base-200: oklch(0.94 0.008 255);
+  --color-base-300: oklch(0.88 0.011 255);
+  --color-base-content: oklch(0.18 0.022 255);
+  --color-primary: oklch(0.60 0.148 65);
+  --color-primary-content: oklch(0.98 0.010 65);
+  --color-secondary: oklch(0.50 0.10 215);
+  --color-secondary-content: oklch(0.98 0.012 215);
+  --color-accent: oklch(0.56 0.15 35);
+  --color-accent-content: oklch(0.98 0.010 35);
+  --color-neutral: oklch(0.82 0.012 255);
+  --color-neutral-content: oklch(0.18 0.022 255);
+  --color-info: oklch(0.48 0.12 230);
+  --color-info-content: oklch(0.98 0.008 230);
+  --color-success: oklch(0.48 0.15 150);
+  --color-success-content: oklch(0.98 0.010 150);
+  --color-warning: oklch(0.58 0.15 80);
+  --color-warning-content: oklch(0.10 0.04 80);
+  --color-error: oklch(0.50 0.20 25);
+  --color-error-content: oklch(0.98 0.008 25);
+  --radius-selector: 0.5rem;
+  --radius-field: 0.4rem;
+  --radius-box: 0.65rem;
+  --border: 1px;
+}
+
 @layer base {
   :root {
     --font-display: "Chakra Petch", "IBM Plex Sans", sans-serif;
@@ -53,13 +86,24 @@
     font-family: "IBM Plex Sans", system-ui, sans-serif;
   }
 
+  /* Dark body — deep hull with subtle sunset + sea glows. */
   body {
     min-height: 100vh;
     background-color: oklch(0.15 0.018 255);
     background-image:
       radial-gradient(1000px circle at 12% -8%, oklch(0.80 0.148 65 / 0.10), transparent 58%),
-      radial-gradient(820px circle at 102% 2%, oklch(0.74 0.10 215 / 0.08), transparent 55%),
+      radial-gradient(820px circle at 102% 2%,  oklch(0.74 0.10 215 / 0.08), transparent 55%),
       linear-gradient(180deg, oklch(0.14 0.018 255), oklch(0.17 0.018 255));
+    background-attachment: fixed;
+  }
+
+  /* Light body — open sky with soft golden and sea accents. */
+  [data-theme="onepace-light"] body {
+    background-color: oklch(0.94 0.008 255);
+    background-image:
+      radial-gradient(1000px circle at 12% -8%, oklch(0.60 0.148 65 / 0.10), transparent 58%),
+      radial-gradient(820px circle at 102% 2%,  oklch(0.50 0.10 215 / 0.07), transparent 55%),
+      linear-gradient(180deg, oklch(0.97 0.007 255), oklch(0.93 0.008 255));
     background-attachment: fixed;
   }
 
@@ -74,12 +118,19 @@
 }
 
 @layer components {
-  /* Faint hairline + lift on cards for the instrument-panel feel. */
+  /* Dark deck card — faint hairline + deep shadow. */
   .deck-card {
     border: 1px solid oklch(0.5 0.02 255 / 0.14);
     box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.03) inset, 0 8px 24px -12px oklch(0 0 0 / 0.6);
     backdrop-filter: blur(2px);
   }
+
+  /* Light deck card — softer border, minimal shadow. */
+  [data-theme="onepace-light"] .deck-card {
+    border-color: oklch(0.50 0.02 255 / 0.16);
+    box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.70) inset, 0 8px 24px -12px oklch(0 0 0 / 0.10);
+  }
+
   /* Section eyebrow label */
   .eyebrow {
     font-family: var(--font-display);
@@ -87,5 +138,9 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: oklch(0.7 0.03 255);
+  }
+
+  [data-theme="onepace-light"] .eyebrow {
+    color: oklch(0.42 0.04 255);
   }
 }

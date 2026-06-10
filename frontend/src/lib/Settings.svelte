@@ -3,6 +3,13 @@
   import { saveSetting, resetSettingReq, testDiscordReq, type SettingView } from "./api";
   import { humanCron } from "./util";
   import Auth from "./Auth.svelte";
+  import { themePref } from "./theme";
+
+  const themeOptions = [
+    { value: "auto",  label: "Auto" },
+    { value: "light", label: "Light" },
+    { value: "dark",  label: "Dark" },
+  ] as const;
 
   let dialogEl = $state<HTMLDialogElement | null>(null);
   let edited = $state<Record<string, string>>({});
@@ -77,6 +84,37 @@
     </div>
 
     <div class="flex flex-col gap-4">
+      <!-- Appearance -->
+      <div>
+        <h3 class="text-xs uppercase tracking-wider opacity-60 mb-2">Appearance</h3>
+        <div class="join">
+          {#each themeOptions as opt (opt.value)}
+            <button
+              class="join-item btn btn-sm gap-1.5 {$themePref === opt.value ? 'btn-primary' : 'btn-ghost opacity-60 hover:opacity-100'}"
+              onclick={() => ($themePref = opt.value)}
+            >
+              {#if opt.value === "auto"}
+                <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path stroke-linecap="round" d="M8 21h8M12 17v4"/>
+                </svg>
+              {:else if opt.value === "light"}
+                <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="4"/>
+                  <path stroke-linecap="round" d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                </svg>
+              {:else}
+                <svg class="size-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>
+                </svg>
+              {/if}
+              {opt.label}
+            </button>
+          {/each}
+        </div>
+        <p class="text-xs opacity-45 mt-1.5">Auto follows your system preference; falls back to Dark.</p>
+      </div>
+
       <div>
         <h3 class="text-xs uppercase tracking-wider opacity-60 mb-1">System &amp; Services</h3>
         <div class="flex flex-col divide-y divide-base-content/5">
