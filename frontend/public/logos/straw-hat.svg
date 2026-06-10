@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Straw hat, bolder crop: brim runs edge to edge, taller crown,
+       weave rings on the brim for depth. -->
+  <defs>
+    <clipPath id="crown">
+      <path d="M9 44 A23 23 0 0 1 55 44 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- brim: spans the full width -->
+  <ellipse cx="32" cy="46" rx="31" ry="12" fill="#E9B43C" stroke="#7A4F12" stroke-width="2.5"/>
+  <!-- brim weave rings -->
+  <ellipse cx="32" cy="46" rx="25" ry="9.2" fill="none" stroke="#C8932A" stroke-width="1.6"/>
+  <ellipse cx="32" cy="46" rx="19" ry="6.6" fill="none" stroke="#C8932A" stroke-width="1.6"/>
+
+  <!-- crown dome: taller, fills upper half -->
+  <path d="M9 44 A23 23 0 0 1 55 44 Z" fill="#F2C14E"/>
+  <!-- crown weave arcs -->
+  <g fill="none" stroke="#D9A638" stroke-width="1.6" clip-path="url(#crown)">
+    <path d="M11 36 A21 16 0 0 1 53 36"/>
+    <path d="M14 29 A18 13 0 0 1 50 29"/>
+  </g>
+
+  <!-- red band -->
+  <rect x="8" y="34" width="48" height="10" fill="#D8392B" clip-path="url(#crown)"/>
+
+  <!-- crown outline -->
+  <path d="M9 44 A23 23 0 0 1 55 44" fill="none" stroke="#7A4F12" stroke-width="2.5" stroke-linecap="round"/>
+
+  <!-- dome highlight -->
+  <path d="M16 31 A18 18 0 0 1 28 22.5" fill="none" stroke="#FBE39A" stroke-width="2.5" stroke-linecap="round" opacity="0.9"/>
+</svg>

@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Devil fruit: Gomu Gomu-style — round purple fruit covered in swirls,
+       with a curly stem and leaf. -->
+  <!-- stem -->
+  <path d="M32 10 C32 5 38 4 40 7" fill="none" stroke="#5B7A2E" stroke-width="3.5" stroke-linecap="round"/>
+  <!-- leaf -->
+  <path d="M32 9 C26 3 18 5 16 10 C22 13 30 13 32 9 Z" fill="#76A33C"/>
+
+  <!-- fruit body -->
+  <circle cx="32" cy="36" r="25" fill="#8C4FB0"/>
+  <!-- subtle bottom shade -->
+  <path d="M9 42 A25 25 0 0 0 55 42 A28 22 0 0 1 9 42 Z" fill="#7A3F9E"/>
+
+  <!-- swirls -->
+  <g fill="none" stroke="#5E2E80" stroke-width="3" stroke-linecap="round">
+    <path d="M40 24 A8 8 0 1 0 24 24 A6 6 0 1 0 36 24 A3.5 3.5 0 1 0 29 24"/>
+    <path d="M22 42 A6.5 6.5 0 1 0 9 42 A4.5 4.5 0 1 0 18 42 A2.5 2.5 0 1 0 13 42"/>
+    <path d="M52 44 A6.5 6.5 0 1 0 39 44 A4.5 4.5 0 1 0 48 44 A2.5 2.5 0 1 0 43 44"/>
+    <path d="M38 55 A5 5 0 1 0 28 55 A3 3 0 1 0 34 55"/>
+  </g>
+
+  <!-- highlight -->
+  <path d="M15 26 A20 20 0 0 1 24 16" fill="none" stroke="#B07FD0" stroke-width="3" stroke-linecap="round" opacity="0.85"/>
+</svg>
