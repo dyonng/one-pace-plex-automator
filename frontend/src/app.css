@@ -21,29 +21,8 @@
     font-family: "IBM Plex Sans", system-ui, sans-serif;
   }
 
-  /* ── Sunset (dark) body ─────────────────────────────────────────────────
-     Warm dusk: ember glow top-left, rose bleed top-right, deep amber base. */
   body {
     min-height: 100vh;
-    background-attachment: fixed;
-  }
-
-  [data-theme="dark"] body {
-    background-color: oklch(0.19 0.035 25);
-    background-image:
-      radial-gradient(900px circle at 10% -5%,  oklch(0.72 0.18 48  / 0.18), transparent 55%),
-      radial-gradient(700px circle at 100% 5%,  oklch(0.68 0.18 340 / 0.12), transparent 50%),
-      linear-gradient(175deg, oklch(0.17 0.030 20), oklch(0.21 0.038 30));
-  }
-
-  /* ── Light body ─────────────────────────────────────────────────────────
-     Airy parchment: soft violet glow top-left, warm rose hint top-right. */
-  [data-theme="light"] body {
-    background-color: oklch(0.96 0.012 300);
-    background-image:
-      radial-gradient(900px circle at 10% -5%,  oklch(0.62 0.14 290 / 0.10), transparent 55%),
-      radial-gradient(700px circle at 100% 5%,  oklch(0.72 0.14 340 / 0.08), transparent 50%),
-      linear-gradient(175deg, oklch(0.97 0.010 300), oklch(0.95 0.015 295));
   }
 
   h1, h2, h3, .font-display {
@@ -64,16 +43,6 @@
     backdrop-filter: blur(2px);
   }
 
-  [data-theme="dark"] .deck-card {
-    border: 1px solid oklch(0.75 0.12 45 / 0.14);
-    box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.04) inset, 0 8px 28px -12px oklch(0 0 0 / 0.65);
-  }
-
-  [data-theme="light"] .deck-card {
-    border: 1px solid oklch(0.50 0.08 290 / 0.16);
-    box-shadow: 0 1px 0 0 oklch(1 0 0 / 0.70) inset, 0 8px 28px -12px oklch(0 0 0 / 0.10);
-  }
-
   /* ── Eyebrow label ───────────────────────────────────────────────────────
      Muted label above section headings.                                    */
   .eyebrow {
@@ -81,13 +50,6 @@
     font-size: 0.68rem;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-  }
-
-  [data-theme="dark"] .eyebrow {
-    color: oklch(0.72 0.08 45);
-  }
-
-  [data-theme="light"] .eyebrow {
-    color: oklch(0.45 0.08 290);
+    color: oklch(from var(--color-base-content) l c h / 0.55);
   }
 }
