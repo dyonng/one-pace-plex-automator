@@ -6,7 +6,7 @@
 <header class="sticky top-0 z-30 border-b border-base-content/10 bg-base-200/70 backdrop-blur-md">
   <div class="max-w-screen-2xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
     <div class="flex items-center gap-3 min-w-0">
-      <span class="inline-block size-3 rounded-sm bg-gradient-to-br from-primary to-accent shadow-[0_0_12px] shadow-primary/50"></span>
+      <img src="/favicon.svg" alt="" class="size-7 shrink-0" />
       <span class="font-display font-bold tracking-wide truncate">ONE PACE <span class="text-primary">·</span> AUTOMATOR</span>
       {#if $status}
         <span class="badge badge-ghost badge-sm font-mono">v{$status.version}</span>
