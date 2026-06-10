@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { settings, loadSettings, toast, refreshStatus } from "./stores";
+  import { settings, loadSettings, toast, refreshStatus, settingsOpen } from "./stores";
   import { saveSetting, resetSettingReq, testDiscordReq, type SettingView } from "./api";
   import { humanCron } from "./util";
   import Auth from "./Auth.svelte";
 
+  let dialogEl = $state<HTMLDialogElement | null>(null);
   let edited = $state<Record<string, string>>({});
   let saving = $state<string | null>(null);
   let testing = $state(false);
@@ -12,10 +13,17 @@
   const preferenceSettings = $derived($settings.filter((s) => s.category === "preference"));
 
   $effect(() => {
+    if ($settingsOpen) dialogEl?.showModal();
+    else dialogEl?.close();
+  });
+
+  $effect(() => {
     for (const s of $settings) {
       if (s.type !== "bool" && !(s.key in edited)) edited[s.key] = s.value;
     }
   });
+
+  function close() { $settingsOpen = false; }
 
   async function persist(key: string, value: string) {
     saving = key;
@@ -57,12 +65,15 @@
   }
 </script>
 
-<section class="deck-card card bg-base-100/70">
-  <div class="card-body py-4 gap-3">
-    <div>
-      <div class="eyebrow">Configuration</div>
-      <h2 class="font-display text-lg">Settings</h2>
-      <p class="text-xs opacity-55">Overrides persist and win over env. Secrets &amp; paths stay env-only.</p>
+<dialog bind:this={dialogEl} class="modal" onclose={close}>
+  <div class="modal-box max-w-2xl w-full max-h-[85vh] overflow-y-auto deck-card flex flex-col gap-4">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="eyebrow">Configuration</div>
+        <h2 class="font-display text-lg">Settings</h2>
+        <p class="text-xs opacity-55">Overrides persist and win over env. Secrets &amp; paths stay env-only.</p>
+      </div>
+      <button class="btn btn-sm btn-circle btn-ghost" onclick={close}>✕</button>
     </div>
 
     <div class="flex flex-col gap-4">
@@ -87,7 +98,8 @@
     <div class="divider my-0 opacity-30"></div>
     <Auth />
   </div>
-</section>
+  <form method="dialog" class="modal-backdrop"><button onclick={close}>close</button></form>
+</dialog>
 
 {#snippet settingRow(s: SettingView)}
   <div class="flex flex-wrap items-center gap-3 py-3">

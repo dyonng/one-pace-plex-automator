@@ -30,6 +30,7 @@ export const health = writable<HealthReport | null>(null);
 export const healthLoading = writable(false);
 export const toasts = writable<{ id: number; ok: boolean; msg: string }[]>([]);
 export const downloadProgress = writable<Record<string, TorrentProgress>>({});
+export const settingsOpen = writable(false);
 
 let _toastId = 0;
 export function toast(msg: string, ok: boolean): void {
