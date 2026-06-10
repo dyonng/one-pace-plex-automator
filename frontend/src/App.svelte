@@ -10,7 +10,6 @@
   import Settings from "./lib/Settings.svelte";
   import Episodes from "./lib/Episodes.svelte";
   import Logs from "./lib/Logs.svelte";
-  import Auth from "./lib/Auth.svelte";
   import Toasts from "./lib/Toasts.svelte";
 
   onMount(() => {
@@ -39,6 +38,5 @@
   <Settings />
   <Episodes />
   <Logs />
-  <Auth />
 </main>
 <Toasts />

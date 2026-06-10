@@ -2,6 +2,7 @@
   import { settings, loadSettings, toast, refreshStatus } from "./stores";
   import { saveSetting, resetSettingReq, testDiscordReq, type SettingView } from "./api";
   import { humanCron } from "./util";
+  import Auth from "./Auth.svelte";
 
   let edited = $state<Record<string, string>>({});
   let saving = $state<string | null>(null);
@@ -82,6 +83,9 @@
         </div>
       </div>
     </div>
+
+    <div class="divider my-0 opacity-30"></div>
+    <Auth />
   </div>
 </section>
 
