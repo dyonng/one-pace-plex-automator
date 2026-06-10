@@ -26,7 +26,7 @@ function scheduleCron(): void {
   task = cron.schedule(expr, async () => {
     try {
       // Route through the action lock so cron never overlaps a manual trigger.
-      await runAction("poll");
+      await runAction("refresh-sources");
     } catch (err) {
       logger.debug("Skipped scheduled poll", { reason: (err as Error).message });
     }

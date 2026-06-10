@@ -9,8 +9,8 @@ import { deleteEpisodeFile } from "./fileops";
 import { findMagnetByCrc32 } from "./rss";
 import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
-import { clearSheetCache } from "./onepace-sheet";
-import { clearDescriptionsCache } from "./onepace-descriptions";
+import { clearSheetCache, prefetchSheet } from "./onepace-sheet";
+import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descriptions";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -55,12 +55,9 @@ async function withLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export type ActionId =
-  | "poll"
+  | "refresh-sources"
   | "sync"
-  | "refresh-metadata"
   | "retry-failed"
-  | "sync-posters"
-  | "force-posters"
   | "clear-done";
 
 export interface ActionResult {
@@ -70,30 +67,28 @@ export interface ActionResult {
 
 export async function runAction(id: ActionId): Promise<ActionResult> {
   switch (id) {
-    case "poll":
-      return withLock("Poll RSS", async () => {
+    case "refresh-sources":
+      return withLock("Refresh sources", async () => {
+        clearMetadataCache();
+        clearSheetCache();
+        clearDescriptionsCache();
+        await refreshMetadata();
+        // Eagerly warm both sheet caches so success/failure is logged now.
+        await Promise.all([prefetchSheet(), prefetchDescriptions()]);
         await runCycle();
         runtime.lastPollAt = Date.now();
-        return { ok: true, message: "RSS poll cycle complete" };
+        return { ok: true, message: "Sources refreshed and RSS poll complete" };
       });
 
     case "sync":
       return withLock("Full Plex sync", async () => {
         await runMetadataSync();
+        const posters = await syncPosters();
         runtime.lastSyncAt = Date.now();
-        return { ok: true, message: "Full Plex metadata sync complete" };
-      });
-
-    case "refresh-metadata":
-      return withLock("Refresh metadata", async () => {
-        clearMetadataCache();
-        // Drop the Google Sheet caches too so a manual refresh picks up sheet
-        // edits immediately rather than waiting out their 6h TTL.
-        clearSheetCache();
-        clearDescriptionsCache();
-        await refreshMetadata();
-        runtime.lastRefreshAt = Date.now();
-        return { ok: true, message: "Metadata cache refreshed" };
+        return {
+          ok: true,
+          message: `Full Plex sync complete. Posters: ${posters.applied} applied, ${posters.skipped} up to date`,
+        };
       });
 
     case "retry-failed":
@@ -102,16 +97,6 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         await dispatchPending();
         runtime.lastRetryAt = Date.now();
         return { ok: true, message: "Failed episodes re-queued" };
-      });
-
-    case "sync-posters":
-    case "force-posters":
-      return withLock(id === "force-posters" ? "Force re-sync posters" : "Sync posters", async () => {
-        const r = await syncPosters({ force: id === "force-posters" });
-        return {
-          ok: true,
-          message: `Posters: ${r.applied} applied, ${r.skipped} skipped, ${r.missing} not in repo, ${r.failed} failed`,
-        };
       });
 
     case "clear-done":

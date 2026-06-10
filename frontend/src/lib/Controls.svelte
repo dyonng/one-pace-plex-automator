@@ -3,12 +3,8 @@
   import { postAction, fetchNamingCandidates, normalizeNaming, type NamingCandidate } from "./api";
 
   const buttons = [
-    { id: "poll", label: "Poll RSS", cls: "btn-primary" },
-    { id: "sync", label: "Full Plex sync", cls: "btn-secondary" },
-    { id: "refresh-metadata", label: "Refresh metadata", cls: "btn-outline" },
+    { id: "refresh-sources", label: "Refresh Sources", cls: "btn-primary" },
     { id: "retry-failed", label: "Retry failed", cls: "btn-outline btn-warning" },
-    { id: "sync-posters", label: "Sync posters", cls: "btn-outline" },
-    { id: "force-posters", label: "Force re-sync posters", cls: "btn-outline btn-warning" },
   ];
 
   let pending = $state<string | null>(null);
@@ -24,6 +20,23 @@
       pending = null;
       refreshStatus();
     }
+  }
+
+  // ── Full Plex sync confirmation ──────────────────────────────────────────────
+  let syncDialogEl = $state<HTMLDialogElement | null>(null);
+  let syncOpen = $state(false);
+
+  $effect(() => {
+    if (syncOpen) syncDialogEl?.showModal();
+    else syncDialogEl?.close();
+  });
+
+  function openSyncModal() { syncOpen = true; }
+  function closeSyncModal() { syncOpen = false; }
+
+  async function confirmSync() {
+    closeSyncModal();
+    await run("sync");
   }
 
   // ── Normalize file naming ────────────────────────────────────────────────────
@@ -104,6 +117,14 @@
         </button>
       {/each}
       <button
+        class="btn btn-sm btn-secondary gap-1.5"
+        disabled={$status?.busy || pending !== null}
+        onclick={openSyncModal}
+      >
+        {#if pending === "sync"}<span class="loading loading-spinner loading-xs"></span>{/if}
+        Full Plex sync
+      </button>
+      <button
         class="btn btn-sm btn-outline gap-1.5"
         disabled={$status?.busy || pending !== null}
         onclick={openNameModal}
@@ -113,6 +134,22 @@
     </div>
   </div>
 </section>
+
+<!-- Full Plex sync confirmation -->
+<dialog bind:this={syncDialogEl} class="modal" onclose={closeSyncModal}>
+  <div class="modal-box deck-card">
+    <h3 class="font-bold text-base">Full Plex sync?</h3>
+    <p class="text-sm opacity-70 mt-1 mb-3">
+      This updates metadata for every season and episode in Plex, then checks all arc posters for changes.
+      It makes a large number of requests to Plex and may take a while.
+    </p>
+    <div class="modal-action">
+      <button class="btn btn-sm btn-ghost" onclick={closeSyncModal}>Cancel</button>
+      <button class="btn btn-sm btn-secondary" onclick={confirmSync}>Sync</button>
+    </div>
+  </div>
+  <form method="dialog" class="modal-backdrop"><button onclick={closeSyncModal}>close</button></form>
+</dialog>
 
 <!-- Normalize file naming modal -->
 <dialog bind:this={nameDialogEl} class="modal" onclose={closeNameModal}>

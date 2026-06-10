@@ -3,12 +3,13 @@ import { getKv, setKv } from "./db";
 import { getSettingValue } from "./settings";
 import { getShowAndSeasonKeys, uploadPoster } from "./plex";
 
-// Map of poster target -> the source URL last applied, so we can skip unchanged
-// art and re-apply when the source (or repo base) changes. Single kv row.
+// Map of poster target -> { url, etag } last applied, so we can skip unchanged
+// art via conditional HTTP requests and re-apply only when the image changes.
 const APPLIED_KEY = "posters_applied";
 const SEEDED_KEY = "posters_seeded";
 
-type AppliedMap = Record<string, string>;
+type AppliedEntry = { url: string; etag?: string };
+type AppliedMap = Record<string, AppliedEntry | string>; // string = legacy format
 
 export interface PosterSyncResult {
   applied: number;
@@ -19,7 +20,6 @@ export interface PosterSyncResult {
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
-/** Builds the raw URL for a poster target. key: "show" | "0" (specials) | season part. */
 function posterUrl(base: string, key: string): string {
   const b = base.replace(/\/+$/, "");
   if (key === "show") return `${b}/poster.png`;
@@ -39,15 +39,12 @@ function loadApplied(): AppliedMap {
 
 const saveApplied = (m: AppliedMap): void => setKv(APPLIED_KEY, JSON.stringify(m));
 
-/** Fetches an image's bytes. Returns null on 404 (no poster for that target). */
-async function fetchImage(url: string): Promise<Buffer | null> {
-  const resp = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  if (resp.status === 404) return null;
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-  return Buffer.from(await resp.arrayBuffer());
+function getAppliedEntry(map: AppliedMap, key: string): AppliedEntry | null {
+  const v = map[key];
+  if (!v) return null;
+  return typeof v === "string" ? { url: v } : v;
 }
 
-/** Enumerates poster targets present in Plex: the show, plus every season (0 = Specials). */
 async function listTargets(): Promise<Array<{ key: string; ratingKey: string }>> {
   const { showKey, seasonMap } = await getShowAndSeasonKeys();
   const targets = [{ key: "show", ratingKey: showKey }];
@@ -57,12 +54,26 @@ async function listTargets(): Promise<Array<{ key: string; ratingKey: string }>>
   return targets;
 }
 
+/** Fetches a poster image using a conditional GET (If-None-Match) when an ETag
+ *  is available. Returns "not-modified" on 304, null on 404, or the image + new ETag. */
+async function fetchImageConditional(
+  url: string,
+  etag?: string
+): Promise<{ img: Buffer; etag: string | null } | "not-modified" | null> {
+  const headers: Record<string, string> = etag ? { "If-None-Match": etag } : {};
+  const resp = await fetch(url, { signal: AbortSignal.timeout(20_000), headers });
+  if (resp.status === 304) return "not-modified";
+  if (resp.status === 404) return null;
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return { img: Buffer.from(await resp.arrayBuffer()), etag: resp.headers.get("etag") };
+}
+
 /**
- * Applies posters from the fan-made repo to Plex. Normal mode skips targets
- * already applied with the same source URL (and any seeded on first run, so it
- * never clobbers posters the user set manually). force re-uploads everything.
+ * Applies posters from the fan-made repo to Plex. Uses ETag-based conditional
+ * requests — posters are only re-uploaded when the remote image actually changes.
+ * Already-applied posters that haven't changed are skipped without a full download.
  */
-export async function syncPosters(opts: { force?: boolean } = {}): Promise<PosterSyncResult> {
+export async function syncPosters(): Promise<PosterSyncResult> {
   const base = getSettingValue("POSTER_REPO_RAW_BASE");
   const applied = loadApplied();
   const result: PosterSyncResult = { applied: 0, skipped: 0, missing: 0, failed: 0 };
@@ -70,19 +81,21 @@ export async function syncPosters(opts: { force?: boolean } = {}): Promise<Poste
   const targets = await listTargets();
   for (const { key, ratingKey } of targets) {
     const url = posterUrl(base, key);
-    if (!opts.force && applied[key] === url) {
-      result.skipped++;
-      continue;
-    }
+    const entry = getAppliedEntry(applied, key);
     try {
-      const img = await fetchImage(url);
-      if (!img) {
+      const fetched = await fetchImageConditional(url, entry?.etag);
+      if (fetched === "not-modified") {
+        applied[key] = { url, etag: entry?.etag };
+        result.skipped++;
+        continue;
+      }
+      if (fetched === null) {
         result.missing++;
         logger.debug("No poster in repo for target", { key, url });
         continue;
       }
-      await uploadPoster(ratingKey, img);
-      applied[key] = url;
+      await uploadPoster(ratingKey, fetched.img);
+      applied[key] = { url, etag: fetched.etag ?? undefined };
       result.applied++;
       logger.info("Applied poster", { target: key === "show" ? "show" : `season ${key}` });
     } catch (err) {
@@ -92,14 +105,13 @@ export async function syncPosters(opts: { force?: boolean } = {}): Promise<Poste
   }
 
   saveApplied(applied);
-  logger.info("Poster sync complete", { ...result, force: Boolean(opts.force) });
+  logger.info("Poster sync complete", { ...result });
   return result;
 }
 
 /**
- * Applies one season's poster if not already applied. Called after ingest so a
- * brand-new season gets art automatically; a no-op for seasons already covered
- * (including everything seeded on first run).
+ * Applies one season's poster if not already applied with the current URL.
+ * Called after ingest so a brand-new season gets art automatically.
  */
 export async function ensureSeasonPoster(part: number): Promise<void> {
   const key = String(part);
@@ -107,16 +119,16 @@ export async function ensureSeasonPoster(part: number): Promise<void> {
   const url = posterUrl(base, key);
 
   const applied = loadApplied();
-  if (applied[key] === url) return; // already done — skip the Plex round-trip
+  if (getAppliedEntry(applied, key)?.url === url) return;
 
   try {
     const { seasonMap } = await getShowAndSeasonKeys();
     const ratingKey = seasonMap.get(part);
-    if (!ratingKey) return; // season not in Plex yet
-    const img = await fetchImage(url);
-    if (!img) return; // no poster for this season in the repo
-    await uploadPoster(ratingKey, img);
-    applied[key] = url;
+    if (!ratingKey) return;
+    const fetched = await fetchImageConditional(url);
+    if (!fetched || fetched === "not-modified") return;
+    await uploadPoster(ratingKey, fetched.img);
+    applied[key] = { url, etag: fetched.etag ?? undefined };
     saveApplied(applied);
     logger.info("Applied poster for new season", { part });
   } catch (err) {
@@ -126,8 +138,7 @@ export async function ensureSeasonPoster(part: number): Promise<void> {
 
 /**
  * First-run seed: marks every poster target currently in Plex as already-applied
- * WITHOUT uploading. Preserves posters the user set manually — only seasons added
- * after this point get auto-posters. A force sync ignores this.
+ * WITHOUT uploading. Preserves posters the user set manually.
  */
 export async function seedPostersOnFirstRun(): Promise<void> {
   if (getKv(SEEDED_KEY) === "1") return;
@@ -135,14 +146,13 @@ export async function seedPostersOnFirstRun(): Promise<void> {
   try {
     const targets = await listTargets();
     const applied = loadApplied();
-    for (const { key } of targets) applied[key] = posterUrl(base, key);
+    for (const { key } of targets) applied[key] = { url: posterUrl(base, key) };
     saveApplied(applied);
     setKv(SEEDED_KEY, "1");
     logger.info("First run: seeded existing posters as applied (kept manual art)", {
       count: targets.length,
     });
   } catch (err) {
-    // Leave the flag unset so it retries next boot rather than auto-uploading.
     logger.warn("First-run poster seed failed; will retry next boot", { error: (err as Error).message });
   }
 }
