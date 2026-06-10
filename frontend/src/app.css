@@ -9,7 +9,11 @@
 @import "@fontsource/ibm-plex-mono/400.css";
 @import "@fontsource/ibm-plex-mono/500.css";
 
-@plugin "daisyui";
+/* DaisyUI v5 ships only light/dark unless themes are opted in; "all"
+   enables every built-in theme for the Appearance > Other picker. */
+@plugin "daisyui" {
+  themes: all;
+}
 
 @layer base {
   :root {

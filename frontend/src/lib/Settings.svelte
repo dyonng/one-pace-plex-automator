@@ -88,7 +88,8 @@
       <!-- Appearance -->
       <div>
         <h3 class="text-xs uppercase tracking-wider opacity-60 mb-2">Appearance</h3>
-        <div class="join">
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="join">
           {#each themeOptions as opt (opt.value)}
             <button
               class="join-item btn btn-sm gap-1.5 {$themePref === opt.value ? 'btn-primary' : 'btn-ghost opacity-60 hover:opacity-100'}"
@@ -116,17 +117,18 @@
               {opt.label}
             </button>
           {/each}
+          </div>
+          {#if $themePref === "other"}
+            <select
+              class="select select-bordered select-sm w-44 font-mono capitalize"
+              bind:value={$customTheme}
+            >
+              {#each DAISYUI_THEMES as t (t)}
+                <option value={t}>{t}</option>
+              {/each}
+            </select>
+          {/if}
         </div>
-        {#if $themePref === "other"}
-          <select
-            class="select select-bordered select-sm mt-2 w-full sm:w-56 font-mono capitalize"
-            bind:value={$customTheme}
-          >
-            {#each DAISYUI_THEMES as t (t)}
-              <option value={t}>{t}</option>
-            {/each}
-          </select>
-        {/if}
         <p class="text-xs opacity-45 mt-1.5">Auto follows your system preference; falls back to Dark.</p>
       </div>
 
