@@ -508,6 +508,11 @@ npm run mock            # mock backend on :8282 (no sqlite/Plex/qBit, no auth) f
   skips the bump for docs-only commits automatically, and `.github/workflows/docker.yml` has a
   matching `paths-ignore` so docs-only pushes to `main` don't rebuild the GHCR image.
 - If a docs-only push must be extra-sure not to trigger CI, add `[skip ci]` to the commit message.
+- **Changelog** (`CHANGELOG.md`, Keep a Changelog format): every user-facing change lands with an
+  entry under `## [Unreleased]` in the same commit. Docs/CI/refactor-only commits are exempt.
+  Because the hook bumps the patch version on every commit, there is **no** heading per patch —
+  when a GitHub release is cut, roll Unreleased into a `## [X.Y.Z] — date` heading (and mirror the
+  content in `.github/release-notes/vX.Y.Z.md` for the release workflow).
 
 ## Docker Deployment
 
