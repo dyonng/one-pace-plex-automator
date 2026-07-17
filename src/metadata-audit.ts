@@ -1,5 +1,16 @@
+import { createHash } from "crypto";
 import { logger } from "./logger";
-import { getKv, setKv } from "./db";
+import {
+  getKv,
+  setKv,
+  getAllMetaStates,
+  setDesiredMeta,
+  setObservedMeta,
+  setAppliedMeta,
+  bumpThumbAttempt,
+  resetThumbAttempts,
+  type MetaStateRow,
+} from "./db";
 import {
   getAllArcs,
   getAllEpisodes,
@@ -8,25 +19,32 @@ import {
 } from "./metadata";
 import {
   scanPlexMetadata,
-  syncMetadataTargeted,
+  updateEpisodeInPlex,
+  updateSeasonInPlex,
+  refreshItem,
+  analyzeItem,
   buildEpisodeSummary,
   buildSeasonSummary,
+  refreshShow,
   type PlexItemMeta,
+  type PlexMetadataSnapshot,
 } from "./plex";
 
-// Latest audit only — a single upserted kv row (mirrors the coverage report), so
-// it never grows and survives restarts. The dashboard reads this; a scan
-// overwrites it.
+// Latest report for the dashboard — a single upserted kv row (mirrors coverage).
+// The plex_meta_state table is the source of truth for reconcile decisions; this
+// is just the display cache.
 const KV_KEY = "metadata_audit_report";
-// Lightweight companion so the status endpoint can report freshness without
-// parsing the full report on every poll.
 const KV_SCANNED_AT = "metadata_audit_scanned_at";
 
+// Stop re-triggering thumbnail generation after this many attempts — some
+// episodes Plex simply can't/won't thumbnail, and we don't want to hammer it.
+const THUMB_ATTEMPT_CAP = 3;
+
 export type MetadataState =
-  | "ok"           // Plex title + summary match the canonical dataset
-  | "missing"      // in Plex but summary blank / title is a placeholder (never synced)
-  | "drifted"      // in Plex with real text, but it differs from the dataset
-  | "not_in_plex"; // dataset lists it, but there's no matching Plex episode yet
+  | "ok"           // Plex matches the dataset (applied == desired)
+  | "missing"      // in Plex but blank summary / placeholder title
+  | "drifted"      // in Plex with text, but not our current dataset value
+  | "not_in_plex"; // dataset lists it, no matching Plex episode yet
 
 export interface MetadataAuditEpisode {
   arcPart: number;
@@ -35,21 +53,22 @@ export interface MetadataAuditEpisode {
   seasonEpisodeId: string;
   state: MetadataState;
   expectedTitle: string;
-  plexTitle: string | null; // null when not in Plex
-  titleMismatch: boolean;
-  summaryMismatch: boolean;
+  plexTitle: string | null;
+  needsThumb: boolean;       // in Plex, no thumbnail, still under the retry cap
+  thumbUnavailable: boolean; // in Plex, no thumbnail, retry cap reached
 }
 
 export interface MetadataAuditArc {
   arcPart: number;
   arcTitle: string;
   arcSaga: string;
-  seasonState: MetadataState; // audit of the season/arc metadata itself
+  seasonState: MetadataState;
   total: number;
   ok: number;
   missing: number;
   drifted: number;
   notInPlex: number;
+  needsThumb: number;
   episodes: MetadataAuditEpisode[];
 }
 
@@ -61,14 +80,15 @@ export interface MetadataAuditReport {
     missing: number;
     drifted: number;
     notInPlex: number;
-    flagged: number; // missing + drifted — the actionable set
+    flagged: number;          // missing + drifted — actionable metadata
+    needsThumb: number;
+    thumbUnavailable: number;
   };
   seasonsFlagged: number;
   arcs: MetadataAuditArc[];
 }
 
-// Collapse whitespace so cosmetic differences (Plex re-wrapping, trailing
-// newlines) don't read as drift — only real content changes are flagged.
+// Collapse whitespace so cosmetic differences don't read as drift.
 const norm = (s: string | null | undefined): string => (s ?? "").replace(/\s+/g, " ").trim();
 
 // Plex names an unmatched item by its file or a bare "Episode N" / "Season N".
@@ -77,104 +97,168 @@ const isPlaceholderTitle = (t: string): boolean => {
   return n === "" || /^(episode|season)\s+\d+$/.test(n);
 };
 
-interface Classification {
-  state: MetadataState;
-  titleMismatch: boolean;
-  summaryMismatch: boolean;
+// Identity of the metadata we want in Plex: title + summary only (both
+// observable from /allLeaves, so drift detection stays symmetric).
+function desiredHash(title: string, summary: string): string {
+  return createHash("sha1").update(norm(title) + "\x00" + norm(summary)).digest("hex");
 }
 
-function classify(
-  expectedTitle: string,
-  expectedSummary: string,
-  plex: PlexItemMeta | undefined
-): Classification {
-  if (!plex) return { state: "not_in_plex", titleMismatch: false, summaryMismatch: false };
+const hasData = (title: string, summary: string): boolean =>
+  norm(title).length > 0 || norm(summary).length > 0;
 
-  const et = norm(expectedTitle);
-  const es = norm(expectedSummary);
-  const pt = norm(plex.title);
-  const ps = norm(plex.summary);
+// True when Plex's copy already equals what we want (adopt without re-pushing).
+function plexMatchesDesired(plex: PlexItemMeta, title: string, summary: string): boolean {
+  return norm(plex.title) === norm(title) && norm(plex.summary) === norm(summary);
+}
 
-  const titleMismatch = et.length > 0 && et !== pt;
-  const summaryMismatch = es.length > 0 && es !== ps;
+interface EpisodeStateView {
+  state: MetadataState;
+  needsMetadata: boolean; // should push (have data, in Plex, applied != desired or Plex lost it)
+  needsThumb: boolean;
+  thumbUnavailable: boolean;
+}
 
-  // Missing = we have real text to write, but Plex has none: a blank summary
-  // (we always write one) or a placeholder title.
-  const missing =
-    (es.length > 0 && ps.length === 0) ||
-    (et.length > 0 && isPlaceholderTitle(plex.title));
+/**
+ * Reconciles one episode's persisted state against the dataset + a fresh Plex
+ * observation, writing desired/observed/applied back to the row, and returns a
+ * view describing what (if anything) needs doing. Pure bookkeeping — never calls
+ * Plex; the caller performs any pushes/thumbnail triggers.
+ */
+function reconcileEpisodeState(
+  ep: EpisodeSummary,
+  plex: PlexItemMeta | undefined,
+  prev: MetaStateRow | undefined
+): EpisodeStateView {
+  const title = ep.episodeTitle;
+  const summary = buildEpisodeSummary(ep);
+  const dHash = desiredHash(title, summary);
+  setDesiredMeta(ep.seasonEpisodeId, ep.arcPart, ep.episodeNum, dHash);
 
-  if (missing) return { state: "missing", titleMismatch, summaryMismatch };
-  if (titleMismatch || summaryMismatch) return { state: "drifted", titleMismatch, summaryMismatch };
-  return { state: "ok", titleMismatch: false, summaryMismatch: false };
+  if (!plex) {
+    setObservedMeta(ep.seasonEpisodeId, { inPlex: false, hasThumb: false, plexTitle: null, ratingKey: null });
+    return { state: "not_in_plex", needsMetadata: false, needsThumb: false, thumbUnavailable: false };
+  }
+
+  const hasThumb = plex.hasThumb;
+  setObservedMeta(ep.seasonEpisodeId, {
+    inPlex: true,
+    hasThumb,
+    plexTitle: plex.title,
+    ratingKey: plex.ratingKey,
+  });
+  if (hasThumb) resetThumbAttempts(ep.seasonEpisodeId);
+
+  // Adopt Plex's copy as applied when it already matches — avoids needless
+  // re-pushes for episodes synced before we tracked state.
+  let applied = prev?.applied_hash ?? null;
+  if (plexMatchesDesired(plex, title, summary)) {
+    setAppliedMeta(ep.seasonEpisodeId, dHash);
+    applied = dHash;
+  }
+
+  // Thumbnail need (independent of metadata).
+  const attempts = prev?.thumb_attempts ?? 0;
+  const needsThumb = !hasThumb && attempts < THUMB_ATTEMPT_CAP;
+  const thumbUnavailable = !hasThumb && attempts >= THUMB_ATTEMPT_CAP;
+
+  if (!hasData(title, summary)) {
+    // Nothing to write — treat as ok for metadata, but thumbnails may still apply.
+    return { state: "ok", needsMetadata: false, needsThumb, thumbUnavailable };
+  }
+
+  const plexEmpty = norm(plex.summary).length === 0 || isPlaceholderTitle(plex.title);
+  const inSync = applied === dHash && !plexEmpty;
+
+  if (inSync) return { state: "ok", needsMetadata: false, needsThumb, thumbUnavailable };
+
+  const state: MetadataState = plexEmpty ? "missing" : "drifted";
+  return { state, needsMetadata: true, needsThumb, thumbUnavailable };
+}
+
+interface SeasonView {
+  state: MetadataState;
+  needsMetadata: boolean;
+}
+
+function reconcileSeasonState(arc: ArcSummary, plex: PlexItemMeta | undefined): SeasonView {
+  if (!plex) return { state: "not_in_plex", needsMetadata: false };
+  const title = arc.arcTitle;
+  const summary = buildSeasonSummary(arc);
+  if (plexMatchesDesired(plex, title, summary)) return { state: "ok", needsMetadata: false };
+  const plexEmpty = norm(plex.summary).length === 0 || isPlaceholderTitle(plex.title);
+  return { state: plexEmpty ? "missing" : "drifted", needsMetadata: hasData(title, summary) };
 }
 
 function emptyArc(arcPart: number, arcTitle: string, arcSaga: string): MetadataAuditArc {
   return {
-    arcPart,
-    arcTitle,
-    arcSaga,
-    seasonState: "ok",
-    total: 0,
-    ok: 0,
-    missing: 0,
-    drifted: 0,
-    notInPlex: 0,
-    episodes: [],
+    arcPart, arcTitle, arcSaga, seasonState: "ok",
+    total: 0, ok: 0, missing: 0, drifted: 0, notInPlex: 0, needsThumb: 0, episodes: [],
   };
 }
 
+interface ReconcileResult {
+  report: MetadataAuditReport;
+  episodesToPush: { ep: EpisodeSummary; ratingKey: string }[];
+  seasonsToPush: { arc: ArcSummary; ratingKey: string }[];
+  thumbsToGen: { id: string; ratingKey: string }[];
+}
+
 /**
- * Diffs Plex's current season/episode title + summary against the canonical
- * dataset and classifies every episode as ok / missing / drifted / not_in_plex.
- * Reads Plex in two requests (see scanPlexMetadata); stores the report in kv.
+ * Core pass: recompute desired state for the whole catalog, observe Plex once,
+ * reconcile every row, and build both the display report and the action lists
+ * (what to push / thumbnail). Does not perform the actions — callers decide.
  */
-export async function scanMetadataAudit(): Promise<MetadataAuditReport> {
-  const [arcs, episodes, snapshot] = await Promise.all([
-    getAllArcs(),
-    getAllEpisodes(),
-    scanPlexMetadata(),
-  ]);
+async function buildReconcile(): Promise<ReconcileResult> {
+  const [arcs, episodes, snapshot]: [ArcSummary[], EpisodeSummary[], PlexMetadataSnapshot] =
+    await Promise.all([getAllArcs(), getAllEpisodes(), scanPlexMetadata()]);
+
+  const prevStates = new Map<string, MetaStateRow>();
+  for (const row of getAllMetaStates()) prevStates.set(row.season_episode_id, row);
 
   const arcMap = new Map<number, MetadataAuditArc>();
-
-  // Seed arcs from the dataset and audit each season's own metadata.
+  const seasonsToPush: { arc: ArcSummary; ratingKey: string }[] = [];
   for (const a of arcs) {
     const arc = emptyArc(a.arcPart, a.arcTitle, a.arcSaga);
-    arc.seasonState = classify(a.arcTitle, buildSeasonSummary(a), snapshot.seasons.get(a.arcPart)).state;
+    const plexSeason = snapshot.seasons.get(a.arcPart);
+    const sv = reconcileSeasonState(a, plexSeason);
+    arc.seasonState = sv.state;
+    if (sv.needsMetadata && plexSeason) seasonsToPush.push({ arc: a, ratingKey: plexSeason.ratingKey });
     arcMap.set(a.arcPart, arc);
   }
+
+  const episodesToPush: { ep: EpisodeSummary; ratingKey: string }[] = [];
+  const thumbsToGen: { id: string; ratingKey: string }[] = [];
 
   for (const ep of episodes) {
     let arc = arcMap.get(ep.arcPart);
     if (!arc) {
-      // Episode's arc isn't in getAllArcs() (shouldn't normally happen) — seed one.
       arc = emptyArc(ep.arcPart, ep.arcTitle, ep.arcSaga);
       arcMap.set(ep.arcPart, arc);
     }
 
-    const { state, titleMismatch, summaryMismatch } = classify(
-      ep.episodeTitle,
-      buildEpisodeSummary(ep),
-      snapshot.episodes.get(ep.seasonEpisodeId)
-    );
+    const plexEp = snapshot.episodes.get(ep.seasonEpisodeId);
+    const view = reconcileEpisodeState(ep, plexEp, prevStates.get(ep.seasonEpisodeId));
+
+    if (view.needsMetadata && plexEp) episodesToPush.push({ ep, ratingKey: plexEp.ratingKey });
+    if (view.needsThumb && plexEp) thumbsToGen.push({ id: ep.seasonEpisodeId, ratingKey: plexEp.ratingKey });
 
     arc.total++;
-    if (state === "ok") arc.ok++;
-    else if (state === "missing") arc.missing++;
-    else if (state === "drifted") arc.drifted++;
+    if (view.state === "ok") arc.ok++;
+    else if (view.state === "missing") arc.missing++;
+    else if (view.state === "drifted") arc.drifted++;
     else arc.notInPlex++;
+    if (view.needsThumb) arc.needsThumb++;
 
     arc.episodes.push({
       arcPart: ep.arcPart,
       arcTitle: ep.arcTitle,
       episodeNum: ep.episodeNum,
       seasonEpisodeId: ep.seasonEpisodeId,
-      state,
+      state: view.state,
       expectedTitle: ep.episodeTitle,
-      plexTitle: snapshot.episodes.get(ep.seasonEpisodeId)?.title ?? null,
-      titleMismatch,
-      summaryMismatch,
+      plexTitle: plexEp?.title ?? null,
+      needsThumb: view.needsThumb,
+      thumbUnavailable: view.thumbUnavailable,
     });
   }
 
@@ -182,87 +266,143 @@ export async function scanMetadataAudit(): Promise<MetadataAuditReport> {
   for (const a of arcsOut) a.episodes.sort((x, y) => x.episodeNum - y.episodeNum);
 
   const totals = arcsOut.reduce(
-    (t, a) => ({
-      episodes: t.episodes + a.total,
-      ok: t.ok + a.ok,
-      missing: t.missing + a.missing,
-      drifted: t.drifted + a.drifted,
-      notInPlex: t.notInPlex + a.notInPlex,
-      flagged: 0,
-    }),
-    { episodes: 0, ok: 0, missing: 0, drifted: 0, notInPlex: 0, flagged: 0 }
+    (t, a) => {
+      t.episodes += a.total;
+      t.ok += a.ok;
+      t.missing += a.missing;
+      t.drifted += a.drifted;
+      t.notInPlex += a.notInPlex;
+      t.needsThumb += a.needsThumb;
+      return t;
+    },
+    { episodes: 0, ok: 0, missing: 0, drifted: 0, notInPlex: 0, flagged: 0, needsThumb: 0, thumbUnavailable: 0 }
   );
   totals.flagged = totals.missing + totals.drifted;
-
+  totals.thumbUnavailable = arcsOut.reduce(
+    (n, a) => n + a.episodes.filter((e) => e.thumbUnavailable).length,
+    0
+  );
   const seasonsFlagged = arcsOut.filter(
     (a) => a.seasonState === "missing" || a.seasonState === "drifted"
   ).length;
 
-  const report: MetadataAuditReport = {
-    scannedAt: Date.now(),
-    totals,
-    seasonsFlagged,
-    arcs: arcsOut,
-  };
+  const report: MetadataAuditReport = { scannedAt: Date.now(), totals, seasonsFlagged, arcs: arcsOut };
+  return { report, episodesToPush, seasonsToPush, thumbsToGen };
+}
 
+function storeReport(report: MetadataAuditReport): void {
   setKv(KV_KEY, JSON.stringify(report));
   setKv(KV_SCANNED_AT, String(report.scannedAt));
-  logger.info("Metadata audit complete", { ...totals, seasonsFlagged });
+}
+
+/**
+ * Read-only audit: observe Plex, reconcile the state table, store the report.
+ * Never writes to Plex — use reconcilePlexMetadata to actually fix things.
+ */
+export async function scanMetadataAudit(): Promise<MetadataAuditReport> {
+  const { report } = await buildReconcile();
+  storeReport(report);
+  logger.info("Metadata audit complete", { ...report.totals, seasonsFlagged: report.seasonsFlagged });
   return report;
 }
 
-const isFlagged = (s: MetadataState): boolean => s === "missing" || s === "drifted";
-
-/**
- * Audits metadata, then pushes the dataset's title/summary to Plex for only the
- * flagged (missing/drifted) seasons and episodes — an O(flagged) write instead
- * of the O(everything) full sync. Re-audits afterward so the report reflects the
- * fix. Returns what was written.
- */
-export async function syncFlaggedMetadata(): Promise<{
-  seasonsUpdated: number;
+export interface ReconcileSummary {
   episodesUpdated: number;
+  seasonsUpdated: number;
+  thumbsTriggered: number;
   flaggedEpisodes: number;
   flaggedSeasons: number;
-}> {
-  const report = await scanMetadataAudit();
+}
 
-  const flaggedEpisodeIds = new Set<string>();
-  const flaggedArcParts = new Set<number>();
-  for (const arc of report.arcs) {
-    if (isFlagged(arc.seasonState)) flaggedArcParts.add(arc.arcPart);
-    for (const ep of arc.episodes) {
-      if (isFlagged(ep.state)) flaggedEpisodeIds.add(ep.seasonEpisodeId);
+/**
+ * The engine: observe Plex, then push metadata for every flagged (missing /
+ * drifted) season & episode where we hold canonical data, and trigger thumbnail
+ * generation for episodes lacking one (under the retry cap). Re-audits afterward
+ * so the stored report reflects the fix. Idempotent and restart-safe.
+ */
+export async function reconcilePlexMetadata(
+  opts: { thumbnails?: boolean } = {}
+): Promise<ReconcileSummary> {
+  const doThumbs = opts.thumbnails ?? true;
+  const { episodesToPush, seasonsToPush, thumbsToGen } = await buildReconcile();
+
+  let seasonsUpdated = 0;
+  for (const { arc, ratingKey } of seasonsToPush) {
+    try {
+      await updateSeasonInPlex(ratingKey, arc);
+      seasonsUpdated++;
+    } catch (err) {
+      logger.warn("Reconcile: season push failed", { part: arc.arcPart, error: (err as Error).message });
     }
   }
 
-  if (flaggedEpisodeIds.size === 0 && flaggedArcParts.size === 0) {
-    return { seasonsUpdated: 0, episodesUpdated: 0, flaggedEpisodes: 0, flaggedSeasons: 0 };
+  let episodesUpdated = 0;
+  for (const { ep, ratingKey } of episodesToPush) {
+    try {
+      await updateEpisodeInPlex(ratingKey, ep);
+      setAppliedMeta(ep.seasonEpisodeId, desiredHash(ep.episodeTitle, buildEpisodeSummary(ep)));
+      episodesUpdated++;
+    } catch (err) {
+      logger.warn("Reconcile: episode push failed", { id: ep.seasonEpisodeId, error: (err as Error).message });
+    }
   }
 
-  const [allArcs, allEpisodes] = await Promise.all([getAllArcs(), getAllEpisodes()]);
-  const arcs: ArcSummary[] = allArcs.filter((a) => flaggedArcParts.has(a.arcPart));
-  const eps: EpisodeSummary[] = allEpisodes.filter((e) => flaggedEpisodeIds.has(e.seasonEpisodeId));
+  let thumbsTriggered = 0;
+  if (doThumbs) {
+    for (const { id, ratingKey } of thumbsToGen) {
+      try {
+        await refreshItem(ratingKey);
+        await analyzeItem(ratingKey);
+        bumpThumbAttempt(id);
+        thumbsTriggered++;
+      } catch (err) {
+        logger.warn("Reconcile: thumbnail trigger failed", { id, error: (err as Error).message });
+      }
+    }
+  }
 
-  const res = await syncMetadataTargeted(arcs, eps);
-  // Reflect the fix in the stored report.
-  await scanMetadataAudit();
+  if (seasonsUpdated || episodesUpdated) await refreshShow();
 
-  return {
-    seasonsUpdated: res.seasonsUpdated,
-    episodesUpdated: res.episodesUpdated,
-    flaggedEpisodes: flaggedEpisodeIds.size,
-    flaggedSeasons: flaggedArcParts.size,
+  // Re-audit so the stored report reflects the pushes (thumbnails show up later).
+  const { report } = await buildReconcile();
+  storeReport(report);
+
+  const summary: ReconcileSummary = {
+    episodesUpdated,
+    seasonsUpdated,
+    thumbsTriggered,
+    flaggedEpisodes: episodesToPush.length,
+    flaggedSeasons: seasonsToPush.length,
   };
+  logger.info("Reconcile complete", { ...summary });
+  return summary;
 }
 
-/** Timestamp of the last stored audit, or null if none has run. Cheap to read. */
+/**
+ * Cheap source-refresh hook: recompute every episode's desired hash from the
+ * dataset (no Plex calls). Episodes whose canonical text changed now have
+ * desired != applied, so the next reconcile picks them up automatically.
+ */
+export async function markDirtyFromSource(): Promise<void> {
+  const episodes = await getAllEpisodes();
+  for (const ep of episodes) {
+    setDesiredMeta(
+      ep.seasonEpisodeId,
+      ep.arcPart,
+      ep.episodeNum,
+      desiredHash(ep.episodeTitle, buildEpisodeSummary(ep))
+    );
+  }
+  logger.debug("Marked desired metadata from source", { episodes: episodes.length });
+}
+
+/** Timestamp of the last stored audit/reconcile, or null if none has run. */
 export function getAuditScannedAt(): number | null {
   const raw = getKv(KV_SCANNED_AT);
   return raw ? Number(raw) : null;
 }
 
-/** Returns the last audit from the kv store, or null if none has run yet. */
+/** Returns the last stored report from kv, or null if none has run yet. */
 export function getStoredAudit(): MetadataAuditReport | null {
   const raw = getKv(KV_KEY);
   if (!raw) return null;

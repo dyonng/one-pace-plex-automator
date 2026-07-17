@@ -9,6 +9,7 @@ export type SettingKey =
   | "DOWNLOAD_CHECK_SECONDS"
   | "AUTO_DOWNLOAD"
   | "AUTO_POSTERS"
+  | "AUTO_RECONCILE"
   | "PREFER_EXTENDED"
   | "PREFER_ARABASTA"
   | "DISCORD_WEBHOOK_URL"
@@ -36,6 +37,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   GOOGLE_SHEETS_API_KEY: "service",
   AUTO_DOWNLOAD: "preference",
   AUTO_POSTERS: "preference",
+  AUTO_RECONCILE: "preference",
   PREFER_EXTENDED: "preference",
   PREFER_ARABASTA: "preference",
 };
@@ -137,6 +139,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().AUTO_POSTERS),
     validate: validateBool,
   },
+  AUTO_RECONCILE: {
+    key: "AUTO_RECONCILE",
+    label: "Auto-sync Plex metadata & thumbnails on source changes",
+    type: "bool",
+    envValue: () => String(getConfig().AUTO_RECONCILE),
+    validate: validateBool,
+  },
   PREFER_EXTENDED: {
     key: "PREFER_EXTENDED",
     label: "Prefer extended cuts over standard",
@@ -222,6 +231,10 @@ export function getPollEnabled(): boolean {
 
 export function getAutoPosters(): boolean {
   return getSettingValue("AUTO_POSTERS") === "true";
+}
+
+export function getAutoReconcile(): boolean {
+  return getSettingValue("AUTO_RECONCILE") === "true";
 }
 
 export function getPreferExtended(): boolean {

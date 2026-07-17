@@ -111,6 +111,26 @@ function migrate(db: Database.Database) {
       key   TEXT PRIMARY KEY,
       value TEXT NOT NULL
     );
+
+    -- Per-episode Plex metadata/thumbnail reconciliation state, keyed by the
+    -- stable season/episode id (survives re-releases, unlike CRC32). desired_hash
+    -- is what the dataset says we want; applied_hash is what we last pushed to
+    -- Plex. desired != applied ⇒ needs a metadata sync. Lets a source refresh
+    -- mark exactly the changed episodes dirty without touching Plex.
+    CREATE TABLE IF NOT EXISTS plex_meta_state (
+      season_episode_id TEXT PRIMARY KEY,
+      arc_part          INTEGER NOT NULL,
+      episode_num       INTEGER NOT NULL,
+      desired_hash      TEXT,
+      applied_hash      TEXT,
+      in_plex           INTEGER NOT NULL DEFAULT 0,
+      has_thumb         INTEGER NOT NULL DEFAULT 0,
+      thumb_attempts    INTEGER NOT NULL DEFAULT 0,
+      plex_title        TEXT,
+      plex_rating_key   TEXT,
+      last_scanned_at   INTEGER,
+      last_synced_at    INTEGER
+    );
   `);
 
   // Add columns introduced after initial release (no-op on fresh DBs).
@@ -286,4 +306,80 @@ export function getEpisodeByTorrentHash(hash: string): EpisodeRecord | null {
     .prepare("SELECT * FROM episodes WHERE torrent_hash = ?")
     .get(hash) as EpisodeRow | undefined;
   return row ? rowToRecord(row) : null;
+}
+
+// ── Plex metadata/thumbnail reconciliation state ────────────────────────────
+
+export interface MetaStateRow {
+  season_episode_id: string;
+  arc_part: number;
+  episode_num: number;
+  desired_hash: string | null;
+  applied_hash: string | null;
+  in_plex: number;
+  has_thumb: number;
+  thumb_attempts: number;
+  plex_title: string | null;
+  plex_rating_key: string | null;
+  last_scanned_at: number | null;
+  last_synced_at: number | null;
+}
+
+export function getAllMetaStates(): MetaStateRow[] {
+  return getDb().prepare("SELECT * FROM plex_meta_state").all() as MetaStateRow[];
+}
+
+export function getMetaState(id: string): MetaStateRow | null {
+  return (getDb()
+    .prepare("SELECT * FROM plex_meta_state WHERE season_episode_id = ?")
+    .get(id) as MetaStateRow | undefined) ?? null;
+}
+
+/**
+ * Sets the desired-state hash for an episode (what the dataset says we want),
+ * inserting the row if it's new. Leaves applied_hash and Plex-observed fields
+ * untouched — a bare source-refresh update that never needs a Plex round-trip.
+ */
+export function setDesiredMeta(id: string, arcPart: number, episodeNum: number, desiredHash: string): void {
+  getDb().prepare(`
+    INSERT INTO plex_meta_state (season_episode_id, arc_part, episode_num, desired_hash)
+    VALUES (?, ?, ?, ?)
+    ON CONFLICT(season_episode_id) DO UPDATE SET
+      desired_hash = excluded.desired_hash,
+      arc_part = excluded.arc_part,
+      episode_num = excluded.episode_num
+  `).run(id, arcPart, episodeNum, desiredHash);
+}
+
+/** Records what Plex currently reports for an episode (from a scan). */
+export function setObservedMeta(
+  id: string,
+  obs: { inPlex: boolean; hasThumb: boolean; plexTitle: string | null; ratingKey: string | null }
+): void {
+  getDb().prepare(`
+    UPDATE plex_meta_state SET
+      in_plex = ?, has_thumb = ?, plex_title = ?, plex_rating_key = ?, last_scanned_at = ?
+    WHERE season_episode_id = ?
+  `).run(obs.inPlex ? 1 : 0, obs.hasThumb ? 1 : 0, obs.plexTitle, obs.ratingKey, Date.now(), id);
+}
+
+/** Marks an episode's metadata as successfully applied to Plex. */
+export function setAppliedMeta(id: string, appliedHash: string): void {
+  getDb().prepare(`
+    UPDATE plex_meta_state SET applied_hash = ?, last_synced_at = ? WHERE season_episode_id = ?
+  `).run(appliedHash, Date.now(), id);
+}
+
+/** Bumps the thumbnail-generation attempt counter after a refresh/analyze. */
+export function bumpThumbAttempt(id: string): void {
+  getDb()
+    .prepare("UPDATE plex_meta_state SET thumb_attempts = thumb_attempts + 1 WHERE season_episode_id = ?")
+    .run(id);
+}
+
+/** Clears the thumbnail attempt counter once a thumb is observed present. */
+export function resetThumbAttempts(id: string): void {
+  getDb()
+    .prepare("UPDATE plex_meta_state SET thumb_attempts = 0 WHERE season_episode_id = ?")
+    .run(id);
 }

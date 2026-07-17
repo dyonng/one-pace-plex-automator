@@ -11,7 +11,8 @@ import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
 import { clearSheetCache, prefetchSheet } from "./onepace-sheet";
 import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descriptions";
-import { scanMetadataAudit, syncFlaggedMetadata } from "./metadata-audit";
+import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource } from "./metadata-audit";
+import { getAutoReconcile } from "./settings";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -80,7 +81,29 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         await Promise.all([prefetchSheet(), prefetchDescriptions()]);
         await runCycle();
         runtime.lastPollAt = Date.now();
-        return { ok: true, message: "Sources refreshed and RSS poll complete" };
+
+        // The source data may have changed — recompute desired metadata so the
+        // audit reflects it. When auto-reconcile is on, push the changes (and
+        // any pending thumbnails) to Plex now; otherwise just mark them dirty.
+        let reconcileMsg = "";
+        try {
+          if (getAutoReconcile()) {
+            const r = await reconcilePlexMetadata({ thumbnails: true });
+            runtime.lastSyncAt = Date.now();
+            if (r.episodesUpdated || r.seasonsUpdated || r.thumbsTriggered) {
+              reconcileMsg =
+                ` Reconciled ${r.episodesUpdated} episode(s)` +
+                `${r.seasonsUpdated ? `, ${r.seasonsUpdated} season(s)` : ""}` +
+                `${r.thumbsTriggered ? `, ${r.thumbsTriggered} thumbnail(s)` : ""}.`;
+            }
+          } else {
+            await markDirtyFromSource();
+          }
+        } catch (err) {
+          logger.warn("Reconcile after refresh-sources failed", { error: (err as Error).message });
+        }
+
+        return { ok: true, message: `Sources refreshed and RSS poll complete.${reconcileMsg}` };
       });
 
     case "sync":
@@ -110,17 +133,18 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
       });
 
     case "metadata-sync":
-      return withLock("Metadata sync", async () => {
-        const r = await syncFlaggedMetadata();
+      return withLock("Metadata reconcile", async () => {
+        const r = await reconcilePlexMetadata({ thumbnails: true });
         runtime.lastSyncAt = Date.now();
-        const total = r.episodesUpdated + r.seasonsUpdated;
+        const total = r.episodesUpdated + r.seasonsUpdated + r.thumbsTriggered;
         return {
           ok: true,
           message:
             total === 0
-              ? "Metadata already up to date — nothing to sync"
-              : `Synced metadata for ${r.episodesUpdated} episode(s)` +
-                `${r.seasonsUpdated ? ` and ${r.seasonsUpdated} season(s)` : ""}`,
+              ? "Plex metadata & thumbnails already up to date — nothing to do"
+              : `Reconciled ${r.episodesUpdated} episode(s)` +
+                `${r.seasonsUpdated ? `, ${r.seasonsUpdated} season(s)` : ""}` +
+                `${r.thumbsTriggered ? `, triggered ${r.thumbsTriggered} thumbnail(s)` : ""}`,
         };
       });
 
