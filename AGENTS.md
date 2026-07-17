@@ -338,7 +338,10 @@ Components: `NewReleases` (hero — `available` releases with changelog + Downlo
 `Controls` (Refresh Sources / Retry failed, **Full Plex sync** with confirmation modal,
 **Normalize File Naming** modal), `Library` (unified coverage + metadata/thumbnail card: one per-arc
 foldout with coverage-colored chips and thumbnail dots, combined totals, Upgrade-Now batch modal,
-re-release compare modal, find-source search, Scan-both + Reconcile), `InfoCards`, `Settings` (a `<dialog>` modal opened from the
+re-release compare modal, find-source search, Scan-both + Reconcile), `WhatsNew` (post-update
+changelog modal — CHANGELOG.md is bundled via a Vite `?raw` import, parsed client-side, and shown
+once when the running version is newer than localStorage's last-seen version), `InfoCards`,
+`Settings` (a `<dialog>` modal opened from the
 navbar gear icon via the `settingsOpen` store — Appearance pickers, System & Services / Preferences
 groups, and `Auth` as a sub-section), `Episodes` (pipeline table — newest-first, live download
 progress + size, Clear done, per-row actions + remove-confirm modal), `Logs` (+ Clear), `Auth`,
@@ -354,7 +357,7 @@ ships just the compiled static output.
 - Config files are `.mts`/`.mjs` (`vite.config.mts`, `svelte.config.mjs`) so the ESM frontend
   tooling coexists with the CommonJS backend without setting `"type": "module"`.
 - Components: `frontend/src/App.svelte` + `lib/` (`Navbar`, `System`, `Controls`, `Library`,
-  `InfoCards`, `Settings`, `Episodes`, `NewReleases`, `Logs`, `Auth`, `Toasts`); `lib/api.ts`
+  `WhatsNew`, `InfoCards`, `Settings`, `Episodes`, `NewReleases`, `Logs`, `Auth`, `Toasts`); `lib/api.ts`
   (typed fetchers), `lib/stores.ts` (status/logs/toasts/coverage/downloadProgress/`settingsOpen`
   stores + SSE + `startProgressPolling`; auto-pulls coverage when `coverageScannedAt` advances),
   `lib/theme.ts` + `lib/logo.ts` (appearance preferences, localStorage-backed), `lib/util.ts`

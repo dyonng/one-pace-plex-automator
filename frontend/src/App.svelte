@@ -8,6 +8,7 @@
   import Library from "./lib/Library.svelte";
   import InfoCards from "./lib/InfoCards.svelte";
   import Settings from "./lib/Settings.svelte";
+  import WhatsNew from "./lib/WhatsNew.svelte";
   import Episodes from "./lib/Episodes.svelte";
   import Logs from "./lib/Logs.svelte";
   import Toasts from "./lib/Toasts.svelte";
@@ -40,4 +41,5 @@
   <Logs />
 </main>
 <Settings />
+<WhatsNew />
 <Toasts />
