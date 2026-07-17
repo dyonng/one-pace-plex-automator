@@ -14,7 +14,9 @@ FROM node:22-alpine AS runner
 
 # Runtime shared lib for the better-sqlite3 native addon (musl build links
 # libstdc++/libgcc). Builder had these via g++; the runner needs them too.
-RUN apk add --no-cache libstdc++
+# ffmpeg/ffprobe power the custom thumbnail generator (frame sampling for
+# episodes Plex keeps giving blank stills).
+RUN apk add --no-cache libstdc++ ffmpeg
 
 WORKDIR /app
 COPY package*.json ./

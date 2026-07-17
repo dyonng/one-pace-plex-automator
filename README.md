@@ -47,12 +47,12 @@ exactly which episodes changed and re-syncs only those, no full library sweep.
 - **Thumbnails** — episodes with no thumbnail get generation triggered in Plex
   (a still frame plus scrubber previews). Generation runs in Plex's background
   queue, so results appear on a later scan; attempts are spaced ~30 minutes
-  apart and stop after a few tries. A **Retry thumbnails** button re-requests
-  generation for everything still missing one, including episodes earlier
-  attempts gave up on. Thumbnails that exist but are **blank** (Plex grabbed a
-  fade-to-black/white transition frame) are detected by pixel analysis and
-  regenerated too. One Pace doesn't ship per-episode stills, so Plex makes
-  them from the video.
+  apart. Thumbnails that exist but are **blank** (Plex grabbed a fade-to-black/
+  white transition frame) are detected by pixel analysis and regenerated too.
+  If Plex keeps producing a bad frame after a few tries, the tool **generates
+  the thumbnail itself**: ffmpeg samples frames across the episode, scores them
+  for detail and brightness, and uploads the best one. A **Retry thumbnails**
+  button restarts the whole process for anything still missing.
 
 This runs automatically after every **Refresh Sources** and whenever a new
 episode is added (`AUTO_RECONCILE`, on by default). The **Library** card shows

@@ -91,11 +91,12 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
           if (getAutoReconcile()) {
             const r = await reconcilePlexMetadata({ thumbnails: true });
             runtime.lastSyncAt = Date.now();
-            if (r.episodesUpdated || r.seasonsUpdated || r.thumbsTriggered) {
+            if (r.episodesUpdated || r.seasonsUpdated || r.thumbsTriggered || r.thumbsGenerated) {
               reconcileMsg =
                 ` Reconciled ${r.episodesUpdated} episode(s)` +
                 `${r.seasonsUpdated ? `, ${r.seasonsUpdated} season(s)` : ""}` +
-                `${r.thumbsTriggered ? `, ${r.thumbsTriggered} thumbnail(s)` : ""}.`;
+                `${r.thumbsTriggered ? `, ${r.thumbsTriggered} thumbnail(s)` : ""}` +
+                `${r.thumbsGenerated ? `, ${r.thumbsGenerated} custom thumbnail(s)` : ""}.`;
             }
           } else {
             await markDirtyFromSource();
@@ -137,7 +138,7 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
       return withLock("Metadata reconcile", async () => {
         const r = await reconcilePlexMetadata({ thumbnails: true });
         runtime.lastSyncAt = Date.now();
-        const total = r.episodesUpdated + r.seasonsUpdated + r.thumbsTriggered;
+        const total = r.episodesUpdated + r.seasonsUpdated + r.thumbsTriggered + r.thumbsGenerated;
         return {
           ok: true,
           message:
@@ -145,7 +146,8 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
               ? "Plex metadata & thumbnails already up to date — nothing to do"
               : `Reconciled ${r.episodesUpdated} episode(s)` +
                 `${r.seasonsUpdated ? `, ${r.seasonsUpdated} season(s)` : ""}` +
-                `${r.thumbsTriggered ? `, triggered ${r.thumbsTriggered} thumbnail(s)` : ""}`,
+                `${r.thumbsTriggered ? `, triggered ${r.thumbsTriggered} thumbnail(s)` : ""}` +
+                `${r.thumbsGenerated ? `, generated ${r.thumbsGenerated} custom thumbnail(s)` : ""}`,
         };
       });
 
@@ -155,9 +157,10 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         return {
           ok: true,
           message:
-            r.thumbsTriggered === 0
+            r.thumbsTriggered === 0 && r.thumbsGenerated === 0
               ? "No episodes are missing thumbnails"
               : `Requested thumbnail generation for ${r.thumbsTriggered} episode(s)` +
+                `${r.thumbsGenerated ? `, generated ${r.thumbsGenerated} custom` : ""}` +
                 `${r.reset ? ` (reset ${r.reset} attempt counter(s))` : ""}. ` +
                 "Plex generates them in the background — re-scan in a few minutes.",
         };
