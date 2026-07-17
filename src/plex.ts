@@ -348,30 +348,30 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
 }
 
 /**
- * Fetches a thumbnail image, preferring a tiny transcode (64px — a few KB) via
- * Plex's photo transcoder so pixel analysis stays cheap; falls back to the raw
- * image. Returns null when neither works.
+ * Fetches a thumbnail's bytes. `transcoded` = true asks Plex's photo transcoder
+ * for a small JPEG (cheap to decode, forced to a format jpeg-js handles); false
+ * fetches the raw stored image. The caller tries both so an undecodable
+ * transcode can fall back to the raw image. Returns null on request failure.
  */
-export async function fetchThumbImage(thumbPath: string): Promise<Buffer | null> {
+export async function fetchThumbBytes(thumbPath: string, transcoded: boolean): Promise<Buffer | null> {
   const { PLEX_URL } = getConfig();
   try {
-    const resp = await axios.get(`${PLEX_URL}/photo/:/transcode`, {
-      params: { ...baseParams(), width: 64, height: 64, minSize: 1, url: thumbPath },
+    if (transcoded) {
+      const resp = await axios.get(`${PLEX_URL}/photo/:/transcode`, {
+        params: { ...baseParams(), width: 96, height: 96, minSize: 1, format: "jpg", url: thumbPath },
+        responseType: "arraybuffer",
+        timeout: 10_000,
+      });
+      return Buffer.from(resp.data);
+    }
+    const resp = await axios.get(`${PLEX_URL}${thumbPath}`, {
+      params: baseParams(),
       responseType: "arraybuffer",
       timeout: 10_000,
     });
     return Buffer.from(resp.data);
   } catch {
-    try {
-      const resp = await axios.get(`${PLEX_URL}${thumbPath}`, {
-        params: baseParams(),
-        responseType: "arraybuffer",
-        timeout: 10_000,
-      });
-      return Buffer.from(resp.data);
-    } catch {
-      return null;
-    }
+    return null;
   }
 }
 

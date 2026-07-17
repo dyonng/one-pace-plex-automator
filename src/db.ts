@@ -392,10 +392,13 @@ export function resetThumbAttempts(id: string): void {
     .run(id);
 }
 
-/** Resets every episode's thumbnail attempt counter — a manual "try again". */
+/**
+ * Resets every episode's thumbnail attempt counter and clears the blank-frame
+ * analysis cache — a manual "try again" that also forces re-analysis of thumbs.
+ */
 export function resetAllThumbAttempts(): number {
   return getDb()
-    .prepare("UPDATE plex_meta_state SET thumb_attempts = 0, thumb_last_attempt_at = NULL WHERE thumb_attempts > 0")
+    .prepare("UPDATE plex_meta_state SET thumb_attempts = 0, thumb_last_attempt_at = NULL, thumb_checked_path = NULL, thumb_blank = 0 WHERE thumb_attempts > 0 OR thumb_checked_path IS NOT NULL")
     .run().changes;
 }
 

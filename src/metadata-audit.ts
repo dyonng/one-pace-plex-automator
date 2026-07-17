@@ -22,7 +22,7 @@ import {
 } from "./metadata";
 import {
   scanPlexMetadata,
-  fetchThumbImage,
+  fetchThumbBytes,
   updateEpisodeInPlex,
   updateSeasonInPlex,
   refreshItem,
@@ -54,15 +54,16 @@ const THUMB_RETRY_SPACING_MS = 30 * 60 * 1000;
 const BLANK_STDDEV_THRESHOLD = 8;
 // How many uncached thumbnails to fetch+analyze concurrently per pass.
 const THUMB_ANALYSIS_CONCURRENCY = 6;
+// Bump when the detection logic changes so cached verdicts (thumb_checked_path)
+// are recomputed even for thumbnails whose version hasn't changed.
+const THUMB_DETECTOR_VERSION = "v2";
 
-/**
- * true = single-color image, false = real image, null = couldn't decode
- * (not a JPEG / corrupt) — nulls are treated as real and not cached, so
- * they're re-tried on a later pass.
- */
-function isBlankJpeg(buf: Buffer): boolean | null {
+const thumbCacheKey = (thumbPath: string): string => `${THUMB_DETECTOR_VERSION}:${thumbPath}`;
+
+/** Max per-channel pixel stddev of a JPEG, or null if it can't be decoded. */
+function thumbStddev(buf: Buffer): number | null {
   try {
-    const img = jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 64 });
+    const img = jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 128 });
     const n = img.width * img.height;
     if (!n) return null;
     const sum = [0, 0, 0];
@@ -79,16 +80,31 @@ function isBlankJpeg(buf: Buffer): boolean | null {
       const mean = sum[c] / n;
       maxStd = Math.max(maxStd, Math.sqrt(Math.max(0, sumSq[c] / n - mean * mean)));
     }
-    return maxStd < BLANK_STDDEV_THRESHOLD;
+    return maxStd;
   } catch {
     return null;
   }
 }
 
 /**
+ * Fetches a thumbnail and returns its pixel stddev. Tries the small transcode
+ * first, then the raw image — so a transcode that returns something jpeg-js
+ * can't decode still falls back to the raw JPEG. null = neither decodable.
+ */
+async function analyzeThumbStddev(thumbPath: string): Promise<number | null> {
+  for (const transcoded of [true, false]) {
+    const buf = await fetchThumbBytes(thumbPath, transcoded);
+    if (!buf) continue;
+    const std = thumbStddev(buf);
+    if (std !== null) return std;
+  }
+  return null;
+}
+
+/**
  * Determines which episode thumbnails are blank single-color frames. Verdicts
- * are cached per thumb version (the path embeds a timestamp that changes on
- * regeneration), so only new/changed thumbs are fetched and analyzed.
+ * are cached per (detector version + thumb version), so only new/changed thumbs
+ * are fetched and analyzed after the first pass.
  */
 async function detectBlankThumbs(
   episodes: EpisodeSummary[],
@@ -102,7 +118,7 @@ async function detectBlankThumbs(
     const plexEp = snapshot.episodes.get(ep.seasonEpisodeId);
     if (!plexEp?.hasThumb || !plexEp.thumbPath) continue;
     const prev = prevStates.get(ep.seasonEpisodeId);
-    if (prev?.thumb_checked_path === plexEp.thumbPath) {
+    if (prev?.thumb_checked_path === thumbCacheKey(plexEp.thumbPath)) {
       blankById.set(ep.seasonEpisodeId, prev.thumb_blank === 1);
     } else {
       toCheck.push({ id: ep.seasonEpisodeId, path: plexEp.thumbPath });
@@ -113,27 +129,34 @@ async function detectBlankThumbs(
 
   let blankFound = 0;
   let failed = 0;
+  const measured: { id: string; std: number }[] = [];
   let cursor = 0;
   const worker = async () => {
     while (cursor < toCheck.length) {
       const { id, path } = toCheck[cursor++];
-      const buf = await fetchThumbImage(path);
-      const blank = buf ? isBlankJpeg(buf) : null;
-      if (blank === null) {
-        failed++; // leave uncached — retried next pass
+      const std = await analyzeThumbStddev(path);
+      if (std === null) {
+        failed++; // couldn't decode either variant — leave uncached, retry later
         continue;
       }
-      setThumbCheck(id, path, blank);
+      const blank = std < BLANK_STDDEV_THRESHOLD;
+      setThumbCheck(id, thumbCacheKey(path), blank);
       blankById.set(id, blank);
+      measured.push({ id, std });
       if (blank) blankFound++;
     }
   };
   await Promise.all(Array.from({ length: THUMB_ANALYSIS_CONCURRENCY }, worker));
 
+  // Surface the lowest-variance episodes so borderline calls are diagnosable.
+  const lowest = measured.sort((a, b) => a.std - b.std).slice(0, 10)
+    .map((m) => `${m.id}:${m.std.toFixed(1)}`);
   logger.info("Thumbnail blank-frame analysis", {
-    analyzed: toCheck.length - failed,
+    analyzed: measured.length,
     blank: blankFound,
     failed,
+    threshold: BLANK_STDDEV_THRESHOLD,
+    lowest,
   });
   return blankById;
 }
