@@ -5,7 +5,8 @@ RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
-COPY tsconfig.json vite.config.mts svelte.config.mjs ./
+# CHANGELOG.md is baked into the frontend bundle (What's New modal).
+COPY tsconfig.json vite.config.mts svelte.config.mjs CHANGELOG.md ./
 COPY src ./src
 COPY frontend ./frontend
 RUN npm run build

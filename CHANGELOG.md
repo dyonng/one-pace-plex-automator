@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **What's New modal** — after an update, the dashboard greets you once with
+  the changelog entries added since your last visit (last-seen version is
+  remembered per browser).
+
 ## [1.0.10 – 1.0.18] — 2026-07-17
 
 Thumbnail quality: detection and generation.
