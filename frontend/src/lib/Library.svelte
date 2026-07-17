@@ -427,9 +427,9 @@
             {@const meta = metaByArc.get(arc.arcPart)}
             {@const metaFlagged = meta ? meta.missing + meta.drifted : 0}
             {@const seasonFlagged = meta ? meta.seasonState === "missing" || meta.seasonState === "drifted" : false}
-            <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
+            <div class="rounded-lg border border-base-content/10 bg-base-100/40">
               <button
-                class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left"
+                class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left rounded-t-lg {open[arc.arcPart] ? '' : 'rounded-b-lg'}"
                 title={arc.seasonFolder
                   ? `${$coverage.mediaPath}/${arc.seasonFolder}`
                   : "No season folder on disk yet"}
