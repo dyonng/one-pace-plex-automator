@@ -314,6 +314,7 @@ export interface MetadataAuditEpisode {
   expectedTitle: string;
   plexTitle: string | null;
   needsThumb: boolean;
+  thumbBlank: boolean;
   thumbUnavailable: boolean;
 }
 
