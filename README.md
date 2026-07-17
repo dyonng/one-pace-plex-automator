@@ -14,16 +14,18 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 8. Sends Discord webhook notifications
 
 A web dashboard (port `8282`) provides live logs, manual controls, a **library
-coverage report**, **live download progress**, and a system health panel.
-Settings live behind the gear icon in the navbar, including appearance options
-(light/dark/auto theme, any DaisyUI theme, and a choice of logo).
+coverage report**, a **metadata & thumbnail audit**, **live download progress**,
+and a system health panel. Settings live behind the gear icon in the navbar,
+including appearance options (light/dark/auto theme, any DaisyUI theme, and a
+choice of logo).
 
 ### Dashboard controls
 
 | Control | What it does |
 |---------|--------------|
-| **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. |
-| **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, then syncs season posters (skipping any whose image hasn't changed). Heavy — hence the confirmation prompt. Day-to-day metadata is applied per episode automatically as downloads complete, so this is only needed after broad metadata changes. |
+| **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. With auto-reconcile on, it also pushes any changed metadata and generates missing thumbnails. |
+| **Metadata & Thumbnails → Scan / Reconcile** | Scan diffs Plex against the dataset, flagging episodes with missing/drifted metadata or no thumbnail. Reconcile fixes only the flagged ones — pushing metadata and triggering thumbnail generation. See [below](#metadata--thumbnails). |
+| **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
 | **Retry failed** | Re-queues episodes whose download or processing failed. |
 | **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
 | **Clear done** | Removes completed rows from the pipeline table (files are kept). |
@@ -31,6 +33,25 @@ Settings live behind the gear icon in the navbar, including appearance options
 Each pipeline row also has per-episode actions (download, retry, re-sync
 metadata, upgrade, remove), and the coverage report can queue upgrades
 individually or in batch.
+
+### Metadata & thumbnails
+
+Plex episode/season **titles, summaries, and thumbnails** are kept rich and
+current automatically. The tool tracks, per episode, what the dataset says the
+metadata *should* be versus what it last pushed to Plex — so when the metadata
+source updates (a new `data.min.json` or an episode-guide sheet edit), it knows
+exactly which episodes changed and re-syncs only those, no full library sweep.
+
+- **Metadata** — missing (never synced) or drifted (differs from the dataset)
+  titles/summaries are pushed for just the affected episodes and seasons.
+- **Thumbnails** — episodes with no thumbnail get generation triggered in Plex
+  (a still frame plus scrubber previews), retried a few times then left alone.
+  One Pace doesn't ship per-episode stills, so Plex makes them from the video.
+
+This runs automatically after every **Refresh Sources** and whenever a new
+episode is added (`AUTO_RECONCILE`, on by default). The **Metadata & Thumbnails**
+card shows the current state and lets you scan or reconcile on demand; turn
+`AUTO_RECONCILE` off to make it manual-only.
 
 ### Library coverage & upgrades
 
@@ -151,6 +172,7 @@ rest fall back to the defaults shown.
 | `DOWNLOAD_CHECK_SECONDS` | | qBittorrent completion-check interval (default `30`) |
 | `AUTO_DOWNLOAD` | | Auto-download discovered releases (default `true`) |
 | `AUTO_POSTERS` | | Auto-apply posters to new seasons (default `true`) |
+| `AUTO_RECONCILE` | | Auto-sync Plex metadata & thumbnails on source changes/ingest (default `true`) |
 | `PREFER_EXTENDED` | | Prefer the extended cut when an episode has both (default `true`) |
 | `PREFER_ARABASTA` | | Render arc 14's title as "Arabasta" instead of the dataset's "Alabasta" (default `true`) |
 | `POSTER_REPO_RAW_BASE` | | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
@@ -163,9 +185,9 @@ Two host paths are bound as volumes: your One Pace show root → `/media/one-pac
 and qBittorrent's output folder → `/downloads` (set these on the `volumes:` mounts
 in the compose example above). The dashboard's **Settings** panel is split into
 **System & Services** (polling, intervals, feed/integration URLs) and
-**Preferences** (`AUTO_DOWNLOAD`, `AUTO_POSTERS`, `PREFER_EXTENDED`,
-`PREFER_ARABASTA`); these can be edited live, and a dashboard override wins over
-the env value.
+**Preferences** (`AUTO_DOWNLOAD`, `AUTO_POSTERS`, `AUTO_RECONCILE`,
+`PREFER_EXTENDED`, `PREFER_ARABASTA`); these can be edited live, and a dashboard
+override wins over the env value.
 
 **Finding your Plex token:**
 Open Plex web UI, browse to any media item, open browser devtools → Network tab, look for `X-Plex-Token` in any request.
