@@ -5,6 +5,7 @@
     runMetadataAuditScan,
     toast,
     refreshStatus,
+    status,
   } from "./stores";
   import { postAction, type MetadataState } from "./api";
   import { fmtTime } from "./util";
@@ -83,7 +84,7 @@
             <button
               class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
               class:loading={syncing}
-              disabled={syncing || $metadataAuditLoading}
+              disabled={syncing || $metadataAuditLoading || $status?.busy}
               onclick={syncFlagged}
             >
               {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
@@ -97,7 +98,7 @@
           <button
             class="btn btn-sm btn-primary"
             class:loading={$metadataAuditLoading}
-            disabled={$metadataAuditLoading || syncing}
+            disabled={$metadataAuditLoading || syncing || $status?.busy}
             onclick={runMetadataAuditScan}
           >
             {$metadataAuditLoading ? "Scanning…" : $metadataAudit ? "Re-scan" : "Scan metadata"}

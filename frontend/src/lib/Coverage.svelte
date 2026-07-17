@@ -228,7 +228,7 @@
         <button
           class="btn btn-sm btn-primary"
           class:loading={$coverageLoading}
-          disabled={$coverageLoading}
+          disabled={$coverageLoading || $status?.busy}
           onclick={runCoverageScan}
         >
           {$coverageLoading ? "Scanning…" : $coverage ? "Re-scan" : "Scan library"}
