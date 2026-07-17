@@ -288,6 +288,7 @@ export interface PlexItemMeta {
   title: string;
   summary: string;
   hasThumb: boolean;
+  thumbPath: string | null; // versioned path (…/thumb/<ts>) — changes on regen
   ratingKey: string;
 }
 
@@ -325,6 +326,7 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
       title: s.title ?? "",
       summary: s.summary ?? "",
       hasThumb: hasRealThumb(s.thumb),
+      thumbPath: s.thumb ?? null,
       ratingKey: s.ratingKey,
     });
   }
@@ -337,11 +339,40 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
       title: e.title ?? "",
       summary: e.summary ?? "",
       hasThumb: hasRealThumb(e.thumb),
+      thumbPath: e.thumb ?? null,
       ratingKey: e.ratingKey,
     });
   }
 
   return { seasons, episodes };
+}
+
+/**
+ * Fetches a thumbnail image, preferring a tiny transcode (64px — a few KB) via
+ * Plex's photo transcoder so pixel analysis stays cheap; falls back to the raw
+ * image. Returns null when neither works.
+ */
+export async function fetchThumbImage(thumbPath: string): Promise<Buffer | null> {
+  const { PLEX_URL } = getConfig();
+  try {
+    const resp = await axios.get(`${PLEX_URL}/photo/:/transcode`, {
+      params: { ...baseParams(), width: 64, height: 64, minSize: 1, url: thumbPath },
+      responseType: "arraybuffer",
+      timeout: 10_000,
+    });
+    return Buffer.from(resp.data);
+  } catch {
+    try {
+      const resp = await axios.get(`${PLEX_URL}${thumbPath}`, {
+        params: baseParams(),
+        responseType: "arraybuffer",
+        timeout: 10_000,
+      });
+      return Buffer.from(resp.data);
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**

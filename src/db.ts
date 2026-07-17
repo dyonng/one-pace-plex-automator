@@ -137,6 +137,10 @@ function migrate(db: Database.Database) {
   addColumnIfMissing(db, "episodes", "changelog", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, "episodes", "extended", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "plex_meta_state", "thumb_last_attempt_at", "INTEGER");
+  // Blank-thumbnail detection cache: which thumb version was pixel-analyzed and
+  // whether it turned out to be a single-color (fade) frame.
+  addColumnIfMissing(db, "plex_meta_state", "thumb_checked_path", "TEXT");
+  addColumnIfMissing(db, "plex_meta_state", "thumb_blank", "INTEGER NOT NULL DEFAULT 0");
 }
 
 function addColumnIfMissing(
@@ -321,6 +325,8 @@ export interface MetaStateRow {
   has_thumb: number;
   thumb_attempts: number;
   thumb_last_attempt_at: number | null;
+  thumb_checked_path: string | null;
+  thumb_blank: number;
   plex_title: string | null;
   plex_rating_key: string | null;
   last_scanned_at: number | null;
@@ -391,4 +397,11 @@ export function resetAllThumbAttempts(): number {
   return getDb()
     .prepare("UPDATE plex_meta_state SET thumb_attempts = 0, thumb_last_attempt_at = NULL WHERE thumb_attempts > 0")
     .run().changes;
+}
+
+/** Records the blank-analysis verdict for a specific thumb version. */
+export function setThumbCheck(id: string, path: string, blank: boolean): void {
+  getDb()
+    .prepare("UPDATE plex_meta_state SET thumb_checked_path = ?, thumb_blank = ? WHERE season_episode_id = ?")
+    .run(path, blank ? 1 : 0, id);
 }

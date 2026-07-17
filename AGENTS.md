@@ -187,6 +187,14 @@ dirty set is derived from the data change itself.
   before Plex works through its queue. `has_thumb` re-observed each scan; present ⇒ counter reset.
   `retryThumbnails()` (action `retry-thumbs`, "Retry thumbnails" button) resets all counters —
   including capped/written-off episodes — and reconciles immediately.
+- **Blank-frame detection:** Plex sometimes extracts a fade-to-black/white transition frame, so a
+  "set" thumb can still be visually empty. `detectBlankThumbs` fetches each episode thumb tiny
+  (64px via `/photo/:/transcode`, raw fallback), decodes it with `jpeg-js` (pure JS, no native dep),
+  and flags it blank when max per-channel pixel stddev < `BLANK_STDDEV_THRESHOLD` (8) — blank ⇒
+  treated as no thumbnail ⇒ regeneration path. Verdicts are cached per thumb **version**
+  (`thumb_checked_path`/`thumb_blank`; the path embeds a timestamp that changes on regen), so only
+  new/changed thumbs are analyzed (concurrency 6). Undecodable images are treated as real and
+  re-tried next pass.
 - Idempotent and restart-safe: state is persistent, so a failed push or a mid-way restart is picked
   up next pass; it converges. Re-audits at the end so the stored report reflects the fix.
 

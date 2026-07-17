@@ -1,4 +1,5 @@
 import { createHash } from "crypto";
+import * as jpeg from "jpeg-js";
 import { logger } from "./logger";
 import {
   getKv,
@@ -10,6 +11,7 @@ import {
   bumpThumbAttempt,
   resetThumbAttempts,
   resetAllThumbAttempts,
+  setThumbCheck,
   type MetaStateRow,
 } from "./db";
 import {
@@ -20,6 +22,7 @@ import {
 } from "./metadata";
 import {
   scanPlexMetadata,
+  fetchThumbImage,
   updateEpisodeInPlex,
   updateSeasonInPlex,
   refreshItem,
@@ -45,6 +48,96 @@ const THUMB_ATTEMPT_CAP = 3;
 // whole attempt budget before Plex has worked through its queue.
 const THUMB_RETRY_SPACING_MS = 30 * 60 * 1000;
 
+// A thumbnail whose max per-channel pixel stddev is below this is a single-color
+// frame (fade-to-black/white transition Plex grabbed) — treat as no thumbnail.
+// Real frames measure well above this; JPEG noise on a flat frame stays under it.
+const BLANK_STDDEV_THRESHOLD = 8;
+// How many uncached thumbnails to fetch+analyze concurrently per pass.
+const THUMB_ANALYSIS_CONCURRENCY = 6;
+
+/**
+ * true = single-color image, false = real image, null = couldn't decode
+ * (not a JPEG / corrupt) — nulls are treated as real and not cached, so
+ * they're re-tried on a later pass.
+ */
+function isBlankJpeg(buf: Buffer): boolean | null {
+  try {
+    const img = jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 64 });
+    const n = img.width * img.height;
+    if (!n) return null;
+    const sum = [0, 0, 0];
+    const sumSq = [0, 0, 0];
+    for (let i = 0; i < n; i++) {
+      for (let c = 0; c < 3; c++) {
+        const v = img.data[i * 4 + c];
+        sum[c] += v;
+        sumSq[c] += v * v;
+      }
+    }
+    let maxStd = 0;
+    for (let c = 0; c < 3; c++) {
+      const mean = sum[c] / n;
+      maxStd = Math.max(maxStd, Math.sqrt(Math.max(0, sumSq[c] / n - mean * mean)));
+    }
+    return maxStd < BLANK_STDDEV_THRESHOLD;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Determines which episode thumbnails are blank single-color frames. Verdicts
+ * are cached per thumb version (the path embeds a timestamp that changes on
+ * regeneration), so only new/changed thumbs are fetched and analyzed.
+ */
+async function detectBlankThumbs(
+  episodes: EpisodeSummary[],
+  snapshot: PlexMetadataSnapshot,
+  prevStates: Map<string, MetaStateRow>
+): Promise<Map<string, boolean>> {
+  const blankById = new Map<string, boolean>();
+  const toCheck: { id: string; path: string }[] = [];
+
+  for (const ep of episodes) {
+    const plexEp = snapshot.episodes.get(ep.seasonEpisodeId);
+    if (!plexEp?.hasThumb || !plexEp.thumbPath) continue;
+    const prev = prevStates.get(ep.seasonEpisodeId);
+    if (prev?.thumb_checked_path === plexEp.thumbPath) {
+      blankById.set(ep.seasonEpisodeId, prev.thumb_blank === 1);
+    } else {
+      toCheck.push({ id: ep.seasonEpisodeId, path: plexEp.thumbPath });
+    }
+  }
+
+  if (toCheck.length === 0) return blankById;
+
+  let blankFound = 0;
+  let failed = 0;
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < toCheck.length) {
+      const { id, path } = toCheck[cursor++];
+      const buf = await fetchThumbImage(path);
+      const blank = buf ? isBlankJpeg(buf) : null;
+      if (blank === null) {
+        failed++; // leave uncached — retried next pass
+        continue;
+      }
+      setThumbCheck(id, path, blank);
+      blankById.set(id, blank);
+      if (blank) blankFound++;
+    }
+  };
+  await Promise.all(Array.from({ length: THUMB_ANALYSIS_CONCURRENCY }, worker));
+
+  logger.info("Thumbnail blank-frame analysis", {
+    analyzed: toCheck.length - failed,
+    blank: blankFound,
+    failed,
+  });
+  return blankById;
+}
+
 export type MetadataState =
   | "ok"           // Plex matches the dataset (applied == desired)
   | "missing"      // in Plex but blank summary / placeholder title
@@ -59,7 +152,8 @@ export interface MetadataAuditEpisode {
   state: MetadataState;
   expectedTitle: string;
   plexTitle: string | null;
-  needsThumb: boolean;       // in Plex, no thumbnail, still under the retry cap
+  needsThumb: boolean;       // in Plex, no (usable) thumbnail, still under the retry cap
+  thumbBlank: boolean;       // Plex has a thumb, but it's a blank single-color frame
   thumbUnavailable: boolean; // in Plex, no thumbnail, retry cap reached
 }
 
@@ -220,6 +314,10 @@ async function buildReconcile(): Promise<ReconcileResult> {
   const prevStates = new Map<string, MetaStateRow>();
   for (const row of getAllMetaStates()) prevStates.set(row.season_episode_id, row);
 
+  // A blank single-color still counts as no thumbnail — reclassify before
+  // reconciling so the normal regeneration path picks those episodes up.
+  const blankById = await detectBlankThumbs(episodes, snapshot, prevStates);
+
   const arcMap = new Map<number, MetadataAuditArc>();
   const seasonsToPush: { arc: ArcSummary; ratingKey: string }[] = [];
   for (const a of arcs) {
@@ -241,7 +339,9 @@ async function buildReconcile(): Promise<ReconcileResult> {
       arcMap.set(ep.arcPart, arc);
     }
 
-    const plexEp = snapshot.episodes.get(ep.seasonEpisodeId);
+    const rawPlexEp = snapshot.episodes.get(ep.seasonEpisodeId);
+    const thumbBlank = blankById.get(ep.seasonEpisodeId) === true;
+    const plexEp = rawPlexEp && thumbBlank ? { ...rawPlexEp, hasThumb: false } : rawPlexEp;
     const prev = prevStates.get(ep.seasonEpisodeId);
     const view = reconcileEpisodeState(ep, plexEp, prev);
 
@@ -271,6 +371,7 @@ async function buildReconcile(): Promise<ReconcileResult> {
       expectedTitle: ep.episodeTitle,
       plexTitle: plexEp?.title ?? null,
       needsThumb: view.needsThumb,
+      thumbBlank,
       thumbUnavailable: view.thumbUnavailable,
     });
   }

@@ -49,7 +49,9 @@ exactly which episodes changed and re-syncs only those, no full library sweep.
   queue, so results appear on a later scan; attempts are spaced ~30 minutes
   apart and stop after a few tries. A **Retry thumbnails** button re-requests
   generation for everything still missing one, including episodes earlier
-  attempts gave up on. One Pace doesn't ship per-episode stills, so Plex makes
+  attempts gave up on. Thumbnails that exist but are **blank** (Plex grabbed a
+  fade-to-black/white transition frame) are detected by pixel analysis and
+  regenerated too. One Pace doesn't ship per-episode stills, so Plex makes
   them from the video.
 
 This runs automatically after every **Refresh Sources** and whenever a new

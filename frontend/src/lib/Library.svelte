@@ -113,8 +113,9 @@
     if (!m) return "";
     const lines: string[] = [];
     if (m.state === "missing" || m.state === "drifted") lines.push(META_LABEL[m.state]);
-    if (m.needsThumb) lines.push("no thumbnail — will generate");
-    if (m.thumbUnavailable) lines.push("no thumbnail — generation gave up");
+    if (m.thumbBlank) lines.push("blank thumbnail (single-color frame) — will regenerate");
+    else if (m.needsThumb) lines.push("no thumbnail — will generate");
+    if (m.thumbUnavailable) lines.push("no usable thumbnail — generation gave up");
     return lines.length ? "\n" + lines.join("\n") : "";
   }
 
