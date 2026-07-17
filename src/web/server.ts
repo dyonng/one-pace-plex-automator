@@ -37,6 +37,7 @@ const ACTION_IDS: ActionId[] = [
   "sync",
   "metadata-scan",
   "metadata-sync",
+  "retry-thumbs",
   "retry-failed",
   "clear-done",
 ];

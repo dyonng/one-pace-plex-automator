@@ -179,9 +179,14 @@ dirty set is derived from the data change itself.
   using ratingKeys straight from the scan (`updateEpisodeInPlex`/`updateSeasonInPlex`), then
   `setAppliedMeta`.
 - **Thumbnails:** episodes with no real `thumb` get generation triggered — `refreshItem` (POST
-  `/refresh`, best-effort frame extraction for the episode still) + `analyzeItem` (PUT `/analyze`,
-  scrubber previews) — capped at `THUMB_ATTEMPT_CAP` (3) via `thumb_attempts` so Plex isn't hammered
-  for stills it can't make. `has_thumb` re-observed each scan; present ⇒ counter reset.
+  `/refresh?force=1`, the web UI's "Refresh Metadata" force flag, re-acquiring artwork) +
+  `analyzeItem` (PUT `/analyze`, scrubber previews) — capped at `THUMB_ATTEMPT_CAP` (3) via
+  `thumb_attempts` so Plex isn't hammered for stills it can't make. Generation is **asynchronous**
+  (Plex queues the analysis), so attempts are spaced by `THUMB_RETRY_SPACING_MS` (30 min,
+  `thumb_last_attempt_at`) — otherwise back-to-back auto-reconciles would burn the attempt budget
+  before Plex works through its queue. `has_thumb` re-observed each scan; present ⇒ counter reset.
+  `retryThumbnails()` (action `retry-thumbs`, "Retry thumbnails" button) resets all counters —
+  including capped/written-off episodes — and reconciles immediately.
 - Idempotent and restart-safe: state is persistent, so a failed push or a mid-way restart is picked
   up next pass; it converges. Re-audits at the end so the stored report reflects the fix.
 

@@ -136,6 +136,7 @@ function migrate(db: Database.Database) {
   // Add columns introduced after initial release (no-op on fresh DBs).
   addColumnIfMissing(db, "episodes", "changelog", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, "episodes", "extended", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "plex_meta_state", "thumb_last_attempt_at", "INTEGER");
 }
 
 function addColumnIfMissing(
@@ -319,6 +320,7 @@ export interface MetaStateRow {
   in_plex: number;
   has_thumb: number;
   thumb_attempts: number;
+  thumb_last_attempt_at: number | null;
   plex_title: string | null;
   plex_rating_key: string | null;
   last_scanned_at: number | null;
@@ -373,13 +375,20 @@ export function setAppliedMeta(id: string, appliedHash: string): void {
 /** Bumps the thumbnail-generation attempt counter after a refresh/analyze. */
 export function bumpThumbAttempt(id: string): void {
   getDb()
-    .prepare("UPDATE plex_meta_state SET thumb_attempts = thumb_attempts + 1 WHERE season_episode_id = ?")
-    .run(id);
+    .prepare("UPDATE plex_meta_state SET thumb_attempts = thumb_attempts + 1, thumb_last_attempt_at = ? WHERE season_episode_id = ?")
+    .run(Date.now(), id);
 }
 
 /** Clears the thumbnail attempt counter once a thumb is observed present. */
 export function resetThumbAttempts(id: string): void {
   getDb()
-    .prepare("UPDATE plex_meta_state SET thumb_attempts = 0 WHERE season_episode_id = ?")
+    .prepare("UPDATE plex_meta_state SET thumb_attempts = 0, thumb_last_attempt_at = NULL WHERE season_episode_id = ?")
     .run(id);
+}
+
+/** Resets every episode's thumbnail attempt counter — a manual "try again". */
+export function resetAllThumbAttempts(): number {
+  return getDb()
+    .prepare("UPDATE plex_meta_state SET thumb_attempts = 0, thumb_last_attempt_at = NULL WHERE thumb_attempts > 0")
+    .run().changes;
 }
