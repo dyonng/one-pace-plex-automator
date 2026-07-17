@@ -127,20 +127,27 @@ function thumbStats(buf: Buffer): ThumbStats | null {
   return { rgbStddev: maxStd, transparentFrac: transparent / n };
 }
 
+type ThumbAnalysis =
+  | { kind: "stats"; stats: ThumbStats }
+  | { kind: "undecodable"; sig: string } // fetched bytes, but not a valid image
+  | { kind: "unfetchable" };             // couldn't fetch at all — transient
+
 /**
- * Fetches a thumbnail and returns its pixel stats. Tries the small transcode
- * first, then the raw image — so a transcode that returns something we can't
- * decode still falls back to the raw file (which may be a PNG). null = neither
- * decodable.
+ * Fetches a thumbnail and analyzes it. Tries the small transcode first, then
+ * the raw image. A valid thumbnail decodes as JPEG or PNG; if we got bytes but
+ * neither variant decodes, the thumbnail itself is broken/empty (undecodable) —
+ * distinct from a transient fetch failure (unfetchable).
  */
-async function analyzeThumb(thumbPath: string): Promise<ThumbStats | null> {
+async function analyzeThumb(thumbPath: string): Promise<ThumbAnalysis> {
+  let sig = "";
   for (const transcoded of [true, false]) {
     const buf = await fetchThumbBytes(thumbPath, transcoded);
-    if (!buf) continue;
+    if (!buf || buf.length === 0) continue;
+    if (!sig) sig = `${transcoded ? "t" : "r"}${buf.length}:${buf.subarray(0, 4).toString("hex")}`;
     const stats = thumbStats(buf);
-    if (stats !== null) return stats;
+    if (stats !== null) return { kind: "stats", stats };
   }
-  return null;
+  return sig ? { kind: "undecodable", sig } : { kind: "unfetchable" };
 }
 
 /** A thumbnail is blank if it's mostly transparent or a single color. */
@@ -174,21 +181,31 @@ async function detectBlankThumbs(
   if (toCheck.length === 0) return blankById;
 
   let blankFound = 0;
-  const failedIds: string[] = [];
+  let brokenFound = 0;
+  const unfetchableIds: string[] = [];
+  const brokenSigs: string[] = [];
   const measured: { id: string; std: number; tf: number }[] = [];
   let cursor = 0;
   const worker = async () => {
     while (cursor < toCheck.length) {
       const { id, path } = toCheck[cursor++];
-      const stats = await analyzeThumb(path);
-      if (stats === null) {
-        failedIds.push(id); // couldn't decode either variant — leave uncached, retry later
+      const res = await analyzeThumb(path);
+      if (res.kind === "unfetchable") {
+        unfetchableIds.push(id); // transient — leave uncached, retry next pass
         continue;
       }
-      const blank = isBlankStats(stats);
+      // A thumbnail we fetched but can't decode as any known image format is
+      // broken/empty (a valid thumb decodes) — treat it as blank so it gets
+      // regenerated, and cache it so we don't re-fetch every pass.
+      const blank = res.kind === "undecodable" ? true : isBlankStats(res.stats);
       setThumbCheck(id, thumbCacheKey(path), blank);
       blankById.set(id, blank);
-      measured.push({ id, std: stats.rgbStddev, tf: stats.transparentFrac });
+      if (res.kind === "undecodable") {
+        brokenFound++;
+        if (brokenSigs.length < 20) brokenSigs.push(`${id}[${res.sig}]`);
+      } else {
+        measured.push({ id, std: res.stats.rgbStddev, tf: res.stats.transparentFrac });
+      }
       if (blank) blankFound++;
     }
   };
@@ -200,10 +217,11 @@ async function detectBlankThumbs(
     .slice(0, 10)
     .map((m) => `${m.id}:std${m.std.toFixed(1)}/tr${Math.round(m.tf * 100)}%`);
   logger.info("Thumbnail blank-frame analysis", {
-    analyzed: measured.length,
+    analyzed: measured.length + brokenFound,
     blank: blankFound,
-    failedToDecode: failedIds.length,
-    failedIds: failedIds.slice(0, 20),
+    broken: brokenFound,        // fetched but not a decodable image → treated as blank
+    brokenSigs,                 // "<id>[<t|r><bytes>:<first4hex>]" for diagnosis
+    unfetchable: unfetchableIds.length, // couldn't fetch — transient, retried next pass
     lowest,
   });
   return blankById;
