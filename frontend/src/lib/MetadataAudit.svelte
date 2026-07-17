@@ -77,7 +77,7 @@
       <div class="flex gap-2">
         {#if $metadataAudit}
           <div
-            class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+            class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
             data-tip="Pushes the flagged missing/drifted metadata to Plex and triggers thumbnail generation for episodes missing one. Only touches what's flagged, not the whole library."
           >
             <button
@@ -91,7 +91,7 @@
           </div>
         {/if}
         <div
-          class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+          class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
           data-tip="Checks Plex against the One Pace dataset and flags episodes with missing or drifted metadata, or no thumbnail. Read-only — makes no changes to Plex."
         >
           <button

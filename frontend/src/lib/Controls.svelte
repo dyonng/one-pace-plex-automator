@@ -117,7 +117,7 @@
     <div class="eyebrow">Operations</div>
     <div class="flex flex-wrap gap-2">
       {#each buttons as b}
-        <div class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal" data-tip={b.tip}>
+        <div class="tooltip tooltip-top before:max-w-xs before:whitespace-normal" data-tip={b.tip}>
           <button
             class="btn btn-sm {b.cls} gap-1.5"
             disabled={$status?.busy || pending !== null}
@@ -129,7 +129,7 @@
         </div>
       {/each}
       <div
-        class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+        class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
         data-tip="Re-pushes titles and descriptions for every season and episode to Plex, then re-checks all season posters. The force-everything fallback — day-to-day syncing happens automatically, so this is rarely needed."
       >
         <button
@@ -142,7 +142,7 @@
         </button>
       </div>
       <div
-        class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+        class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
         data-tip="Finds library files whose names don't match the canonical One Pace scheme, previews each old → new rename, and applies the ones you select."
       >
         <button
