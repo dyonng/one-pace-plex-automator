@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { startPolling, startProgressPolling, initLogs, streamLogs, loadSettings, loadAuth, loadCoverage } from "./lib/stores";
+  import { startPolling, startProgressPolling, initLogs, streamLogs, loadSettings, loadAuth, loadCoverage, loadMetadataAudit } from "./lib/stores";
   import Navbar from "./lib/Navbar.svelte";
   import NewReleases from "./lib/NewReleases.svelte";
   import Controls from "./lib/Controls.svelte";
   import System from "./lib/System.svelte";
   import Coverage from "./lib/Coverage.svelte";
+  import MetadataAudit from "./lib/MetadataAudit.svelte";
   import InfoCards from "./lib/InfoCards.svelte";
   import Settings from "./lib/Settings.svelte";
   import Episodes from "./lib/Episodes.svelte";
@@ -18,6 +19,7 @@
     loadSettings();
     loadAuth();
     loadCoverage();
+    loadMetadataAudit();
     initLogs();
     const es = streamLogs();
     return () => {
@@ -34,6 +36,7 @@
   <System />
   <Controls />
   <Coverage />
+  <MetadataAudit />
   <InfoCards />
   <Episodes />
   <Logs />

@@ -7,6 +7,7 @@ import type { ArcSummary, EpisodeSummary } from "./metadata";
 interface PlexMetadata {
   ratingKey: string;
   title: string;
+  summary?: string;
   index: number;
   parentIndex?: number;
   seasonEpisode?: string;
@@ -163,14 +164,14 @@ async function buildSeasonKeyMap(showRatingKey: string): Promise<Map<number, str
   return map;
 }
 
-function buildEpisodeSummary(ep: EpisodeSummary): string {
+export function buildEpisodeSummary(ep: EpisodeSummary): string {
   const parts = [ep.episodeDescription.trim()];
   if (ep.chapters) parts.push(`Manga Chapter(s): ${ep.chapters}`);
   if (ep.originalEpisodes) parts.push(`Original Anime Episode(s): ${ep.originalEpisodes}`);
   return parts.join("\n\n");
 }
 
-function buildSeasonSummary(arc: ArcSummary): string {
+export function buildSeasonSummary(arc: ArcSummary): string {
   return `${arc.arcDescription}\n\nSaga: ${arc.arcSaga}`;
 }
 
@@ -280,4 +281,91 @@ export async function syncFullLibrary(
 
   await refreshShow();
   logger.info("Full library sync complete", { updated, skipped });
+}
+
+export interface PlexItemMeta {
+  title: string;
+  summary: string;
+}
+
+export interface PlexMetadataSnapshot {
+  seasons: Map<number, PlexItemMeta>;   // key: season index (= arc part)
+  episodes: Map<string, PlexItemMeta>;  // key: "s01e03"
+}
+
+/**
+ * Reads the show's current season + episode title/summary from Plex in just two
+ * requests: the show's `/children` (seasons) and `/allLeaves` (every episode).
+ * Feeds the metadata audit, which diffs this against the canonical dataset.
+ */
+export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
+
+  const [seasonsRes, leavesRes] = await Promise.all([
+    plexGet<PlexContainer>(`/library/metadata/${showKey}/children`),
+    plexGet<PlexContainer>(`/library/metadata/${showKey}/allLeaves`),
+  ]);
+
+  const seasons = new Map<number, PlexItemMeta>();
+  for (const s of seasonsRes.MediaContainer.Metadata ?? []) {
+    seasons.set(s.index, { title: s.title ?? "", summary: s.summary ?? "" });
+  }
+
+  const episodes = new Map<string, PlexItemMeta>();
+  for (const e of leavesRes.MediaContainer.Metadata ?? []) {
+    if (e.parentIndex == null || e.index == null) continue;
+    const id = `s${String(e.parentIndex).padStart(2, "0")}e${String(e.index).padStart(2, "0")}`;
+    episodes.set(id, { title: e.title ?? "", summary: e.summary ?? "" });
+  }
+
+  return { seasons, episodes };
+}
+
+/**
+ * Like `syncFullLibrary` but writes only the arcs/episodes passed in — used by
+ * the audit-driven sync to push metadata for just the flagged items. Returns
+ * per-kind counts so the caller can report what changed.
+ */
+export async function syncMetadataTargeted(
+  arcs: ArcSummary[],
+  episodes: EpisodeSummary[]
+): Promise<{ seasonsUpdated: number; episodesUpdated: number; skipped: number }> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
+
+  const [seasonMap, episodeMap] = await Promise.all([
+    buildSeasonKeyMap(showKey),
+    buildEpisodeKeyMap(showKey),
+  ]);
+
+  let seasonsUpdated = 0;
+  let episodesUpdated = 0;
+  let skipped = 0;
+
+  for (const arc of arcs) {
+    const ratingKey = seasonMap.get(arc.arcPart);
+    if (!ratingKey) { skipped++; continue; }
+    try {
+      await updateSeasonInPlex(ratingKey, arc);
+      seasonsUpdated++;
+    } catch (err) {
+      logger.warn("Failed to update season", { part: arc.arcPart, error: (err as Error).message });
+    }
+  }
+
+  for (const ep of episodes) {
+    const ratingKey = episodeMap.get(ep.seasonEpisodeId);
+    if (!ratingKey) { skipped++; continue; }
+    try {
+      await updateEpisodeInPlex(ratingKey, ep);
+      episodesUpdated++;
+    } catch (err) {
+      logger.warn("Failed to update episode", { id: ep.seasonEpisodeId, error: (err as Error).message });
+    }
+  }
+
+  if (seasonsUpdated || episodesUpdated) await refreshShow();
+  logger.info("Targeted metadata sync complete", { seasonsUpdated, episodesUpdated, skipped });
+  return { seasonsUpdated, episodesUpdated, skipped };
 }

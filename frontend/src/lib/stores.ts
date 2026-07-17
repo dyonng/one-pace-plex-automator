@@ -6,6 +6,8 @@ import {
   fetchAuth,
   fetchCoverage,
   scanCoverageReq,
+  fetchMetadataAudit,
+  scanMetadataAuditReq,
   fetchHealth,
   runHealthCheckReq,
   episodeAction,
@@ -15,6 +17,7 @@ import {
   type SettingView,
   type AuthState,
   type CoverageReport,
+  type MetadataAuditReport,
   type HealthReport,
   type TorrentProgress,
 } from "./api";
@@ -26,6 +29,8 @@ export const settings = writable<SettingView[]>([]);
 export const auth = writable<AuthState | null>(null);
 export const coverage = writable<CoverageReport | null>(null);
 export const coverageLoading = writable(false);
+export const metadataAudit = writable<MetadataAuditReport | null>(null);
+export const metadataAuditLoading = writable(false);
 export const health = writable<HealthReport | null>(null);
 export const healthLoading = writable(false);
 export const toasts = writable<{ id: number; ok: boolean; msg: string }[]>([]);
@@ -45,6 +50,7 @@ export function toast(msg: string, ok: boolean): void {
 // stream and pulls the freshly built UI bundle (its asset hash changes).
 let seenStartedAt: number | null = null;
 let lastCoverageScannedAt: number | null = null;
+let lastMetadataAuditScannedAt: number | null = null;
 
 export async function refreshStatus(): Promise<void> {
   try {
@@ -73,6 +79,19 @@ export async function refreshStatus(): Promise<void> {
       loadCoverage();
     }
     lastCoverageScannedAt = scannedAt;
+
+    // Same freshness trick for the metadata audit: a sync re-audits on the
+    // server, so pull the fresh report when its timestamp advances.
+    const auditAt = s.metadataAuditScannedAt ?? null;
+    if (
+      auditAt !== null &&
+      lastMetadataAuditScannedAt !== null &&
+      auditAt !== lastMetadataAuditScannedAt &&
+      get(metadataAudit) !== null
+    ) {
+      loadMetadataAudit();
+    }
+    lastMetadataAuditScannedAt = auditAt;
   } catch {
     /* transient — keep last status */
   }
@@ -141,6 +160,27 @@ export async function runCoverageScan(): Promise<void> {
     toast("Coverage scan failed", false);
   } finally {
     coverageLoading.set(false);
+  }
+}
+
+/** Load the last stored metadata audit (e.g. on mount). No-ops if none exists. */
+export async function loadMetadataAudit(): Promise<void> {
+  try {
+    metadataAudit.set(await fetchMetadataAudit());
+  } catch {
+    /* ignore — leave audit null */
+  }
+}
+
+/** Trigger a fresh metadata audit against Plex and store the result. */
+export async function runMetadataAuditScan(): Promise<void> {
+  metadataAuditLoading.set(true);
+  try {
+    metadataAudit.set(await scanMetadataAuditReq());
+  } catch {
+    toast("Metadata audit failed", false);
+  } finally {
+    metadataAuditLoading.set(false);
   }
 }
 

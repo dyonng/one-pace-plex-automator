@@ -11,6 +11,7 @@ import { scanNamingCandidates } from "../naming";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage, getCoverageScannedAt } from "../coverage";
+import { scanMetadataAudit, getStoredAudit, getAuditScannedAt } from "../metadata-audit";
 import { searchTorrents } from "../torrent-search";
 import { getQbitClient } from "../qbittorrent";
 import { getEpisodeFileSize } from "../fileops";
@@ -34,6 +35,8 @@ const MIME: Record<string, string> = {
 const ACTION_IDS: ActionId[] = [
   "refresh-sources",
   "sync",
+  "metadata-scan",
+  "metadata-sync",
   "retry-failed",
   "clear-done",
 ];
@@ -94,6 +97,7 @@ async function buildStatus() {
     },
     counts: countByStatus(),
     coverageScannedAt: getCoverageScannedAt(),
+    metadataAuditScannedAt: getAuditScannedAt(),
     episodes: listEpisodes().map((e) => ({
       ...e,
       file_size: getEpisodeFileSize(e.arc_title, e.arc_part, e.final_filename),
@@ -133,6 +137,17 @@ function buildRouter(): Router {
   r.post("/api/coverage/scan", async (c) => {
     try {
       c.json(200, await scanCoverage());
+    } catch (err) {
+      c.json(500, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  // Metadata audit: GET the last stored report; POST runs a fresh audit against
+  // Plex. (Path avoids /api/metadata/:crc32 below.)
+  r.get("/api/metadata-audit", (c) => c.json(200, getStoredAudit()));
+  r.post("/api/metadata-audit/scan", async (c) => {
+    try {
+      c.json(200, await scanMetadataAudit());
     } catch (err) {
       c.json(500, { ok: false, message: (err as Error).message });
     }
