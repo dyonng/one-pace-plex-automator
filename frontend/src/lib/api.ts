@@ -38,6 +38,7 @@ export interface Status {
   };
   counts: Record<string, number>;
   coverageScannedAt: number | null;
+  metadataAuditScannedAt: number | null;
   episodes: Episode[];
 }
 
@@ -299,6 +300,61 @@ export async function fetchCoverage(): Promise<CoverageReport | null> {
 export async function scanCoverageReq(): Promise<CoverageReport> {
   const r = await fetch("/api/coverage/scan", { method: "POST" });
   if (!r.ok) throw new Error("coverage scan " + r.status);
+  return r.json();
+}
+
+export type MetadataState = "ok" | "missing" | "drifted" | "not_in_plex";
+
+export interface MetadataAuditEpisode {
+  arcPart: number;
+  arcTitle: string;
+  episodeNum: number;
+  seasonEpisodeId: string;
+  state: MetadataState;
+  expectedTitle: string;
+  plexTitle: string | null;
+  titleMismatch: boolean;
+  summaryMismatch: boolean;
+}
+
+export interface MetadataAuditArc {
+  arcPart: number;
+  arcTitle: string;
+  arcSaga: string;
+  seasonState: MetadataState;
+  total: number;
+  ok: number;
+  missing: number;
+  drifted: number;
+  notInPlex: number;
+  episodes: MetadataAuditEpisode[];
+}
+
+export interface MetadataAuditReport {
+  scannedAt: number;
+  totals: {
+    episodes: number;
+    ok: number;
+    missing: number;
+    drifted: number;
+    notInPlex: number;
+    flagged: number;
+  };
+  seasonsFlagged: number;
+  arcs: MetadataAuditArc[];
+}
+
+/** Last stored metadata audit, or null if none has run yet. */
+export async function fetchMetadataAudit(): Promise<MetadataAuditReport | null> {
+  const r = await fetch("/api/metadata-audit");
+  if (!r.ok) throw new Error("metadata audit " + r.status);
+  return r.json();
+}
+
+/** Runs a fresh audit against Plex, overwrites the stored report, returns it. */
+export async function scanMetadataAuditReq(): Promise<MetadataAuditReport> {
+  const r = await fetch("/api/metadata-audit/scan", { method: "POST" });
+  if (!r.ok) throw new Error("metadata audit scan " + r.status);
   return r.json();
 }
 

@@ -11,6 +11,7 @@ import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
 import { clearSheetCache, prefetchSheet } from "./onepace-sheet";
 import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descriptions";
+import { scanMetadataAudit, syncFlaggedMetadata } from "./metadata-audit";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -57,6 +58,8 @@ async function withLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
 export type ActionId =
   | "refresh-sources"
   | "sync"
+  | "metadata-scan"
+  | "metadata-sync"
   | "retry-failed"
   | "clear-done";
 
@@ -88,6 +91,36 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         return {
           ok: true,
           message: `Full Plex sync complete. Posters: ${posters.applied} applied, ${posters.skipped} up to date`,
+        };
+      });
+
+    case "metadata-scan":
+      return withLock("Metadata scan", async () => {
+        const report = await scanMetadataAudit();
+        const { flagged, missing, drifted, notInPlex } = report.totals;
+        return {
+          ok: true,
+          message:
+            flagged === 0 && report.seasonsFlagged === 0
+              ? "Metadata audit: everything is up to date"
+              : `Metadata audit: ${flagged} flagged (${missing} missing, ${drifted} drifted)` +
+                `${report.seasonsFlagged ? `, ${report.seasonsFlagged} season(s)` : ""}` +
+                `${notInPlex ? `, ${notInPlex} not in Plex` : ""}`,
+        };
+      });
+
+    case "metadata-sync":
+      return withLock("Metadata sync", async () => {
+        const r = await syncFlaggedMetadata();
+        runtime.lastSyncAt = Date.now();
+        const total = r.episodesUpdated + r.seasonsUpdated;
+        return {
+          ok: true,
+          message:
+            total === 0
+              ? "Metadata already up to date — nothing to sync"
+              : `Synced metadata for ${r.episodesUpdated} episode(s)` +
+                `${r.seasonsUpdated ? ` and ${r.seasonsUpdated} season(s)` : ""}`,
         };
       });
 
