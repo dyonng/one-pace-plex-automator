@@ -28,12 +28,14 @@ import {
   updateSeasonInPlex,
   refreshItem,
   analyzeItem,
+  uploadPoster,
   buildEpisodeSummary,
   buildSeasonSummary,
   refreshShow,
   type PlexItemMeta,
   type PlexMetadataSnapshot,
 } from "./plex";
+import { generateEpisodeThumb } from "./thumb-generator";
 
 // Latest report for the dashboard — a single upserted kv row (mirrors coverage).
 // The plex_meta_state table is the source of truth for reconcile decisions; this
@@ -41,9 +43,15 @@ import {
 const KV_KEY = "metadata_audit_report";
 const KV_SCANNED_AT = "metadata_audit_scanned_at";
 
-// Stop re-triggering thumbnail generation after this many attempts — some
-// episodes Plex simply can't/won't thumbnail, and we don't want to hammer it.
-const THUMB_ATTEMPT_CAP = 3;
+// Attempt tiers: the first THUMB_PLEX_ATTEMPT_CAP attempts ask Plex to
+// regenerate (refresh+analyze). If the thumb is still missing/blank after that
+// (Plex keeps grabbing the same fade frame), the remaining attempts up to
+// THUMB_TOTAL_ATTEMPT_CAP escalate to generating the frame ourselves with
+// ffmpeg and uploading it. Past the total cap the episode is written off.
+const THUMB_PLEX_ATTEMPT_CAP = 3;
+const THUMB_TOTAL_ATTEMPT_CAP = 5;
+// ffmpeg generation takes ~10-20s per episode; bound each reconcile pass.
+const GENERATE_PER_PASS = 5;
 // Generation is asynchronous (Plex queues the analysis), so give it real time
 // between attempts. Without this, back-to-back auto-reconciles would burn the
 // whole attempt budget before Plex has worked through its queue.
@@ -361,8 +369,8 @@ function reconcileEpisodeState(
 
   // Thumbnail need (independent of metadata).
   const attempts = prev?.thumb_attempts ?? 0;
-  const needsThumb = !hasThumb && attempts < THUMB_ATTEMPT_CAP;
-  const thumbUnavailable = !hasThumb && attempts >= THUMB_ATTEMPT_CAP;
+  const needsThumb = !hasThumb && attempts < THUMB_TOTAL_ATTEMPT_CAP;
+  const thumbUnavailable = !hasThumb && attempts >= THUMB_TOTAL_ATTEMPT_CAP;
 
   if (!hasData(title, summary)) {
     // Nothing to write — treat as ok for metadata, but thumbnails may still apply.
@@ -404,6 +412,7 @@ interface ReconcileResult {
   episodesToPush: { ep: EpisodeSummary; ratingKey: string }[];
   seasonsToPush: { arc: ArcSummary; ratingKey: string }[];
   thumbsToGen: { id: string; ratingKey: string }[];
+  thumbsToGenerate: { id: string; ratingKey: string; arcPart: number; episodeNum: number }[];
 }
 
 /**
@@ -435,6 +444,7 @@ async function buildReconcile(): Promise<ReconcileResult> {
 
   const episodesToPush: { ep: EpisodeSummary; ratingKey: string }[] = [];
   const thumbsToGen: { id: string; ratingKey: string }[] = [];
+  const thumbsToGenerate: { id: string; ratingKey: string; arcPart: number; episodeNum: number }[] = [];
 
   for (const ep of episodes) {
     let arc = arcMap.get(ep.arcPart);
@@ -450,13 +460,24 @@ async function buildReconcile(): Promise<ReconcileResult> {
     const view = reconcileEpisodeState(ep, plexEp, prev);
 
     if (view.needsMetadata && plexEp) episodesToPush.push({ ep, ratingKey: plexEp.ratingKey });
-    // Only re-trigger generation once the previous attempt has had time to work
-    // through Plex's async analysis queue — the episode still counts as
-    // needsThumb in the report either way.
+    // Only re-attempt once the previous try has had time to work through
+    // Plex's async analysis queue — the episode still counts as needsThumb in
+    // the report either way. First tier asks Plex to regenerate; after the
+    // Plex cap, escalate to generating the frame ourselves.
     const lastAttempt = prev?.thumb_last_attempt_at ?? null;
     const attemptDue = lastAttempt === null || Date.now() - lastAttempt >= THUMB_RETRY_SPACING_MS;
     if (view.needsThumb && plexEp && attemptDue) {
-      thumbsToGen.push({ id: ep.seasonEpisodeId, ratingKey: plexEp.ratingKey });
+      const attempts = prev?.thumb_attempts ?? 0;
+      if (attempts < THUMB_PLEX_ATTEMPT_CAP) {
+        thumbsToGen.push({ id: ep.seasonEpisodeId, ratingKey: plexEp.ratingKey });
+      } else {
+        thumbsToGenerate.push({
+          id: ep.seasonEpisodeId,
+          ratingKey: plexEp.ratingKey,
+          arcPart: ep.arcPart,
+          episodeNum: ep.episodeNum,
+        });
+      }
     }
 
     arc.total++;
@@ -505,7 +526,7 @@ async function buildReconcile(): Promise<ReconcileResult> {
   ).length;
 
   const report: MetadataAuditReport = { scannedAt: Date.now(), totals, seasonsFlagged, arcs: arcsOut };
-  return { report, episodesToPush, seasonsToPush, thumbsToGen };
+  return { report, episodesToPush, seasonsToPush, thumbsToGen, thumbsToGenerate };
 }
 
 function storeReport(report: MetadataAuditReport): void {
@@ -527,7 +548,8 @@ export async function scanMetadataAudit(): Promise<MetadataAuditReport> {
 export interface ReconcileSummary {
   episodesUpdated: number;
   seasonsUpdated: number;
-  thumbsTriggered: number;
+  thumbsTriggered: number;  // Plex regeneration requests fired
+  thumbsGenerated: number;  // custom ffmpeg frames uploaded
   flaggedEpisodes: number;
   flaggedSeasons: number;
 }
@@ -542,7 +564,7 @@ export async function reconcilePlexMetadata(
   opts: { thumbnails?: boolean } = {}
 ): Promise<ReconcileSummary> {
   const doThumbs = opts.thumbnails ?? true;
-  const { episodesToPush, seasonsToPush, thumbsToGen } = await buildReconcile();
+  const { episodesToPush, seasonsToPush, thumbsToGen, thumbsToGenerate } = await buildReconcile();
 
   let seasonsUpdated = 0;
   for (const { arc, ratingKey } of seasonsToPush) {
@@ -585,9 +607,33 @@ export async function reconcilePlexMetadata(
     }
   }
 
+  // Escalation tier: Plex's own regeneration kept producing blank/missing
+  // stills for these — extract a good frame ourselves and upload it as the
+  // episode's thumb. Bounded per pass (ffmpeg is ~10-20s per episode); the
+  // attempt counter advances either way so failures still converge on the cap.
+  let thumbsGenerated = 0;
+  if (doThumbs) {
+    for (const { id, ratingKey, arcPart, episodeNum } of thumbsToGenerate.slice(0, GENERATE_PER_PASS)) {
+      try {
+        const frame = await generateEpisodeThumb(arcPart, episodeNum);
+        if (frame) {
+          await uploadPoster(ratingKey, frame, "image/jpeg");
+          thumbsGenerated++;
+          logger.info("Reconcile: uploaded custom thumbnail", { id });
+        }
+      } catch (err) {
+        logger.warn("Reconcile: custom thumbnail failed", { id, error: (err as Error).message });
+      }
+      bumpThumbAttempt(id);
+    }
+    const skipped = thumbsToGenerate.length - Math.min(thumbsToGenerate.length, GENERATE_PER_PASS);
+    if (skipped > 0) logger.info("Reconcile: deferring custom thumbnails to next pass", { skipped });
+  }
+
   if (seasonsUpdated || episodesUpdated) await refreshShow();
 
-  // Re-audit so the stored report reflects the pushes (thumbnails show up later).
+  // Re-audit so the stored report reflects the pushes (Plex-triggered
+  // thumbnails show up later; uploaded ones immediately).
   const { report } = await buildReconcile();
   storeReport(report);
 
@@ -595,6 +641,7 @@ export async function reconcilePlexMetadata(
     episodesUpdated,
     seasonsUpdated,
     thumbsTriggered,
+    thumbsGenerated,
     flaggedEpisodes: episodesToPush.length,
     flaggedSeasons: seasonsToPush.length,
   };

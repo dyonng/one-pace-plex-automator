@@ -178,15 +178,19 @@ dirty set is derived from the data change itself.
   / `not_in_plex`. Push title/summary for flagged episodes+seasons where we hold canonical data,
   using ratingKeys straight from the scan (`updateEpisodeInPlex`/`updateSeasonInPlex`), then
   `setAppliedMeta`.
-- **Thumbnails:** episodes with no real `thumb` get generation triggered — `refreshItem` (POST
-  `/refresh?force=1`, the web UI's "Refresh Metadata" force flag, re-acquiring artwork) +
-  `analyzeItem` (PUT `/analyze`, scrubber previews) — capped at `THUMB_ATTEMPT_CAP` (3) via
-  `thumb_attempts` so Plex isn't hammered for stills it can't make. Generation is **asynchronous**
-  (Plex queues the analysis), so attempts are spaced by `THUMB_RETRY_SPACING_MS` (30 min,
-  `thumb_last_attempt_at`) — otherwise back-to-back auto-reconciles would burn the attempt budget
-  before Plex works through its queue. `has_thumb` re-observed each scan; present ⇒ counter reset.
-  `retryThumbnails()` (action `retry-thumbs`, "Retry thumbnails" button) resets all counters —
-  including capped/written-off episodes — and reconciles immediately.
+- **Thumbnails (tiered):** episodes with no real `thumb` get generation attempts, spaced by
+  `THUMB_RETRY_SPACING_MS` (30 min, `thumb_last_attempt_at`) because Plex generates asynchronously.
+  Tier 1 (attempts < `THUMB_PLEX_ATTEMPT_CAP` = 3): ask Plex to regenerate — `refreshItem` (**PUT**
+  `/refresh` + `force=1`; POST 404s) + `analyzeItem` (PUT `/analyze`, scrubber previews,
+  non-fatal). Tier 2 (attempts 3–4, up to `THUMB_TOTAL_ATTEMPT_CAP` = 5): Plex keeps grabbing bad
+  frames, so **generate the frame ourselves** — `src/thumb-generator.ts` runs ffmpeg over the
+  library file (found by S##E##), samples 8 frames across the middle 12–88% of the runtime, scores
+  each by pixel spread with a near-black/white brightness penalty, and uploads the winner via
+  `uploadPoster` (bounded at `GENERATE_PER_PASS` = 5 per reconcile; ffmpeg ships in the Docker
+  image, and the generator no-ops with a warning where ffmpeg is absent, e.g. local dev). Past the
+  total cap the episode is written off (`thumbUnavailable`). `has_thumb` re-observed each scan;
+  present ⇒ counter reset. `retryThumbnails()` (action `retry-thumbs`, "Retry thumbnails" button)
+  resets all counters + the blank cache and reconciles immediately (restarting at tier 1).
 - **Blank-frame detection:** Plex sometimes extracts a fade-to-black/white transition frame, so a
   "set" thumb can still be visually empty. `detectBlankThumbs` fetches each episode thumb tiny
   (64px via `/photo/:/transcode`, raw fallback), decodes it with `jpeg-js` (pure JS, no native dep),
