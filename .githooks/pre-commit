@@ -7,11 +7,19 @@ if git diff --cached --name-only | grep -qvE '(\.md$|^docs/|^\.github/|^\.githoo
   const fs = require('fs');
   const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
   const [maj, min, pat] = pkg.version.split('.').map(Number);
-  pkg.version = maj + '.' + min + '.' + (pat + 1);
+  const next = maj + '.' + min + '.' + (pat + 1);
+  pkg.version = next;
   fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-  process.stdout.write('version bumped to ' + pkg.version + '\n');
+  // Keep package-lock.json's version fields in step so the two never drift.
+  try {
+    const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+    lock.version = next;
+    if (lock.packages && lock.packages['']) lock.packages[''].version = next;
+    fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
+  } catch (e) { /* no lockfile — fine */ }
+  process.stdout.write('version bumped to ' + next + '\n');
   "
-  git add package.json
+  git add package.json package-lock.json
 else
   echo "docs-only commit — skipping version bump"
 fi
