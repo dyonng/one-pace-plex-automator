@@ -8,6 +8,7 @@ interface PlexMetadata {
   ratingKey: string;
   title: string;
   summary?: string;
+  thumb?: string;
   index: number;
   parentIndex?: number;
   seasonEpisode?: string;
@@ -286,11 +287,22 @@ export async function syncFullLibrary(
 export interface PlexItemMeta {
   title: string;
   summary: string;
+  hasThumb: boolean;
+  ratingKey: string;
 }
 
 export interface PlexMetadataSnapshot {
   seasons: Map<number, PlexItemMeta>;   // key: season index (= arc part)
   episodes: Map<string, PlexItemMeta>;  // key: "s01e03"
+}
+
+// A Plex `thumb` value pointing at a generated/uploaded image; the agent-less
+// default placeholder path is not a real thumbnail.
+function hasRealThumb(thumb: string | undefined): boolean {
+  if (!thumb) return false;
+  // Real thumbs live under /library/metadata/<key>/thumb/<ts>. Skip default
+  // agent placeholders (e.g. a bare "/:/resources/...").
+  return thumb.startsWith("/library/metadata/");
 }
 
 /**
@@ -309,63 +321,44 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
 
   const seasons = new Map<number, PlexItemMeta>();
   for (const s of seasonsRes.MediaContainer.Metadata ?? []) {
-    seasons.set(s.index, { title: s.title ?? "", summary: s.summary ?? "" });
+    seasons.set(s.index, {
+      title: s.title ?? "",
+      summary: s.summary ?? "",
+      hasThumb: hasRealThumb(s.thumb),
+      ratingKey: s.ratingKey,
+    });
   }
 
   const episodes = new Map<string, PlexItemMeta>();
   for (const e of leavesRes.MediaContainer.Metadata ?? []) {
     if (e.parentIndex == null || e.index == null) continue;
     const id = `s${String(e.parentIndex).padStart(2, "0")}e${String(e.index).padStart(2, "0")}`;
-    episodes.set(id, { title: e.title ?? "", summary: e.summary ?? "" });
+    episodes.set(id, {
+      title: e.title ?? "",
+      summary: e.summary ?? "",
+      hasThumb: hasRealThumb(e.thumb),
+      ratingKey: e.ratingKey,
+    });
   }
 
   return { seasons, episodes };
 }
 
 /**
- * Like `syncFullLibrary` but writes only the arcs/episodes passed in — used by
- * the audit-driven sync to push metadata for just the flagged items. Returns
- * per-kind counts so the caller can report what changed.
+ * Asks Plex to re-acquire metadata (incl. artwork) for an item. When the agent
+ * has no episode still, Plex extracts a frame from the video — a best-effort way
+ * to get an episode thumbnail. Fire-and-observe: the result shows up on a later
+ * scan, not synchronously.
  */
-export async function syncMetadataTargeted(
-  arcs: ArcSummary[],
-  episodes: EpisodeSummary[]
-): Promise<{ seasonsUpdated: number; episodesUpdated: number; skipped: number }> {
-  const sectionId = await resolveSectionId();
-  const showKey = await resolveShowRatingKey(sectionId);
+export async function refreshItem(ratingKey: string): Promise<void> {
+  // Match refreshShow()'s proven POST form for the refresh endpoint.
+  await plexPost(`/library/metadata/${ratingKey}/refresh`);
+}
 
-  const [seasonMap, episodeMap] = await Promise.all([
-    buildSeasonKeyMap(showKey),
-    buildEpisodeKeyMap(showKey),
-  ]);
-
-  let seasonsUpdated = 0;
-  let episodesUpdated = 0;
-  let skipped = 0;
-
-  for (const arc of arcs) {
-    const ratingKey = seasonMap.get(arc.arcPart);
-    if (!ratingKey) { skipped++; continue; }
-    try {
-      await updateSeasonInPlex(ratingKey, arc);
-      seasonsUpdated++;
-    } catch (err) {
-      logger.warn("Failed to update season", { part: arc.arcPart, error: (err as Error).message });
-    }
-  }
-
-  for (const ep of episodes) {
-    const ratingKey = episodeMap.get(ep.seasonEpisodeId);
-    if (!ratingKey) { skipped++; continue; }
-    try {
-      await updateEpisodeInPlex(ratingKey, ep);
-      episodesUpdated++;
-    } catch (err) {
-      logger.warn("Failed to update episode", { id: ep.seasonEpisodeId, error: (err as Error).message });
-    }
-  }
-
-  if (seasonsUpdated || episodesUpdated) await refreshShow();
-  logger.info("Targeted metadata sync complete", { seasonsUpdated, episodesUpdated, skipped });
-  return { seasonsUpdated, episodesUpdated, skipped };
+/**
+ * Triggers media analysis for an item, which generates the video preview
+ * (scrubber) thumbnails when the library has that setting enabled.
+ */
+export async function analyzeItem(ratingKey: string): Promise<void> {
+  await plexPut(`/library/metadata/${ratingKey}/analyze`);
 }

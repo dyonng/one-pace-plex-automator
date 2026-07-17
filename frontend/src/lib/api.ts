@@ -313,8 +313,8 @@ export interface MetadataAuditEpisode {
   state: MetadataState;
   expectedTitle: string;
   plexTitle: string | null;
-  titleMismatch: boolean;
-  summaryMismatch: boolean;
+  needsThumb: boolean;
+  thumbUnavailable: boolean;
 }
 
 export interface MetadataAuditArc {
@@ -327,6 +327,7 @@ export interface MetadataAuditArc {
   missing: number;
   drifted: number;
   notInPlex: number;
+  needsThumb: number;
   episodes: MetadataAuditEpisode[];
 }
 
@@ -339,6 +340,8 @@ export interface MetadataAuditReport {
     drifted: number;
     notInPlex: number;
     flagged: number;
+    needsThumb: number;
+    thumbUnavailable: number;
   };
   seasonsFlagged: number;
   arcs: MetadataAuditArc[];

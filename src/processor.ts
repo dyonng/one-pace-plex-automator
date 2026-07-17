@@ -11,8 +11,9 @@ import { buildSeasonFolder, findDownloadedFile, moveAndRename, scanBatchFiles, t
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
-import { getAutoPosters } from "./settings";
+import { getAutoPosters, getAutoReconcile } from "./settings";
 import { scanCoverage, getStoredCoverage } from "./coverage";
+import { reconcilePlexMetadata } from "./metadata-audit";
 import { lookupEpisodeText, lookupArcText } from "./onepace-descriptions";
 
 interface BatchResult {
@@ -434,6 +435,18 @@ async function _processDownloading(): Promise<void> {
       logger.info("Coverage report refreshed after ingest", { completed });
     } catch (err) {
       logger.warn("Coverage refresh after ingest failed", { error: (err as Error).message });
+    }
+  }
+
+  // Freshly-ingested episodes have metadata (from syncSingleEpisode) but no
+  // thumbnail yet. When auto-reconcile is on, run a reconcile pass to adopt the
+  // applied metadata state and trigger thumbnail generation for the new files.
+  if (completed > 0 && getAutoReconcile()) {
+    try {
+      const r = await reconcilePlexMetadata({ thumbnails: true });
+      logger.info("Reconcile after ingest complete", { completed, ...r });
+    } catch (err) {
+      logger.warn("Reconcile after ingest failed", { error: (err as Error).message });
     }
   }
 }

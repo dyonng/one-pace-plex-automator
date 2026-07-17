@@ -28,26 +28,39 @@
     not_in_plex: "not in Plex",
   };
 
-  const flaggedCount = $derived($metadataAudit ? $metadataAudit.totals.flagged + $metadataAudit.seasonsFlagged : 0);
+  const flaggedCount = $derived(
+    $metadataAudit
+      ? $metadataAudit.totals.flagged + $metadataAudit.seasonsFlagged + $metadataAudit.totals.needsThumb
+      : 0
+  );
 
-  // Sync only the flagged episodes/seasons. The server re-audits afterward and
-  // the status poll pulls the fresh report, so the card updates on its own.
+  // Reconcile: push flagged metadata + trigger thumbnail generation. The server
+  // re-audits afterward and the status poll pulls the fresh report, so the card
+  // updates on its own.
   async function syncFlagged() {
     syncing = true;
     try {
       const res = await postAction("metadata-sync");
       toast(res.message, res.ok);
     } catch {
-      toast("Metadata sync failed", false);
+      toast("Metadata reconcile failed", false);
     } finally {
       syncing = false;
       refreshStatus();
     }
   }
 
-  function epTitle(state: MetadataState, expectedTitle: string, plexTitle: string | null): string {
-    const lines = [`${expectedTitle || "(no dataset title)"}`, LABEL[state]];
-    if (state === "drifted" && plexTitle) lines.push(`Plex: ${plexTitle}`);
+  function epTitle(ep: {
+    state: MetadataState;
+    expectedTitle: string;
+    plexTitle: string | null;
+    needsThumb: boolean;
+    thumbUnavailable: boolean;
+  }): string {
+    const lines = [`${ep.expectedTitle || "(no dataset title)"}`, LABEL[ep.state]];
+    if (ep.state === "drifted" && ep.plexTitle) lines.push(`Plex: ${ep.plexTitle}`);
+    if (ep.needsThumb) lines.push("• no thumbnail (will generate)");
+    if (ep.thumbUnavailable) lines.push("• no thumbnail (generation gave up)");
     return lines.join("\n");
   }
 </script>
@@ -56,9 +69,9 @@
   <div class="card-body p-4 gap-4">
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
-        <h2 class="eyebrow">Metadata Audit</h2>
+        <h2 class="eyebrow">Metadata &amp; Thumbnails</h2>
         <p class="text-xs opacity-60">
-          Diffs Plex's episode &amp; season titles/summaries against the One Pace dataset.
+          Diffs Plex against the One Pace dataset, then fills missing/drifted metadata and generates missing thumbnails.
         </p>
       </div>
       <div class="flex gap-2">
@@ -69,7 +82,7 @@
             disabled={syncing || $metadataAuditLoading}
             onclick={syncFlagged}
           >
-            {syncing ? "Syncing…" : `Sync flagged (${flaggedCount})`}
+            {syncing ? "Reconciling…" : `Reconcile (${flaggedCount})`}
           </button>
         {/if}
         <button
@@ -110,8 +123,11 @@
         </div>
         <div class="deck-card card bg-base-100/60">
           <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Seasons flagged</span>
-            <span class="font-display text-2xl tabular-nums text-warning/90">{$metadataAudit.seasonsFlagged}</span>
+            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Missing thumbnails</span>
+            <span class="font-display text-2xl tabular-nums text-info">{t.needsThumb}</span>
+            {#if t.thumbUnavailable > 0}
+              <span class="text-[0.65rem] opacity-50">{t.thumbUnavailable} unavailable</span>
+            {/if}
           </div>
         </div>
         <div class="deck-card card bg-base-100/60">
@@ -122,10 +138,13 @@
           </div>
         </div>
       </div>
+      <p class="text-[0.6rem] opacity-40 -mt-2">
+        Seasons flagged: {$metadataAudit.seasonsFlagged}
+      </p>
 
       {#if flaggedCount === 0}
         <div class="alert alert-success text-sm py-2">
-          All Plex metadata matches the dataset. Nothing to sync.
+          Plex metadata matches the dataset and every episode has a thumbnail. Nothing to do.
         </div>
       {/if}
 
@@ -133,7 +152,7 @@
            but show all so completeness is visible. -->
       <div class="flex flex-col gap-1.5">
         {#each $metadataAudit.arcs as arc (arc.arcPart)}
-          {@const flagged = arc.missing + arc.drifted}
+          {@const flagged = arc.missing + arc.drifted + arc.needsThumb}
           {@const seasonFlagged = arc.seasonState === "missing" || arc.seasonState === "drifted"}
           <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
             <button
@@ -152,6 +171,9 @@
               {#if arc.drifted > 0}
                 <span class="badge badge-sm badge-warning">{arc.drifted} drifted</span>
               {/if}
+              {#if arc.needsThumb > 0}
+                <span class="badge badge-sm badge-info badge-outline">{arc.needsThumb} thumb</span>
+              {/if}
               {#if flagged === 0 && !seasonFlagged}
                 <span class="badge badge-sm badge-success badge-outline">ok</span>
               {/if}
@@ -162,10 +184,15 @@
               <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
                 {#each arc.episodes as ep (ep.seasonEpisodeId)}
                   <span
-                    class="badge badge-sm border font-mono tabular-nums {CHIP[ep.state]}"
-                    title={epTitle(ep.state, ep.expectedTitle, ep.plexTitle)}
+                    class="relative badge badge-sm border font-mono tabular-nums {CHIP[ep.state]}"
+                    title={epTitle(ep)}
                   >
                     E{String(ep.episodeNum).padStart(2, "0")}
+                    {#if ep.needsThumb}
+                      <span class="absolute -top-1 -right-1 size-1.5 rounded-full bg-info" title="no thumbnail"></span>
+                    {:else if ep.thumbUnavailable}
+                      <span class="absolute -top-1 -right-1 size-1.5 rounded-full bg-base-content/40" title="thumbnail unavailable"></span>
+                    {/if}
                   </span>
                 {/each}
               </div>
@@ -179,12 +206,13 @@
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm border border-dashed border-error/50"></span> missing</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> drifted</span>
         <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> not in Plex</span>
+        <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-info"></span> no thumbnail</span>
       </div>
 
       <p class="text-[0.65rem] opacity-40">Audited {fmtTime($metadataAudit.scannedAt)}</p>
     {:else if !$metadataAuditLoading}
       <p class="text-sm opacity-50">
-        Run an audit to see which episodes are missing metadata or have drifted from the dataset — then sync just those instead of the whole library.
+        Run an audit to see which episodes are missing metadata, have drifted from the dataset, or lack a thumbnail — then reconcile just those instead of syncing the whole library. This also runs automatically when sources change (toggle in Settings).
       </p>
     {/if}
   </div>

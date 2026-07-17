@@ -41,6 +41,8 @@ const ConfigSchema = z.object({
     ),
   // Auto-apply a season's poster when a brand-new season first appears.
   AUTO_POSTERS: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  // Auto-sync Plex metadata + thumbnails when source data changes (reconcile).
+  AUTO_RECONCILE: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   // When true, the extended cut is preferred over the standard cut for episodes
   // that have both. Affects which release is treated as canonical in coverage
   // and which variant the RSS poll downloads.
