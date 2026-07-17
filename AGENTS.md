@@ -94,15 +94,18 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
 
 ### State
 
-SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Five tables:
+SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Six tables:
 - `episodes` — lifecycle `available → pending → downloading → processing → done/failed`
   (`available` = discovered but awaiting manual download); includes `changelog` (JSON array, added
   via `addColumnIfMissing` migration)
 - `rss_seen` — seen RSS GUIDs
 - `kv` — small key/value (e.g. `rss_last_modified`, `rss_seeded`, `coverage_report`,
-  `coverage_scanned_at`, `magnet:<crc32>` magnet cache for one-click upgrades)
+  `coverage_scanned_at`, `metadata_audit_report`, `metadata_audit_scanned_at`,
+  `magnet:<crc32>` magnet cache for one-click upgrades)
 - `logs` — dashboard log history; `insertLog` auto-prunes to the newest 1000 rows
 - `settings` — runtime setting overrides (dashboard edits; see Runtime Settings)
+- `plex_meta_state` — per-episode metadata/thumbnail reconciliation state (see
+  Metadata & Thumbnail Reconciliation), keyed by the stable `season_episode_id`
 
 ## Re-release Handling (key feature)
 
@@ -148,6 +151,50 @@ is 1080p; the Plex filename's `[resolution]` tag is read from the torrent filena
 (The full `episodes{}` map retains historical CRC32s, so any past release still resolves for coverage
 and upgrade lookups.)
 
+## Metadata & Thumbnail Reconciliation (key feature)
+
+Keeps Plex episode/season **titles, summaries, and thumbnails** rich and current with minimal work,
+driven by source changes rather than blind full syncs. Lives in `src/metadata-audit.ts` backed by the
+`plex_meta_state` table.
+
+**State model** — one row per episode, keyed by `season_episode_id` (stable across re-releases,
+unlike CRC32):
+- `desired_hash` — sha1 of the dataset's `title` + `summary` (both observable from Plex, so drift
+  detection is symmetric; air date is written but not hashed).
+- `applied_hash` — the desired hash we last successfully pushed to Plex (NULL = never). **`desired !=
+  applied` ⇒ needs a metadata sync.**
+- `in_plex`, `has_thumb`, `plex_title`, `plex_rating_key`, `thumb_attempts`, timestamps.
+
+**Why it's efficient/dynamic** — a source refresh (`data.min.json` ETag flip or a Google Sheet reload)
+calls `markDirtyFromSource()`, which recomputes `desired_hash` for every episode with **no Plex
+calls**. Only episodes whose canonical text actually changed end up with `desired != applied`, so the
+dirty set is derived from the data change itself.
+
+**Reconcile pass** (`reconcilePlexMetadata`, 2 Plex reads — `/children` + `/allLeaves` via
+`scanPlexMetadata`):
+- Per episode: recompute desired, observe Plex (title/summary/`thumb`/ratingKey), and **adopt**
+  Plex's copy as applied when it already matches (so prior manual/full syncs don't re-push).
+- Classify → `ok` / `missing` (blank summary or placeholder title) / `drifted` (present but ≠ dataset)
+  / `not_in_plex`. Push title/summary for flagged episodes+seasons where we hold canonical data,
+  using ratingKeys straight from the scan (`updateEpisodeInPlex`/`updateSeasonInPlex`), then
+  `setAppliedMeta`.
+- **Thumbnails:** episodes with no real `thumb` get generation triggered — `refreshItem` (POST
+  `/refresh`, best-effort frame extraction for the episode still) + `analyzeItem` (PUT `/analyze`,
+  scrubber previews) — capped at `THUMB_ATTEMPT_CAP` (3) via `thumb_attempts` so Plex isn't hammered
+  for stills it can't make. `has_thumb` re-observed each scan; present ⇒ counter reset.
+- Idempotent and restart-safe: state is persistent, so a failed push or a mid-way restart is picked
+  up next pass; it converges. Re-audits at the end so the stored report reflects the fix.
+
+**Automatic** — gated by **`AUTO_RECONCILE`** (default on): `reconcilePlexMetadata({thumbnails:true})`
+runs after every **Refresh Sources** (`runAction("refresh-sources")`) and after each **ingest**
+(`processor` `_processDownloading`, when `completed > 0`). When off, source refreshes only
+`markDirtyFromSource()` for a later manual **Reconcile**.
+
+**Read-only audit** — `scanMetadataAudit()` runs the same observe+classify but performs **no** Plex
+writes; it's the `metadata-scan` action and the dashboard's "Scan" button. The report (KV
+`metadata_audit_report`) is a display cache; `plex_meta_state` is the source of truth. `Full Plex
+sync` (`runMetadataSync`) remains the resync-everything hammer.
+
 ## Season Folder Format Detection
 
 `detectSeasonFormat()` (boot) scans `MEDIA_PATH` and builds an `arcPart → folderName` cache from the
@@ -168,6 +215,8 @@ stages without touching the deployment stack manager.
   `GET /api/metadata/<crc32>` (resolved episode for the compare modal),
   `GET /api/downloads/progress` (per-crc32 `{progress,dlspeed,eta,state,size}`; no-ops when nothing
   is downloading), `GET /api/coverage` + `POST /api/coverage/scan`,
+  `GET /api/metadata-audit` + `POST /api/metadata-audit/scan` (metadata/thumbnail reconciliation
+  report; the path avoids the `/api/metadata/:crc32` compare route),
   `GET /api/naming/candidates` + `POST /api/naming/normalize`,
   `GET /api/search/torrents?q=` (AnimeTosho/Nyaa search for manual source selection),
   `GET/POST /api/health/*`, settings + auth endpoints, plus static files from `public/`.
@@ -180,10 +229,12 @@ stages without touching the deployment stack manager.
   - scrypt verify is cached by password fingerprint (slow hash runs once, not per request). HTTP
     **Basic auth — base64, not encrypted in transit**; front with TLS if exposed beyond LAN.
 - **Actions** (`src/controls.ts`) — global: `refresh-sources` (clear metadata + sheet caches →
-  `refreshMetadata` → eager sheet prefetch → `runCycle`; also what the cron runs), `sync`
-  ("Full Plex sync": `runMetadataSync` + ETag-aware `syncPosters`; heavy, confirmation modal in the
-  UI), `retry-failed`, `clear-done` (remove all `done` rows; files kept). All serialized behind one
-  lock (`isBusy`/`withLock`) so manual triggers never overlap the cron cycle. Tracks last-run
+  `refreshMetadata` → eager sheet prefetch → `runCycle` → reconcile or `markDirtyFromSource` per
+  `AUTO_RECONCILE`; also what the cron runs), `sync` ("Full Plex sync": `runMetadataSync` +
+  ETag-aware `syncPosters`; heavy, confirmation modal in the UI), `metadata-scan` (read-only audit →
+  report), `metadata-sync` ("Reconcile": `reconcilePlexMetadata` — push flagged metadata + trigger
+  thumbnails), `retry-failed`, `clear-done` (remove all `done` rows; files kept). All serialized
+  behind one lock (`isBusy`/`withLock`) so manual triggers never overlap the cron cycle. Tracks last-run
   timestamps in `runtime`. `runNormalizeNaming(crc32s)` (also lock-held) renames files to the
   canonical scheme (see Coverage & Naming).
 - **Logs** — `logger.ts` emits every line on an `EventEmitter` (`logBus`). `boot.ts` subscribes to
@@ -197,7 +248,8 @@ Settings editable live from the dashboard without a redeploy, each tagged with a
 - **service:** **POLL_CRON**, **POLL_ENABLED** (bool), **DOWNLOAD_CHECK_SECONDS**,
   **RSS_FEED_URL**, **DISCORD_WEBHOOK_URL**, **POSTER_REPO_RAW_BASE**, **ANIMETOSHO_API_KEY**,
   **ANIMETOSHO_BASE_URL**, **NYAA_BASE_URL**, **GOOGLE_SHEETS_API_KEY**.
-- **preference:** **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS** (bool), **PREFER_EXTENDED** (bool),
+- **preference:** **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS** (bool), **AUTO_RECONCILE** (bool),
+  **PREFER_EXTENDED** (bool),
   **PREFER_ARABASTA** (bool).
 
 (Secrets and volume paths stay env-only by design.)
@@ -268,7 +320,8 @@ keep it in sync with the stores' resolution logic. Custom CSS stays theme-agnost
 Components: `NewReleases` (hero — `available` releases with changelog + Download), `System`,
 `Controls` (Refresh Sources / Retry failed, **Full Plex sync** with confirmation modal,
 **Normalize File Naming** modal), `Coverage` (coverage report, Upgrade-Now batch modal, re-release
-compare modal, find-source search), `InfoCards`, `Settings` (a `<dialog>` modal opened from the
+compare modal, find-source search), `MetadataAudit` (metadata/thumbnail reconciliation — per-arc
+state, thumbnail indicators, Scan + Reconcile), `InfoCards`, `Settings` (a `<dialog>` modal opened from the
 navbar gear icon via the `settingsOpen` store — Appearance pickers, System & Services / Preferences
 groups, and `Auth` as a sub-section), `Episodes` (pipeline table — newest-first, live download
 progress + size, Clear done, per-row actions + remove-confirm modal), `Logs` (+ Clear), `Auth`,
@@ -284,7 +337,7 @@ ships just the compiled static output.
 - Config files are `.mts`/`.mjs` (`vite.config.mts`, `svelte.config.mjs`) so the ESM frontend
   tooling coexists with the CommonJS backend without setting `"type": "module"`.
 - Components: `frontend/src/App.svelte` + `lib/` (`Navbar`, `System`, `Controls`, `Coverage`,
-  `InfoCards`, `Settings`, `Episodes`, `NewReleases`, `Logs`, `Auth`, `Toasts`); `lib/api.ts`
+  `MetadataAudit`, `InfoCards`, `Settings`, `Episodes`, `NewReleases`, `Logs`, `Auth`, `Toasts`); `lib/api.ts`
   (typed fetchers), `lib/stores.ts` (status/logs/toasts/coverage/downloadProgress/`settingsOpen`
   stores + SSE + `startProgressPolling`; auto-pulls coverage when `coverageScannedAt` advances),
   `lib/theme.ts` + `lib/logo.ts` (appearance preferences, localStorage-backed), `lib/util.ts`
@@ -330,6 +383,7 @@ Zod-validated env (`src/config.ts`):
 | `DOWNLOAD_CHECK_SECONDS` | `30` | qBit completion check interval (dashboard-editable) |
 | `AUTO_DOWNLOAD` | `true` | auto-queue discovered releases; off = manual download (dashboard-editable) |
 | `AUTO_POSTERS` | `true` | auto-apply a poster when a new season first appears (dashboard-editable) |
+| `AUTO_RECONCILE` | `true` | auto-sync Plex metadata + thumbnails on source changes/ingest (dashboard-editable) |
 | `PREFER_EXTENDED` | `true` | prefer the extended cut when an episode has both (dashboard-editable) |
 | `PREFER_ARABASTA` | `true` | render arc 14 "Alabasta" as "Arabasta" (dashboard-editable) |
 | `DASHBOARD_TOKEN_HASH` | — (optional bootstrap) | scrypt hash; password is normally set in the UI |
@@ -367,10 +421,11 @@ Zod-validated env (`src/config.ts`):
 | `src/qbittorrent.ts` | qBittorrent Web API client (progress: `dlspeed`/`eta`/`size`) |
 | `src/fileops.ts` | Season-format detection, move/rename, re-release file swap, on-disk size (cached) |
 | `src/coverage.ts` | Library coverage scan/diff, magnet caching, stored report + scanned-at |
+| `src/metadata-audit.ts` | Metadata/thumbnail reconciliation engine (desired/applied state, dirty-marking, push + thumbnail generation) |
 | `src/naming.ts` | Normalize-naming candidate scan + batch rename |
 | `src/posters.ts` | Fan-made season/show poster sync (auto on new seasons; ETag-aware re-check during Full Plex sync) |
 | `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel |
-| `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync) |
+| `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync, `scanPlexMetadata`, `refreshItem`/`analyzeItem` for thumbnails) |
 | `src/processor.ts` | Completion handler; coverage refresh on ingest; `runMetadataSync`/`retryFailed` (manual-only) |
 | `src/discord.ts` | Webhook embeds |
 | `src/logger.ts` | pino wrapper (`logger.info(msg, meta)` shape) + `logBus` emitter |
