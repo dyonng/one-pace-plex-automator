@@ -1,5 +1,6 @@
 import { createHash } from "crypto";
 import * as jpeg from "jpeg-js";
+import { PNG } from "pngjs";
 import { logger } from "./logger";
 import {
   getKv,
@@ -54,52 +55,97 @@ const THUMB_RETRY_SPACING_MS = 30 * 60 * 1000;
 const BLANK_STDDEV_THRESHOLD = 8;
 // How many uncached thumbnails to fetch+analyze concurrently per pass.
 const THUMB_ANALYSIS_CONCURRENCY = 6;
+// Fraction of near-transparent pixels above which a thumbnail is "empty" — a
+// transparent PNG that renders as the Plex backdrop showing through.
+const BLANK_TRANSPARENT_FRACTION = 0.85;
 // Bump when the detection logic changes so cached verdicts (thumb_checked_path)
 // are recomputed even for thumbnails whose version hasn't changed.
-const THUMB_DETECTOR_VERSION = "v2";
+const THUMB_DETECTOR_VERSION = "v3";
 
 const thumbCacheKey = (thumbPath: string): string => `${THUMB_DETECTOR_VERSION}:${thumbPath}`;
 
-/** Max per-channel pixel stddev of a JPEG, or null if it can't be decoded. */
-function thumbStddev(buf: Buffer): number | null {
-  try {
-    const img = jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 128 });
-    const n = img.width * img.height;
-    if (!n) return null;
-    const sum = [0, 0, 0];
-    const sumSq = [0, 0, 0];
-    for (let i = 0; i < n; i++) {
-      for (let c = 0; c < 3; c++) {
-        const v = img.data[i * 4 + c];
-        sum[c] += v;
-        sumSq[c] += v * v;
-      }
-    }
-    let maxStd = 0;
-    for (let c = 0; c < 3; c++) {
-      const mean = sum[c] / n;
-      maxStd = Math.max(maxStd, Math.sqrt(Math.max(0, sumSq[c] / n - mean * mean)));
-    }
-    return maxStd;
-  } catch {
-    return null;
-  }
+interface ThumbStats {
+  rgbStddev: number;      // max per-channel stddev over opaque pixels
+  transparentFrac: number; // fraction of near-transparent pixels
 }
 
-/**
- * Fetches a thumbnail and returns its pixel stddev. Tries the small transcode
- * first, then the raw image — so a transcode that returns something jpeg-js
- * can't decode still falls back to the raw JPEG. null = neither decodable.
- */
-async function analyzeThumbStddev(thumbPath: string): Promise<number | null> {
-  for (const transcoded of [true, false]) {
-    const buf = await fetchThumbBytes(thumbPath, transcoded);
-    if (!buf) continue;
-    const std = thumbStddev(buf);
-    if (std !== null) return std;
+/** Decodes a JPEG or PNG to RGBA pixels, or null if the format is unsupported. */
+function decodeImage(buf: Buffer): { data: Uint8Array | Buffer; width: number; height: number } | null {
+  // JPEG: FF D8 FF
+  if (buf.length > 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
+    try {
+      const img = jpeg.decode(buf, { useTArray: true, maxMemoryUsageInMB: 256 });
+      return { data: img.data, width: img.width, height: img.height };
+    } catch {
+      return null;
+    }
+  }
+  // PNG: 89 50 4E 47
+  if (buf.length > 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    try {
+      const png = PNG.sync.read(buf); // always RGBA
+      return { data: png.data, width: png.width, height: png.height };
+    } catch {
+      return null;
+    }
   }
   return null;
 }
+
+/** Pixel statistics (color spread + transparency) for a thumbnail, or null. */
+function thumbStats(buf: Buffer): ThumbStats | null {
+  const img = decodeImage(buf);
+  if (!img) return null;
+  const n = img.width * img.height;
+  if (!n) return null;
+
+  let transparent = 0;
+  let opaque = 0;
+  const sum = [0, 0, 0];
+  const sumSq = [0, 0, 0];
+  for (let i = 0; i < n; i++) {
+    const a = img.data[i * 4 + 3];
+    if (a < 16) {
+      transparent++;
+      continue; // don't let undefined RGB behind transparent pixels skew the spread
+    }
+    opaque++;
+    for (let c = 0; c < 3; c++) {
+      const v = img.data[i * 4 + c];
+      sum[c] += v;
+      sumSq[c] += v * v;
+    }
+  }
+
+  let maxStd = 0;
+  if (opaque > 0) {
+    for (let c = 0; c < 3; c++) {
+      const mean = sum[c] / opaque;
+      maxStd = Math.max(maxStd, Math.sqrt(Math.max(0, sumSq[c] / opaque - mean * mean)));
+    }
+  }
+  return { rgbStddev: maxStd, transparentFrac: transparent / n };
+}
+
+/**
+ * Fetches a thumbnail and returns its pixel stats. Tries the small transcode
+ * first, then the raw image — so a transcode that returns something we can't
+ * decode still falls back to the raw file (which may be a PNG). null = neither
+ * decodable.
+ */
+async function analyzeThumb(thumbPath: string): Promise<ThumbStats | null> {
+  for (const transcoded of [true, false]) {
+    const buf = await fetchThumbBytes(thumbPath, transcoded);
+    if (!buf) continue;
+    const stats = thumbStats(buf);
+    if (stats !== null) return stats;
+  }
+  return null;
+}
+
+/** A thumbnail is blank if it's mostly transparent or a single color. */
+const isBlankStats = (s: ThumbStats): boolean =>
+  s.transparentFrac >= BLANK_TRANSPARENT_FRACTION || s.rgbStddev < BLANK_STDDEV_THRESHOLD;
 
 /**
  * Determines which episode thumbnails are blank single-color frames. Verdicts
@@ -128,34 +174,36 @@ async function detectBlankThumbs(
   if (toCheck.length === 0) return blankById;
 
   let blankFound = 0;
-  let failed = 0;
-  const measured: { id: string; std: number }[] = [];
+  const failedIds: string[] = [];
+  const measured: { id: string; std: number; tf: number }[] = [];
   let cursor = 0;
   const worker = async () => {
     while (cursor < toCheck.length) {
       const { id, path } = toCheck[cursor++];
-      const std = await analyzeThumbStddev(path);
-      if (std === null) {
-        failed++; // couldn't decode either variant — leave uncached, retry later
+      const stats = await analyzeThumb(path);
+      if (stats === null) {
+        failedIds.push(id); // couldn't decode either variant — leave uncached, retry later
         continue;
       }
-      const blank = std < BLANK_STDDEV_THRESHOLD;
+      const blank = isBlankStats(stats);
       setThumbCheck(id, thumbCacheKey(path), blank);
       blankById.set(id, blank);
-      measured.push({ id, std });
+      measured.push({ id, std: stats.rgbStddev, tf: stats.transparentFrac });
       if (blank) blankFound++;
     }
   };
   await Promise.all(Array.from({ length: THUMB_ANALYSIS_CONCURRENCY }, worker));
 
-  // Surface the lowest-variance episodes so borderline calls are diagnosable.
-  const lowest = measured.sort((a, b) => a.std - b.std).slice(0, 10)
-    .map((m) => `${m.id}:${m.std.toFixed(1)}`);
+  // Surface the most-suspect episodes so borderline calls are diagnosable.
+  const lowest = measured
+    .sort((a, b) => b.tf - a.tf || a.std - b.std)
+    .slice(0, 10)
+    .map((m) => `${m.id}:std${m.std.toFixed(1)}/tr${Math.round(m.tf * 100)}%`);
   logger.info("Thumbnail blank-frame analysis", {
     analyzed: measured.length,
     blank: blankFound,
-    failed,
-    threshold: BLANK_STDDEV_THRESHOLD,
+    failedToDecode: failedIds.length,
+    failedIds: failedIds.slice(0, 20),
     lowest,
   });
   return blankById;
