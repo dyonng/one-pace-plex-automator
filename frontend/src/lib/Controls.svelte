@@ -3,8 +3,18 @@
   import { postAction, fetchNamingCandidates, normalizeNaming, type NamingCandidate } from "./api";
 
   const buttons = [
-    { id: "refresh-sources", label: "Refresh Sources", cls: "btn-primary" },
-    { id: "retry-failed", label: "Retry failed", cls: "btn-outline btn-warning" },
+    {
+      id: "refresh-sources",
+      label: "Refresh Sources",
+      cls: "btn-primary",
+      tip: "Clears caches and re-fetches the metadata dataset, episode-guide sheets, and RSS feed to pick up new or updated releases — the same cycle the scheduler runs. With auto-reconcile on, it also pushes any changed Plex metadata and generates missing thumbnails.",
+    },
+    {
+      id: "retry-failed",
+      label: "Retry failed",
+      cls: "btn-outline btn-warning",
+      tip: "Re-queues every episode whose download or processing previously failed, sending them back through the pipeline.",
+    },
   ];
 
   let pending = $state<string | null>(null);
@@ -107,30 +117,42 @@
     <div class="eyebrow">Operations</div>
     <div class="flex flex-wrap gap-2">
       {#each buttons as b}
-        <button
-          class="btn btn-sm {b.cls} gap-1.5"
-          disabled={$status?.busy || pending !== null}
-          onclick={() => run(b.id)}
-        >
-          {#if pending === b.id}<span class="loading loading-spinner loading-xs"></span>{/if}
-          {b.label}
-        </button>
+        <div class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal" data-tip={b.tip}>
+          <button
+            class="btn btn-sm {b.cls} gap-1.5"
+            disabled={$status?.busy || pending !== null}
+            onclick={() => run(b.id)}
+          >
+            {#if pending === b.id}<span class="loading loading-spinner loading-xs"></span>{/if}
+            {b.label}
+          </button>
+        </div>
       {/each}
-      <button
-        class="btn btn-sm btn-secondary gap-1.5"
-        disabled={$status?.busy || pending !== null}
-        onclick={openSyncModal}
+      <div
+        class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+        data-tip="Re-pushes titles and descriptions for every season and episode to Plex, then re-checks all season posters. The force-everything fallback — day-to-day syncing happens automatically, so this is rarely needed."
       >
-        {#if pending === "sync"}<span class="loading loading-spinner loading-xs"></span>{/if}
-        Full Plex sync
-      </button>
-      <button
-        class="btn btn-sm btn-outline gap-1.5"
-        disabled={$status?.busy || pending !== null}
-        onclick={openNameModal}
+        <button
+          class="btn btn-sm btn-secondary gap-1.5"
+          disabled={$status?.busy || pending !== null}
+          onclick={openSyncModal}
+        >
+          {#if pending === "sync"}<span class="loading loading-spinner loading-xs"></span>{/if}
+          Full Plex sync
+        </button>
+      </div>
+      <div
+        class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+        data-tip="Finds library files whose names don't match the canonical One Pace scheme, previews each old → new rename, and applies the ones you select."
       >
-        Normalize File Naming
-      </button>
+        <button
+          class="btn btn-sm btn-outline gap-1.5"
+          disabled={$status?.busy || pending !== null}
+          onclick={openNameModal}
+        >
+          Normalize File Naming
+        </button>
+      </div>
     </div>
   </div>
 </section>

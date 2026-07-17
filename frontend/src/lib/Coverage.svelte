@@ -221,14 +221,19 @@
           Scans your media folder and diffs it against the One Pace catalog.
         </p>
       </div>
-      <button
-        class="btn btn-sm btn-primary"
-        class:loading={$coverageLoading}
-        disabled={$coverageLoading}
-        onclick={runCoverageScan}
+      <div
+        class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+        data-tip="Scans your media folder and diffs it against the One Pace catalog to show which episodes are present, missing, or upgradeable (on disk but out of date). Read-only."
       >
-        {$coverageLoading ? "Scanning…" : $coverage ? "Re-scan" : "Scan library"}
-      </button>
+        <button
+          class="btn btn-sm btn-primary"
+          class:loading={$coverageLoading}
+          disabled={$coverageLoading}
+          onclick={runCoverageScan}
+        >
+          {$coverageLoading ? "Scanning…" : $coverage ? "Re-scan" : "Scan library"}
+        </button>
+      </div>
     </div>
 
     {#if $coverage}

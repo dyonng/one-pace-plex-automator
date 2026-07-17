@@ -76,24 +76,33 @@
       </div>
       <div class="flex gap-2">
         {#if $metadataAudit}
-          <button
-            class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
-            class:loading={syncing}
-            disabled={syncing || $metadataAuditLoading}
-            title="Push flagged metadata to Plex and trigger any missing thumbnails"
-            onclick={syncFlagged}
+          <div
+            class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+            data-tip="Pushes the flagged missing/drifted metadata to Plex and triggers thumbnail generation for episodes missing one. Only touches what's flagged, not the whole library."
           >
-            {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
-          </button>
+            <button
+              class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
+              class:loading={syncing}
+              disabled={syncing || $metadataAuditLoading}
+              onclick={syncFlagged}
+            >
+              {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
+            </button>
+          </div>
         {/if}
-        <button
-          class="btn btn-sm btn-primary"
-          class:loading={$metadataAuditLoading}
-          disabled={$metadataAuditLoading || syncing}
-          onclick={runMetadataAuditScan}
+        <div
+          class="tooltip tooltip-bottom before:max-w-xs before:whitespace-normal"
+          data-tip="Checks Plex against the One Pace dataset and flags episodes with missing or drifted metadata, or no thumbnail. Read-only — makes no changes to Plex."
         >
-          {$metadataAuditLoading ? "Scanning…" : $metadataAudit ? "Re-scan" : "Scan metadata"}
-        </button>
+          <button
+            class="btn btn-sm btn-primary"
+            class:loading={$metadataAuditLoading}
+            disabled={$metadataAuditLoading || syncing}
+            onclick={runMetadataAuditScan}
+          >
+            {$metadataAuditLoading ? "Scanning…" : $metadataAudit ? "Re-scan" : "Scan metadata"}
+          </button>
+        </div>
       </div>
     </div>
 
