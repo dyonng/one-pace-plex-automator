@@ -1,15 +1,27 @@
 <script lang="ts">
-  import { coverage, coverageLoading, runCoverageScan } from "./stores";
+  import {
+    coverage,
+    coverageLoading,
+    runCoverageScan,
+    metadataAudit,
+    metadataAuditLoading,
+    runMetadataAuditScan,
+    doEpisodeAction,
+    status,
+    toast,
+    refreshStatus,
+  } from "./stores";
   import { fmtTime, fmtBytes, fmtAge } from "./util";
   import {
     fetchEpisodeMetadata,
     searchTorrents,
+    postAction,
     type CoverageStatus,
     type CoverageEpisode,
     type EpisodeMetadata,
     type TorrentSearchResult,
+    type MetadataState,
   } from "./api";
-  import { doEpisodeAction, status } from "./stores";
 
   let open = $state<Record<number, boolean>>({});
   const toggle = (part: number) => (open[part] = !open[part]);
@@ -34,7 +46,60 @@
     missing: "missing",
   };
 
+  const META_LABEL: Record<MetadataState, string> = {
+    ok: "up to date",
+    missing: "metadata missing",
+    drifted: "metadata drifted from dataset",
+    not_in_plex: "not in Plex",
+  };
+
   const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
+
+  // ── Metadata audit joined in by episode / arc ───────────────────────────────
+  const metaByEp = $derived(
+    new Map(($metadataAudit?.arcs ?? []).flatMap((a) => a.episodes).map((e) => [e.seasonEpisodeId, e]))
+  );
+  const metaByArc = $derived(new Map(($metadataAudit?.arcs ?? []).map((a) => [a.arcPart, a])));
+
+  const flaggedCount = $derived(
+    $metadataAudit
+      ? $metadataAudit.totals.flagged + $metadataAudit.seasonsFlagged + $metadataAudit.totals.needsThumb
+      : 0
+  );
+
+  const scanning = $derived($coverageLoading || $metadataAuditLoading);
+  let syncing = $state(false);
+
+  // One button, both scans: the disk-vs-catalog diff and the Plex metadata audit.
+  async function scanAll() {
+    await Promise.all([runCoverageScan(), runMetadataAuditScan()]);
+  }
+
+  // Reconcile: push flagged metadata + trigger thumbnail generation. The server
+  // re-audits afterward and the status poll pulls the fresh report.
+  async function syncFlagged() {
+    syncing = true;
+    try {
+      const res = await postAction("metadata-sync");
+      toast(res.message, res.ok);
+    } catch {
+      toast("Metadata reconcile failed", false);
+    } finally {
+      syncing = false;
+      refreshStatus();
+    }
+  }
+
+  // Extra tooltip lines for a chip from the metadata audit, when it has findings.
+  function metaLines(ep: CoverageEpisode): string {
+    const m = metaByEp.get(ep.seasonEpisodeId);
+    if (!m) return "";
+    const lines: string[] = [];
+    if (m.state === "missing" || m.state === "drifted") lines.push(META_LABEL[m.state]);
+    if (m.needsThumb) lines.push("no thumbnail — will generate");
+    if (m.thumbUnavailable) lines.push("no thumbnail — generation gave up");
+    return lines.length ? "\n" + lines.join("\n") : "";
+  }
 
   interface ModalState {
     ep: CoverageEpisode;
@@ -216,162 +281,234 @@
   <div class="card-body p-4 gap-4">
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
-        <h2 class="eyebrow">Library Coverage</h2>
+        <h2 class="eyebrow">Library</h2>
         <p class="text-xs opacity-60">
-          Scans your media folder and diffs it against the One Pace catalog.
+          Your media folder and Plex, diffed against the One Pace catalog — coverage, metadata, and thumbnails.
         </p>
       </div>
-      <div
-        class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
-        data-tip="Scans your media folder and diffs it against the One Pace catalog to show which episodes are present, missing, or upgradeable (on disk but out of date). Read-only."
-      >
-        <button
-          class="btn btn-sm btn-primary"
-          class:loading={$coverageLoading}
-          disabled={$coverageLoading || $status?.busy}
-          onclick={runCoverageScan}
+      <div class="flex gap-2">
+        {#if $metadataAudit}
+          <div
+            class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+            data-tip="Pushes the flagged missing/drifted metadata to Plex and triggers thumbnail generation for episodes missing one. Only touches what's flagged, not the whole library."
+          >
+            <button
+              class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
+              class:loading={syncing}
+              disabled={syncing || scanning || $status?.busy}
+              onclick={syncFlagged}
+            >
+              {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
+            </button>
+          </div>
+        {/if}
+        <div
+          class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+          data-tip="Scans your media folder for coverage (present / missing / upgradeable) and checks Plex for missing or drifted metadata and absent thumbnails. Read-only — makes no changes."
         >
-          {$coverageLoading ? "Scanning…" : $coverage ? "Re-scan" : "Scan library"}
-        </button>
+          <button
+            class="btn btn-sm btn-primary"
+            class:loading={scanning}
+            disabled={scanning || syncing || $status?.busy}
+            onclick={scanAll}
+          >
+            {scanning ? "Scanning…" : $coverage || $metadataAudit ? "Re-scan" : "Scan library"}
+          </button>
+        </div>
       </div>
     </div>
 
-    {#if $coverage}
-      {@const t = $coverage.totals}
-      {#if !$coverage.mediaPathExists}
+    {#if $coverage || $metadataAudit}
+      {#if $coverage && !$coverage.mediaPathExists}
         <div class="alert alert-warning text-sm">
           Media path <code class="font-mono">{$coverage.mediaPath}</code> not found — nothing to scan.
         </div>
       {/if}
 
       <!-- Totals -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
-        <div class="deck-card card bg-base-100/60">
-          <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Coverage</span>
-            <span class="font-display text-2xl tabular-nums">{pct(t.present, t.episodes)}%</span>
-            <span class="text-[0.65rem] opacity-50">{t.present} / {t.episodes} episodes</span>
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+        {#if $coverage}
+          {@const t = $coverage.totals}
+          <div class="deck-card card bg-base-100/60">
+            <div class="card-body p-3 gap-0.5">
+              <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Coverage</span>
+              <span class="font-display text-2xl tabular-nums">{pct(t.present, t.episodes)}%</span>
+              <span class="text-[0.65rem] opacity-50">{t.present} / {t.episodes} episodes</span>
+            </div>
           </div>
-        </div>
-        <div class="deck-card card bg-base-100/60">
-          <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Missing</span>
-            <span class="font-display text-2xl tabular-nums text-error/80">{t.missing}</span>
+          <div class="deck-card card bg-base-100/60">
+            <div class="card-body p-3 gap-0.5">
+              <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Missing</span>
+              <span class="font-display text-2xl tabular-nums text-error/80">{t.missing}</span>
+              <span class="text-[0.65rem] opacity-50">not on disk</span>
+            </div>
           </div>
-        </div>
-        <button
-          class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default"
-          disabled={upgradeNow.length === 0}
-          onclick={openBatchModal}
-        >
-          <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgrade Now</span>
-            <span class="font-display text-2xl tabular-nums text-info">{upgradeNow.length}</span>
-            <span class="text-[0.65rem] opacity-50">link ready</span>
+          <button
+            class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default"
+            disabled={upgradeNow.length === 0}
+            onclick={openBatchModal}
+          >
+            <div class="card-body p-3 gap-0.5">
+              <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Upgrade Now</span>
+              <span class="font-display text-2xl tabular-nums text-info">{upgradeNow.length}</span>
+              <span class="text-[0.65rem] opacity-50">link ready</span>
+            </div>
+          </button>
+          <div class="deck-card card bg-base-100/60">
+            <div class="card-body p-3 gap-0.5">
+              <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Cannot Upgrade</span>
+              <span class="font-display text-2xl tabular-nums text-warning">{cannotUpgrade.length}</span>
+              <span class="text-[0.65rem] opacity-50">no link yet</span>
+            </div>
           </div>
-        </button>
-        <div class="deck-card card bg-base-100/60">
-          <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Cannot Upgrade Automatically</span>
-            <span class="font-display text-2xl tabular-nums text-warning">{cannotUpgrade.length}</span>
-            <span class="text-[0.65rem] opacity-50">no link</span>
-          </div>
-        </div>
-        <div class="deck-card card bg-base-100/60">
-          <div class="card-body p-3 gap-0.5">
-            <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Extras</span>
-            <span class="font-display text-2xl tabular-nums opacity-70">{$coverage.extras.length}</span>
-            <span class="text-[0.65rem] opacity-50">unmatched files</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="flex flex-col gap-1.5">
-        {#each $coverage.arcs as arc (arc.arcPart)}
-          {@const complete = arc.missing === 0 && arc.upgradeable === 0 && arc.downloading === 0}
-          <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
-            <button
-              class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left"
-              title={arc.seasonFolder
-                ? `${$coverage.mediaPath}/${arc.seasonFolder}`
-                : "No season folder on disk yet"}
-              onclick={() => toggle(arc.arcPart)}
-            >
-              <span class="opacity-40 text-xs w-3">{open[arc.arcPart] ? "▾" : "▸"}</span>
-              <span class="font-mono text-xs opacity-50 tabular-nums">S{String(arc.arcPart).padStart(2, "0")}</span>
-              <span class="flex-1 truncate text-sm">{arc.arcTitle}</span>
-              {#if arc.upgradeable > 0}
-                <span class="badge badge-sm badge-warning">{arc.upgradeable} ↑</span>
-              {/if}
-              {#if arc.downloading > 0}
-                <span class="badge badge-sm badge-accent">{arc.downloading} ↓</span>
-              {/if}
-              {#if arc.missing > 0}
-                <span class="badge badge-sm badge-error badge-outline">{arc.missing} missing</span>
-              {/if}
-              {#if complete}
-                <span class="badge badge-sm badge-success badge-outline">complete</span>
-              {/if}
-              <span class="text-xs tabular-nums opacity-60 w-14 text-right">
-                {arc.present}/{arc.total}
+        {/if}
+        {#if $metadataAudit}
+          {@const a = $metadataAudit.totals}
+          <div class="deck-card card bg-base-100/60">
+            <div class="card-body p-3 gap-0.5">
+              <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Metadata flagged</span>
+              <span class="font-display text-2xl tabular-nums {a.flagged + $metadataAudit.seasonsFlagged > 0 ? 'text-warning' : 'text-success'}">
+                {a.flagged + $metadataAudit.seasonsFlagged}
               </span>
-              <div class="hidden sm:block w-24">
-                <progress class="progress progress-success h-1.5" value={arc.present} max={arc.total}></progress>
-              </div>
-            </button>
-
-            {#if open[arc.arcPart]}
-              <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
-                {#each arc.episodes as ep (ep.seasonEpisodeId)}
-                  {#if ep.status === "upgradeable"}
-                    <button
-                      class="badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
-                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${ep.extended ? "upgrade to Extended cut" : "upgradeable"}${ep.hasMagnet ? " · click to download" : " · no link yet"}\nClick to compare releases`}
-                      onclick={() => openModal(ep)}
-                    >
-                      E{String(ep.episodeNum).padStart(2, "0")}
-                    </button>
-                  {:else}
-                    <span
-                      class="badge badge-sm border font-mono tabular-nums {CHIP[ep.status]}"
-                      title={`E${ep.episodeNum} · ${ep.episodeTitle}\n${LABEL[ep.status]}${ep.diskFilename ? "\n" + ep.diskFilename : ""}`}
-                    >
-                      E{String(ep.episodeNum).padStart(2, "0")}
-                    </span>
-                  {/if}
-                {/each}
-              </div>
-            {/if}
+              <span class="text-[0.65rem] opacity-50">
+                {a.missing} missing · {a.drifted} drifted{$metadataAudit.seasonsFlagged ? ` · ${$metadataAudit.seasonsFlagged} season(s)` : ""}
+              </span>
+            </div>
           </div>
-        {/each}
+          <div class="deck-card card bg-base-100/60">
+            <div class="card-body p-3 gap-0.5">
+              <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Missing thumbnails</span>
+              <span class="font-display text-2xl tabular-nums {a.needsThumb > 0 ? 'text-info' : 'text-success'}">{a.needsThumb}</span>
+              <span class="text-[0.65rem] opacity-50">
+                {a.thumbUnavailable > 0 ? `${a.thumbUnavailable} unavailable` : "to generate"}
+              </span>
+            </div>
+          </div>
+        {/if}
       </div>
 
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-info/50"></span> upgradeable (link ready)</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> upgradeable (no link)</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-accent/50"></span> downloading</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
-        <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm border border-dashed border-success/50"></span> not in catalog yet</span>
-      </div>
+      {#if $coverage}
+        <div class="flex flex-col gap-1.5">
+          {#each $coverage.arcs as arc (arc.arcPart)}
+            {@const complete = arc.missing === 0 && arc.upgradeable === 0 && arc.downloading === 0}
+            {@const meta = metaByArc.get(arc.arcPart)}
+            {@const metaFlagged = meta ? meta.missing + meta.drifted : 0}
+            {@const seasonFlagged = meta ? meta.seasonState === "missing" || meta.seasonState === "drifted" : false}
+            <div class="rounded-lg border border-base-content/10 bg-base-100/40 overflow-hidden">
+              <button
+                class="w-full flex items-center gap-3 px-3 py-2 hover:bg-base-content/5 text-left"
+                title={arc.seasonFolder
+                  ? `${$coverage.mediaPath}/${arc.seasonFolder}`
+                  : "No season folder on disk yet"}
+                onclick={() => toggle(arc.arcPart)}
+              >
+                <span class="opacity-40 text-xs w-3">{open[arc.arcPart] ? "▾" : "▸"}</span>
+                <span class="font-mono text-xs opacity-50 tabular-nums">S{String(arc.arcPart).padStart(2, "0")}</span>
+                <span class="flex-1 truncate text-sm">{arc.arcTitle}</span>
+                {#if arc.upgradeable > 0}
+                  <span class="badge badge-sm badge-warning">{arc.upgradeable} ↑</span>
+                {/if}
+                {#if arc.downloading > 0}
+                  <span class="badge badge-sm badge-accent">{arc.downloading} ↓</span>
+                {/if}
+                {#if arc.missing > 0}
+                  <span class="badge badge-sm badge-error badge-outline">{arc.missing} missing</span>
+                {/if}
+                {#if metaFlagged > 0 || seasonFlagged}
+                  <span class="badge badge-sm badge-warning badge-outline">
+                    {metaFlagged > 0 ? `${metaFlagged} meta` : "season meta"}
+                  </span>
+                {/if}
+                {#if meta && meta.needsThumb > 0}
+                  <span class="badge badge-sm badge-info badge-outline">{meta.needsThumb} thumb</span>
+                {/if}
+                {#if complete && metaFlagged === 0 && !seasonFlagged && (!meta || meta.needsThumb === 0)}
+                  <span class="badge badge-sm badge-success badge-outline">complete</span>
+                {/if}
+                <span class="text-xs tabular-nums opacity-60 w-14 text-right">
+                  {arc.present}/{arc.total}
+                </span>
+                <div class="hidden sm:block w-24">
+                  <progress class="progress progress-success h-1.5" value={arc.present} max={arc.total}></progress>
+                </div>
+              </button>
 
-      {#if $coverage.extras.length > 0}
-        <details class="text-xs">
-          <summary class="cursor-pointer opacity-60 hover:opacity-100">
-            {$coverage.extras.length} file(s) on disk not in the catalog
-          </summary>
-          <ul class="mt-2 pl-4 flex flex-col gap-0.5 font-mono opacity-60 max-h-40 overflow-y-auto">
-            {#each $coverage.extras as f}
-              <li class="truncate">{f}</li>
-            {/each}
-          </ul>
-        </details>
+              {#if open[arc.arcPart]}
+                <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
+                  {#each arc.episodes as ep (ep.seasonEpisodeId)}
+                    {@const m = metaByEp.get(ep.seasonEpisodeId)}
+                    <div
+                      class="tooltip before:max-w-xs before:whitespace-pre-line before:text-left"
+                      data-tip={`E${ep.episodeNum} · ${ep.episodeTitle}\n${
+                        ep.status === "upgradeable"
+                          ? `${ep.extended ? "upgrade to Extended cut" : "upgradeable"}${ep.hasMagnet ? " · click to download" : " · no link yet"}\nClick to compare releases`
+                          : LABEL[ep.status]
+                      }${metaLines(ep)}${ep.diskFilename ? "\n" + ep.diskFilename : ""}`}
+                    >
+                      {#if ep.status === "upgradeable"}
+                        <button
+                          class="relative badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
+                          onclick={() => openModal(ep)}
+                        >
+                          E{String(ep.episodeNum).padStart(2, "0")}
+                          {#if m?.needsThumb}
+                            <span class="absolute -top-1 -right-1 size-1.5 rounded-full bg-info"></span>
+                          {:else if m?.thumbUnavailable}
+                            <span class="absolute -top-1 -right-1 size-1.5 rounded-full bg-base-content/40"></span>
+                          {/if}
+                        </button>
+                      {:else}
+                        <span
+                          class="relative badge badge-sm border font-mono tabular-nums {CHIP[ep.status]}"
+                        >
+                          E{String(ep.episodeNum).padStart(2, "0")}
+                          {#if m?.needsThumb}
+                            <span class="absolute -top-1 -right-1 size-1.5 rounded-full bg-info"></span>
+                          {:else if m?.thumbUnavailable}
+                            <span class="absolute -top-1 -right-1 size-1.5 rounded-full bg-base-content/40"></span>
+                          {/if}
+                        </span>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+          {/each}
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-success/40"></span> present</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-info/50"></span> upgradeable (link ready)</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-warning/50"></span> upgradeable (no link)</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-accent/50"></span> downloading</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-error/40"></span> missing</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm bg-base-content/20"></span> no CRC in name</span>
+          <span class="inline-flex items-center gap-1"><span class="size-2 rounded-sm border border-dashed border-success/50"></span> not in catalog yet</span>
+          <span class="inline-flex items-center gap-1"><span class="size-1.5 rounded-full bg-info"></span> no thumbnail</span>
+        </div>
+
+        {#if $coverage.extras.length > 0}
+          <details class="text-xs">
+            <summary class="cursor-pointer opacity-60 hover:opacity-100">
+              {$coverage.extras.length} file(s) on disk not in the catalog
+            </summary>
+            <ul class="mt-2 pl-4 flex flex-col gap-0.5 font-mono opacity-60 max-h-40 overflow-y-auto">
+              {#each $coverage.extras as f}
+                <li class="truncate">{f}</li>
+              {/each}
+            </ul>
+          </details>
+        {/if}
       {/if}
 
-      <p class="text-[0.65rem] opacity-40">Scanned {fmtTime($coverage.scannedAt)}</p>
-    {:else if !$coverageLoading}
-      <p class="text-sm opacity-50">Run a scan to see which episodes you have, are missing, or can upgrade.</p>
+      <p class="text-[0.65rem] opacity-40">
+        {#if $coverage}Library scanned {fmtTime($coverage.scannedAt)}{/if}{#if $coverage && $metadataAudit} · {/if}{#if $metadataAudit}metadata audited {fmtTime($metadataAudit.scannedAt)}{/if}
+      </p>
+    {:else if !scanning}
+      <p class="text-sm opacity-50">
+        Run a scan to see which episodes you have, are missing, or can upgrade — and which are missing metadata or thumbnails in Plex.
+      </p>
     {/if}
   </div>
 </section>
