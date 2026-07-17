@@ -75,14 +75,15 @@
         </p>
       </div>
       <div class="flex gap-2">
-        {#if $metadataAudit && flaggedCount > 0}
+        {#if $metadataAudit}
           <button
-            class="btn btn-sm btn-warning"
+            class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
             class:loading={syncing}
             disabled={syncing || $metadataAuditLoading}
+            title="Push flagged metadata to Plex and trigger any missing thumbnails"
             onclick={syncFlagged}
           >
-            {syncing ? "Reconciling…" : `Reconcile (${flaggedCount})`}
+            {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
           </button>
         {/if}
         <button
