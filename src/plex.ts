@@ -347,31 +347,39 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
   return { seasons, episodes };
 }
 
+// ok = 2xx with bytes; status = a non-2xx HTTP response (e.g. 404 — the thumb
+// resource is genuinely gone); null status = a network error / timeout (transient).
+export type ThumbFetch = { ok: true; buf: Buffer } | { ok: false; status: number | null };
+
 /**
  * Fetches a thumbnail's bytes. `transcoded` = true asks Plex's photo transcoder
- * for a small JPEG (cheap to decode, forced to a format jpeg-js handles); false
- * fetches the raw stored image. The caller tries both so an undecodable
- * transcode can fall back to the raw image. Returns null on request failure.
+ * for a small JPEG (cheap to decode); false fetches the raw stored image. The
+ * caller tries both, so an undecodable transcode can fall back to the raw image,
+ * and distinguishes a genuine 404 (dangling thumb) from a transient failure.
  */
-export async function fetchThumbBytes(thumbPath: string, transcoded: boolean): Promise<Buffer | null> {
+export async function fetchThumbBytes(thumbPath: string, transcoded: boolean): Promise<ThumbFetch> {
   const { PLEX_URL } = getConfig();
   try {
-    if (transcoded) {
-      const resp = await axios.get(`${PLEX_URL}/photo/:/transcode`, {
-        params: { ...baseParams(), width: 96, height: 96, minSize: 1, format: "jpg", url: thumbPath },
-        responseType: "arraybuffer",
-        timeout: 10_000,
-      });
-      return Buffer.from(resp.data);
+    const resp = transcoded
+      ? await axios.get(`${PLEX_URL}/photo/:/transcode`, {
+          params: { ...baseParams(), width: 96, height: 96, minSize: 1, format: "jpg", url: thumbPath },
+          responseType: "arraybuffer",
+          timeout: 10_000,
+          validateStatus: () => true,
+        })
+      : await axios.get(`${PLEX_URL}${thumbPath}`, {
+          params: baseParams(),
+          responseType: "arraybuffer",
+          timeout: 10_000,
+          validateStatus: () => true,
+        });
+    if (resp.status >= 200 && resp.status < 300) {
+      const buf = Buffer.from(resp.data);
+      return buf.length > 0 ? { ok: true, buf } : { ok: false, status: resp.status };
     }
-    const resp = await axios.get(`${PLEX_URL}${thumbPath}`, {
-      params: baseParams(),
-      responseType: "arraybuffer",
-      timeout: 10_000,
-    });
-    return Buffer.from(resp.data);
+    return { ok: false, status: resp.status };
   } catch {
-    return null;
+    return { ok: false, status: null };
   }
 }
 

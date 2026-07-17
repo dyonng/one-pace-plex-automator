@@ -130,24 +130,31 @@ function thumbStats(buf: Buffer): ThumbStats | null {
 type ThumbAnalysis =
   | { kind: "stats"; stats: ThumbStats }
   | { kind: "undecodable"; sig: string } // fetched bytes, but not a valid image
-  | { kind: "unfetchable" };             // couldn't fetch at all — transient
+  | { kind: "missing"; status: number }  // server returned non-2xx (e.g. 404 — dangling thumb)
+  | { kind: "unfetchable" };             // network error / timeout — transient
 
 /**
  * Fetches a thumbnail and analyzes it. Tries the small transcode first, then
- * the raw image. A valid thumbnail decodes as JPEG or PNG; if we got bytes but
- * neither variant decodes, the thumbnail itself is broken/empty (undecodable) —
- * distinct from a transient fetch failure (unfetchable).
+ * the raw image. A valid thumbnail decodes as JPEG or PNG. Distinguishes: got
+ * bytes but can't decode (undecodable → broken); server said non-2xx like 404
+ * (missing → dangling reference); pure network failure (unfetchable → transient).
  */
 async function analyzeThumb(thumbPath: string): Promise<ThumbAnalysis> {
   let sig = "";
+  let httpStatus: number | null = null;
   for (const transcoded of [true, false]) {
-    const buf = await fetchThumbBytes(thumbPath, transcoded);
-    if (!buf || buf.length === 0) continue;
-    if (!sig) sig = `${transcoded ? "t" : "r"}${buf.length}:${buf.subarray(0, 4).toString("hex")}`;
-    const stats = thumbStats(buf);
-    if (stats !== null) return { kind: "stats", stats };
+    const r = await fetchThumbBytes(thumbPath, transcoded);
+    if (r.ok) {
+      if (!sig) sig = `${transcoded ? "t" : "r"}${r.buf.length}:${r.buf.subarray(0, 4).toString("hex")}`;
+      const stats = thumbStats(r.buf);
+      if (stats !== null) return { kind: "stats", stats };
+    } else if (r.status !== null) {
+      httpStatus = r.status; // a definitive server response (not a transient error)
+    }
   }
-  return sig ? { kind: "undecodable", sig } : { kind: "unfetchable" };
+  if (sig) return { kind: "undecodable", sig };
+  if (httpStatus !== null) return { kind: "missing", status: httpStatus };
+  return { kind: "unfetchable" };
 }
 
 /** A thumbnail is blank if it's mostly transparent or a single color. */
@@ -182,8 +189,10 @@ async function detectBlankThumbs(
 
   let blankFound = 0;
   let brokenFound = 0;
+  let missingFound = 0;
   const unfetchableIds: string[] = [];
   const brokenSigs: string[] = [];
+  const missingInfo: string[] = [];
   const measured: { id: string; std: number; tf: number }[] = [];
   let cursor = 0;
   const worker = async () => {
@@ -194,15 +203,19 @@ async function detectBlankThumbs(
         unfetchableIds.push(id); // transient — leave uncached, retry next pass
         continue;
       }
-      // A thumbnail we fetched but can't decode as any known image format is
-      // broken/empty (a valid thumb decodes) — treat it as blank so it gets
-      // regenerated, and cache it so we don't re-fetch every pass.
-      const blank = res.kind === "undecodable" ? true : isBlankStats(res.stats);
+      // Undecodable (fetched bytes, not a valid image) or missing (404 — the
+      // thumb resource is gone) both mean there's no usable thumbnail. A valid
+      // one decodes; these don't. Treat as blank so they get regenerated, and
+      // cache so we don't re-fetch every pass.
+      const blank = res.kind === "stats" ? isBlankStats(res.stats) : true;
       setThumbCheck(id, thumbCacheKey(path), blank);
       blankById.set(id, blank);
       if (res.kind === "undecodable") {
         brokenFound++;
         if (brokenSigs.length < 20) brokenSigs.push(`${id}[${res.sig}]`);
+      } else if (res.kind === "missing") {
+        missingFound++;
+        if (missingInfo.length < 20) missingInfo.push(`${id}:${res.status}`);
       } else {
         measured.push({ id, std: res.stats.rgbStddev, tf: res.stats.transparentFrac });
       }
@@ -217,11 +230,13 @@ async function detectBlankThumbs(
     .slice(0, 10)
     .map((m) => `${m.id}:std${m.std.toFixed(1)}/tr${Math.round(m.tf * 100)}%`);
   logger.info("Thumbnail blank-frame analysis", {
-    analyzed: measured.length + brokenFound,
+    analyzed: measured.length,
     blank: blankFound,
-    broken: brokenFound,        // fetched but not a decodable image → treated as blank
-    brokenSigs,                 // "<id>[<t|r><bytes>:<first4hex>]" for diagnosis
-    unfetchable: unfetchableIds.length, // couldn't fetch — transient, retried next pass
+    broken: brokenFound,        // fetched but not a decodable image
+    brokenSigs,                 // "<id>[<t|r><bytes>:<first4hex>]"
+    missing: missingFound,      // server returned non-2xx (dangling thumb ref)
+    missingInfo,                // "<id>:<httpStatus>"
+    unfetchable: unfetchableIds.length, // network error — transient, retried next pass
     lowest,
   });
   return blankById;
