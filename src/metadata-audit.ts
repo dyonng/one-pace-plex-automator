@@ -569,8 +569,14 @@ export async function reconcilePlexMetadata(
   if (doThumbs) {
     for (const { id, ratingKey } of thumbsToGen) {
       try {
+        // Refresh re-extracts the episode still (the important part). Analyze
+        // adds scrubber previews but is optional — don't let it fail the trigger.
         await refreshItem(ratingKey);
-        await analyzeItem(ratingKey);
+        try {
+          await analyzeItem(ratingKey);
+        } catch (err) {
+          logger.debug("Reconcile: analyze failed (non-fatal)", { id, error: (err as Error).message });
+        }
         bumpThumbAttempt(id);
         thumbsTriggered++;
       } catch (err) {

@@ -41,13 +41,6 @@ async function plexPut(path: string, params: Record<string, string | number> = {
   });
 }
 
-async function plexPost(path: string): Promise<void> {
-  const { PLEX_URL } = getConfig();
-  await axios.post(`${PLEX_URL}${path}`, null, {
-    params: baseParams(),
-    timeout: 15_000,
-  });
-}
 
 // Resolved once at first use, reused for the lifetime of the process
 let _sectionId: string | null = null;
@@ -132,7 +125,8 @@ export async function refreshShow(): Promise<void> {
   const sectionId = await resolveSectionId();
   const showKey = await resolveShowRatingKey(sectionId);
   logger.info("Refreshing Plex show metadata", { ratingKey: showKey });
-  await plexPost(`/library/metadata/${showKey}/refresh`);
+  // Refresh is a PUT (POST 404s — see refreshItem).
+  await plexPut(`/library/metadata/${showKey}/refresh`);
 }
 
 // Build a map of seasonEpisodeId ("s01e03") → ratingKey for fast lookups
@@ -390,10 +384,10 @@ export async function fetchThumbBytes(thumbPath: string, transcoded: boolean): P
  * scan, not synchronously.
  */
 export async function refreshItem(ratingKey: string): Promise<void> {
-  // Match refreshShow()'s proven POST form for the refresh endpoint. force=1 is
-  // what the web UI's "Refresh Metadata" sends — it makes Plex re-acquire
-  // artwork even when it thinks nothing changed.
-  await plexPost(`/library/metadata/${ratingKey}/refresh?force=1`);
+  // Refresh is a PUT (matches python-plexapi's item.refresh()); POST 404s.
+  // force=1 is the web UI's "Refresh Metadata" flag — re-acquire artwork even
+  // when Plex thinks nothing changed.
+  await plexPut(`/library/metadata/${ratingKey}/refresh`, { force: 1 });
 }
 
 /**
