@@ -12,6 +12,10 @@ Always create new branches off the default branch (`main`) unless explicitly tol
 
 ## Commits & CI
 
+- **Keep `CHANGELOG.md` up to date**: every user-facing change (feature, fix, behavior change)
+  adds an entry under `## [Unreleased]` in the same commit as the code. Docs-only, CI-only, and
+  pure-refactor commits don't need entries. When cutting a GitHub release, roll the Unreleased
+  entries into a version heading with the date.
 - The pre-commit hook (`.githooks/pre-commit`) auto-bumps the patch version, but skips the bump
   for docs-only commits (changes confined to `*.md`, `docs/`, `.github/`, `.githooks/`).
 - Pushes to `main` build and publish a Docker image (`.github/workflows/docker.yml`); docs-only
