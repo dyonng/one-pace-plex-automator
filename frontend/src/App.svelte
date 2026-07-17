@@ -5,8 +5,7 @@
   import NewReleases from "./lib/NewReleases.svelte";
   import Controls from "./lib/Controls.svelte";
   import System from "./lib/System.svelte";
-  import Coverage from "./lib/Coverage.svelte";
-  import MetadataAudit from "./lib/MetadataAudit.svelte";
+  import Library from "./lib/Library.svelte";
   import InfoCards from "./lib/InfoCards.svelte";
   import Settings from "./lib/Settings.svelte";
   import Episodes from "./lib/Episodes.svelte";
@@ -35,8 +34,7 @@
   <NewReleases />
   <System />
   <Controls />
-  <Coverage />
-  <MetadataAudit />
+  <Library />
   <InfoCards />
   <Episodes />
   <Logs />

@@ -24,7 +24,7 @@ choice of logo).
 | Control | What it does |
 |---------|--------------|
 | **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. With auto-reconcile on, it also pushes any changed metadata and generates missing thumbnails. |
-| **Metadata & Thumbnails → Scan / Reconcile** | Scan diffs Plex against the dataset, flagging episodes with missing/drifted metadata or no thumbnail. Reconcile fixes only the flagged ones — pushing metadata and triggering thumbnail generation. See [below](#metadata--thumbnails). |
+| **Library → Scan / Reconcile** | Scan checks your media folder for coverage (present/missing/upgradeable) and diffs Plex against the dataset, flagging episodes with missing/drifted metadata or no thumbnail. Reconcile fixes only the flagged ones — pushing metadata and triggering thumbnail generation. See [below](#metadata--thumbnails). |
 | **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
 | **Retry failed** | Re-queues episodes whose download or processing failed. |
 | **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
@@ -49,9 +49,10 @@ exactly which episodes changed and re-syncs only those, no full library sweep.
   One Pace doesn't ship per-episode stills, so Plex makes them from the video.
 
 This runs automatically after every **Refresh Sources** and whenever a new
-episode is added (`AUTO_RECONCILE`, on by default). The **Metadata & Thumbnails**
-card shows the current state and lets you scan or reconcile on demand; turn
-`AUTO_RECONCILE` off to make it manual-only.
+episode is added (`AUTO_RECONCILE`, on by default). The **Library** card shows
+the current state (coverage, metadata, and thumbnails in one per-arc view) and
+lets you scan or reconcile on demand; turn `AUTO_RECONCILE` off to make it
+manual-only.
 
 ### Library coverage & upgrades
 
