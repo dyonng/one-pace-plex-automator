@@ -90,6 +90,23 @@
     }
   }
 
+  let retryingThumbs = $state(false);
+
+  // Reset attempt counters (incl. episodes written off as unavailable) and
+  // re-request generation from Plex for everything still missing a thumbnail.
+  async function retryThumbs() {
+    retryingThumbs = true;
+    try {
+      const res = await postAction("retry-thumbs");
+      toast(res.message, res.ok);
+    } catch {
+      toast("Thumbnail retry failed", false);
+    } finally {
+      retryingThumbs = false;
+      refreshStatus();
+    }
+  }
+
   // Extra tooltip lines for a chip from the metadata audit, when it has findings.
   function metaLines(ep: CoverageEpisode): string {
     const m = metaByEp.get(ep.seasonEpisodeId);
@@ -287,6 +304,21 @@
         </p>
       </div>
       <div class="flex gap-2">
+        {#if $metadataAudit && ($metadataAudit.totals.needsThumb > 0 || $metadataAudit.totals.thumbUnavailable > 0)}
+          <div
+            class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+            data-tip="Asks Plex to generate a thumbnail again for every episode missing one — including those previous attempts gave up on. Generation runs in Plex's background queue, so results show up on a later scan."
+          >
+            <button
+              class="btn btn-sm btn-outline btn-info"
+              class:loading={retryingThumbs}
+              disabled={retryingThumbs || syncing || scanning || $status?.busy}
+              onclick={retryThumbs}
+            >
+              {retryingThumbs ? "Requesting…" : "Retry thumbnails"}
+            </button>
+          </div>
+        {/if}
         {#if $metadataAudit}
           <div
             class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
@@ -295,7 +327,7 @@
             <button
               class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
               class:loading={syncing}
-              disabled={syncing || scanning || $status?.busy}
+              disabled={syncing || scanning || retryingThumbs || $status?.busy}
               onclick={syncFlagged}
             >
               {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
@@ -309,7 +341,7 @@
           <button
             class="btn btn-sm btn-primary"
             class:loading={scanning}
-            disabled={scanning || syncing || $status?.busy}
+            disabled={scanning || syncing || retryingThumbs || $status?.busy}
             onclick={scanAll}
           >
             {scanning ? "Scanning…" : $coverage || $metadataAudit ? "Re-scan" : "Scan library"}

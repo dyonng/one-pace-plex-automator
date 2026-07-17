@@ -9,6 +9,7 @@ import {
   setAppliedMeta,
   bumpThumbAttempt,
   resetThumbAttempts,
+  resetAllThumbAttempts,
   type MetaStateRow,
 } from "./db";
 import {
@@ -39,6 +40,10 @@ const KV_SCANNED_AT = "metadata_audit_scanned_at";
 // Stop re-triggering thumbnail generation after this many attempts — some
 // episodes Plex simply can't/won't thumbnail, and we don't want to hammer it.
 const THUMB_ATTEMPT_CAP = 3;
+// Generation is asynchronous (Plex queues the analysis), so give it real time
+// between attempts. Without this, back-to-back auto-reconciles would burn the
+// whole attempt budget before Plex has worked through its queue.
+const THUMB_RETRY_SPACING_MS = 30 * 60 * 1000;
 
 export type MetadataState =
   | "ok"           // Plex matches the dataset (applied == desired)
@@ -237,10 +242,18 @@ async function buildReconcile(): Promise<ReconcileResult> {
     }
 
     const plexEp = snapshot.episodes.get(ep.seasonEpisodeId);
-    const view = reconcileEpisodeState(ep, plexEp, prevStates.get(ep.seasonEpisodeId));
+    const prev = prevStates.get(ep.seasonEpisodeId);
+    const view = reconcileEpisodeState(ep, plexEp, prev);
 
     if (view.needsMetadata && plexEp) episodesToPush.push({ ep, ratingKey: plexEp.ratingKey });
-    if (view.needsThumb && plexEp) thumbsToGen.push({ id: ep.seasonEpisodeId, ratingKey: plexEp.ratingKey });
+    // Only re-trigger generation once the previous attempt has had time to work
+    // through Plex's async analysis queue — the episode still counts as
+    // needsThumb in the report either way.
+    const lastAttempt = prev?.thumb_last_attempt_at ?? null;
+    const attemptDue = lastAttempt === null || Date.now() - lastAttempt >= THUMB_RETRY_SPACING_MS;
+    if (view.needsThumb && plexEp && attemptDue) {
+      thumbsToGen.push({ id: ep.seasonEpisodeId, ratingKey: plexEp.ratingKey });
+    }
 
     arc.total++;
     if (view.state === "ok") arc.ok++;
@@ -376,6 +389,18 @@ export async function reconcilePlexMetadata(
   };
   logger.info("Reconcile complete", { ...summary });
   return summary;
+}
+
+/**
+ * Manual "try again" for thumbnails: clears every episode's attempt counter
+ * (including the ones that hit the cap and were written off), then runs a
+ * reconcile so refresh(force)+analyze fires immediately for everything still
+ * missing a thumbnail. Generation is async — results appear on later scans.
+ */
+export async function retryThumbnails(): Promise<ReconcileSummary & { reset: number }> {
+  const reset = resetAllThumbAttempts();
+  const summary = await reconcilePlexMetadata({ thumbnails: true });
+  return { ...summary, reset };
 }
 
 /**

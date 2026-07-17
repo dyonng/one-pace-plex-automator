@@ -11,7 +11,7 @@ import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
 import { clearSheetCache, prefetchSheet } from "./onepace-sheet";
 import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descriptions";
-import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource } from "./metadata-audit";
+import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource, retryThumbnails } from "./metadata-audit";
 import { getAutoReconcile } from "./settings";
 import { logger } from "./logger";
 
@@ -61,6 +61,7 @@ export type ActionId =
   | "sync"
   | "metadata-scan"
   | "metadata-sync"
+  | "retry-thumbs"
   | "retry-failed"
   | "clear-done";
 
@@ -145,6 +146,20 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
               : `Reconciled ${r.episodesUpdated} episode(s)` +
                 `${r.seasonsUpdated ? `, ${r.seasonsUpdated} season(s)` : ""}` +
                 `${r.thumbsTriggered ? `, triggered ${r.thumbsTriggered} thumbnail(s)` : ""}`,
+        };
+      });
+
+    case "retry-thumbs":
+      return withLock("Retry thumbnails", async () => {
+        const r = await retryThumbnails();
+        return {
+          ok: true,
+          message:
+            r.thumbsTriggered === 0
+              ? "No episodes are missing thumbnails"
+              : `Requested thumbnail generation for ${r.thumbsTriggered} episode(s)` +
+                `${r.reset ? ` (reset ${r.reset} attempt counter(s))` : ""}. ` +
+                "Plex generates them in the background — re-scan in a few minutes.",
         };
       });
 

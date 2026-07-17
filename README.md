@@ -45,8 +45,12 @@ exactly which episodes changed and re-syncs only those, no full library sweep.
 - **Metadata** — missing (never synced) or drifted (differs from the dataset)
   titles/summaries are pushed for just the affected episodes and seasons.
 - **Thumbnails** — episodes with no thumbnail get generation triggered in Plex
-  (a still frame plus scrubber previews), retried a few times then left alone.
-  One Pace doesn't ship per-episode stills, so Plex makes them from the video.
+  (a still frame plus scrubber previews). Generation runs in Plex's background
+  queue, so results appear on a later scan; attempts are spaced ~30 minutes
+  apart and stop after a few tries. A **Retry thumbnails** button re-requests
+  generation for everything still missing one, including episodes earlier
+  attempts gave up on. One Pace doesn't ship per-episode stills, so Plex makes
+  them from the video.
 
 This runs automatically after every **Refresh Sources** and whenever a new
 episode is added (`AUTO_RECONCILE`, on by default). The **Library** card shows

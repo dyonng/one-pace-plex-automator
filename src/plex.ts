@@ -351,8 +351,10 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
  * scan, not synchronously.
  */
 export async function refreshItem(ratingKey: string): Promise<void> {
-  // Match refreshShow()'s proven POST form for the refresh endpoint.
-  await plexPost(`/library/metadata/${ratingKey}/refresh`);
+  // Match refreshShow()'s proven POST form for the refresh endpoint. force=1 is
+  // what the web UI's "Refresh Metadata" sends — it makes Plex re-acquire
+  // artwork even when it thinks nothing changed.
+  await plexPost(`/library/metadata/${ratingKey}/refresh?force=1`);
 }
 
 /**
