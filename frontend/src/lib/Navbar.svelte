@@ -11,7 +11,13 @@
       <span class="font-display font-bold tracking-wide truncate">ONE PACE <span class="text-primary">·</span> AUTOMATOR</span>
       {#if $status}
         <div class="tooltip tooltip-bottom" data-tip="View changelog">
-          <button class="badge badge-ghost badge-sm font-mono cursor-pointer hover:badge-outline" onclick={() => ($changelogOpen = true)}>
+          <button
+            class="btn btn-xs btn-ghost border border-base-content/20 hover:border-base-content/40 gap-1 font-mono normal-case"
+            onclick={() => ($changelogOpen = true)}
+          >
+            <svg class="size-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l2.5 2.5M21 12a9 9 0 11-9-9c2.52 0 4.8 1.04 6.44 2.72L21 8.25M21 3v5.25h-5.25"/>
+            </svg>
             v{$status.version}
           </button>
         </div>
