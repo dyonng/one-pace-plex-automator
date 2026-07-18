@@ -23,6 +23,8 @@ into a version heading when a GitHub release is cut.
 - **Nightly database backups** — the SQLite state is copied to
   `/data/backups/` every night at 04:00 (plus on startup when the newest backup
   is older than a day), keeping the last 7.
+- **Log filtering** — the Logs panel gained a text filter and a level selector
+  (Info+ / Warn+ / Errors), applied client-side over the live tail.
 
 ## [1.0.10 – 1.0.18] — 2026-07-17
 
