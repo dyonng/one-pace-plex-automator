@@ -19,7 +19,6 @@ export interface Runtime {
   startedAt: number;
   lastPollAt: number | null;
   lastSyncAt: number | null;
-  lastRefreshAt: number | null;
   lastRetryAt: number | null;
 }
 
@@ -27,7 +26,6 @@ export const runtime: Runtime = {
   startedAt: Date.now(),
   lastPollAt: null,
   lastSyncAt: null,
-  lastRefreshAt: null,
   lastRetryAt: null,
 };
 

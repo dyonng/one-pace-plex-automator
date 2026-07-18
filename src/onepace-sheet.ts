@@ -229,22 +229,6 @@ export async function listSheetEpisodes(): Promise<SheetEpisode[]> {
 }
 
 /**
- * The CRC32 to use for a (arc, episode) per the extended-cut preference: the
- * extended cut when one exists and `preferExtended` is set, otherwise the
- * standard cut (falling back to whichever is present). Null if not found.
- */
-export async function getSheetCrc32(
-  arcTitle: string,
-  episodeNum: number,
-  preferExtended: boolean
-): Promise<string | null> {
-  const ep = await lookupSheetEpisode(arcTitle, episodeNum);
-  if (!ep) return null;
-  if (preferExtended && ep.extendedCrc32) return ep.extendedCrc32;
-  return ep.standardCrc32 ?? ep.extendedCrc32;
-}
-
-/**
  * The resolution an arc is released in (e.g. "480p" for Loguetown), per the Arc
  * Overview tab. Used as a smarter default than a hardcoded 1080p when a release
  * filename carries no resolution tag. Null when the sheet is disabled or the arc
