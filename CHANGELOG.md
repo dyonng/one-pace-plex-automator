@@ -20,6 +20,9 @@ into a version heading when a GitHub release is cut.
 - **Automatic poster updates** — reconcile now re-checks the fan-made poster
   repo daily (ETag-conditional, so unchanged art costs nothing) and applies any
   updated posters; previously that only happened during a manual Full Plex sync.
+- **Nightly database backups** — the SQLite state is copied to
+  `/data/backups/` every night at 04:00 (plus on startup when the newest backup
+  is older than a day), keeping the last 7.
 
 ## [1.0.10 – 1.0.18] — 2026-07-17
 
