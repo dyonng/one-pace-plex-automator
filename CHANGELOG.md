@@ -14,6 +14,7 @@ into a version heading when a GitHub release is cut.
 - **What's New modal** — after an update, the dashboard greets you once with
   the changelog entries added since your last visit (last-seen version is
   remembered per browser).
+- The navbar version badge is clickable and opens the full changelog anytime.
 
 ## [1.0.10 – 1.0.18] — 2026-07-17
 
