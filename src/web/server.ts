@@ -12,6 +12,7 @@ import { describeSettings, applySetting, resetSetting, getSettingValue } from ".
 import { sendDiscordTest } from "../discord";
 import { scanCoverage, getStoredCoverage, getCoverageScannedAt } from "../coverage";
 import { scanMetadataAudit, getStoredAudit, getAuditScannedAt } from "../metadata-audit";
+import { getUpdateAvailable } from "../update-check";
 import { searchTorrents } from "../torrent-search";
 import { getQbitClient } from "../qbittorrent";
 import { getEpisodeFileSize } from "../fileops";
@@ -99,6 +100,7 @@ async function buildStatus() {
     counts: countByStatus(),
     coverageScannedAt: getCoverageScannedAt(),
     metadataAuditScannedAt: getAuditScannedAt(),
+    updateAvailable: getUpdateAvailable(),
     episodes: listEpisodes().map((e) => ({
       ...e,
       file_size: getEpisodeFileSize(e.arc_title, e.arc_part, e.final_filename),
