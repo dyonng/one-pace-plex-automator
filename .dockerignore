@@ -14,3 +14,5 @@ data
 npm-debug.log*
 old_scripts
 *.md
+# ...except the changelog — it's baked into the frontend (What's New modal).
+!CHANGELOG.md
