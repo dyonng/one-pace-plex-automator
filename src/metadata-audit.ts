@@ -36,6 +36,8 @@ import {
   type PlexMetadataSnapshot,
 } from "./plex";
 import { generateEpisodeThumb } from "./thumb-generator";
+import { syncPosters } from "./posters";
+import { getAutoPosters } from "./settings";
 
 // Latest report for the dashboard — a single upserted kv row (mirrors coverage).
 // The plex_meta_state table is the source of truth for reconcile decisions; this
@@ -52,6 +54,12 @@ const THUMB_PLEX_ATTEMPT_CAP = 3;
 const THUMB_TOTAL_ATTEMPT_CAP = 5;
 // ffmpeg generation takes ~10-20s per episode; bound each reconcile pass.
 const GENERATE_PER_PASS = 5;
+
+// Posters are ETag-checked against the poster repo during reconcile, but at
+// most once per day — reconcile runs every poll cycle and the check is ~38
+// conditional HTTP requests.
+const POSTER_RECHECK_MS = 24 * 60 * 60 * 1000;
+const KV_POSTERS_CHECKED_AT = "posters_reconcile_checked_at";
 // Generation is asynchronous (Plex queues the analysis), so give it real time
 // between attempts. Without this, back-to-back auto-reconciles would burn the
 // whole attempt budget before Plex has worked through its queue.
@@ -550,6 +558,7 @@ export interface ReconcileSummary {
   seasonsUpdated: number;
   thumbsTriggered: number;  // Plex regeneration requests fired
   thumbsGenerated: number;  // custom ffmpeg frames uploaded
+  postersApplied: number;   // posters updated by the daily drift check
   flaggedEpisodes: number;
   flaggedSeasons: number;
 }
@@ -630,6 +639,23 @@ export async function reconcilePlexMetadata(
     if (skipped > 0) logger.info("Reconcile: deferring custom thumbnails to next pass", { skipped });
   }
 
+  // Poster drift: re-check the fan-made poster repo (ETag-conditional, cheap
+  // when unchanged) at most once per day, so updated art flows in without a
+  // manual Full Plex sync. Gated on AUTO_POSTERS like the new-season path.
+  let postersApplied = 0;
+  if (getAutoPosters()) {
+    const lastChecked = Number(getKv(KV_POSTERS_CHECKED_AT) ?? 0);
+    if (Date.now() - lastChecked >= POSTER_RECHECK_MS) {
+      try {
+        const p = await syncPosters();
+        postersApplied = p.applied;
+        setKv(KV_POSTERS_CHECKED_AT, String(Date.now()));
+      } catch (err) {
+        logger.warn("Reconcile: poster check failed", { error: (err as Error).message });
+      }
+    }
+  }
+
   if (seasonsUpdated || episodesUpdated) await refreshShow();
 
   // Re-audit so the stored report reflects the pushes (Plex-triggered
@@ -642,6 +668,7 @@ export async function reconcilePlexMetadata(
     seasonsUpdated,
     thumbsTriggered,
     thumbsGenerated,
+    postersApplied,
     flaggedEpisodes: episodesToPush.length,
     flaggedSeasons: seasonsToPush.length,
   };
@@ -677,6 +704,12 @@ export async function markDirtyFromSource(): Promise<void> {
     );
   }
   logger.debug("Marked desired metadata from source", { episodes: episodes.length });
+}
+
+/** Marks the daily poster drift check as freshly done (e.g. after a manual
+ *  Full Plex sync ran syncPosters explicitly, so reconcile doesn't repeat it). */
+export function markPostersChecked(): void {
+  setKv(KV_POSTERS_CHECKED_AT, String(Date.now()));
 }
 
 /** Timestamp of the last stored audit/reconcile, or null if none has run. */

@@ -11,7 +11,7 @@ import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
 import { clearSheetCache, prefetchSheet } from "./onepace-sheet";
 import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descriptions";
-import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource, retryThumbnails } from "./metadata-audit";
+import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource, retryThumbnails, markPostersChecked } from "./metadata-audit";
 import { getAutoReconcile } from "./settings";
 import { logger } from "./logger";
 
@@ -110,6 +110,7 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
       return withLock("Full Plex sync", async () => {
         await runMetadataSync();
         const posters = await syncPosters();
+        markPostersChecked(); // reconcile's daily poster check starts fresh
         runtime.lastSyncAt = Date.now();
         return {
           ok: true,
@@ -136,7 +137,7 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
       return withLock("Metadata reconcile", async () => {
         const r = await reconcilePlexMetadata({ thumbnails: true });
         runtime.lastSyncAt = Date.now();
-        const total = r.episodesUpdated + r.seasonsUpdated + r.thumbsTriggered + r.thumbsGenerated;
+        const total = r.episodesUpdated + r.seasonsUpdated + r.thumbsTriggered + r.thumbsGenerated + r.postersApplied;
         return {
           ok: true,
           message:
@@ -145,7 +146,8 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
               : `Reconciled ${r.episodesUpdated} episode(s)` +
                 `${r.seasonsUpdated ? `, ${r.seasonsUpdated} season(s)` : ""}` +
                 `${r.thumbsTriggered ? `, triggered ${r.thumbsTriggered} thumbnail(s)` : ""}` +
-                `${r.thumbsGenerated ? `, generated ${r.thumbsGenerated} custom thumbnail(s)` : ""}`,
+                `${r.thumbsGenerated ? `, generated ${r.thumbsGenerated} custom thumbnail(s)` : ""}` +
+                `${r.postersApplied ? `, updated ${r.postersApplied} poster(s)` : ""}`,
         };
       });
 
