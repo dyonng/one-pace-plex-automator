@@ -2,12 +2,16 @@ import cron, { ScheduledTask } from "node-cron";
 import { logger } from "./logger";
 import { runAction, isBusy } from "./controls";
 import { processDownloading } from "./processor";
+import { backupDatabase, backupIfStale } from "./backup";
 import { getSettingValue, getDownloadCheckMs, getPollEnabled, settingsBus } from "./settings";
 
 const DEFAULT_CRON = "*/5 * * * *";
+// Nightly DB backup — fixed (not dashboard-editable); 04:00 avoids poll traffic.
+const BACKUP_CRON = "0 4 * * *";
 
 let task: ScheduledTask | null = null;
 let interval: NodeJS.Timeout | null = null;
+let backupTask: ScheduledTask | null = null;
 
 function scheduleCron(): void {
   task?.stop();
@@ -52,6 +56,16 @@ export function startScheduler(): void {
   scheduleCron();
   scheduleInterval();
 
+  backupTask = cron.schedule(BACKUP_CRON, async () => {
+    try {
+      await backupDatabase();
+    } catch (err) {
+      logger.warn("Scheduled database backup failed", { error: (err as Error).message });
+    }
+  });
+  // Catch-up for servers that were off at the scheduled hour.
+  void backupIfStale();
+
   // Live re-apply when the dashboard changes a schedule setting.
   settingsBus.on("changed", ({ key }: { key: string }) => {
     if (key === "POLL_CRON" || key === "POLL_ENABLED") scheduleCron();
@@ -62,6 +76,8 @@ export function startScheduler(): void {
 export function stopScheduler(): void {
   task?.stop();
   task = null;
+  backupTask?.stop();
+  backupTask = null;
   if (interval) clearInterval(interval);
   interval = null;
 }
