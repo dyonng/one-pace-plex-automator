@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { status, settingsOpen } from "./stores";
+  import { status, settingsOpen, changelogOpen } from "./stores";
   import { fmtUptime } from "./util";
   import { logo, logoUrl } from "./logo";
 </script>
@@ -10,7 +10,11 @@
       <img src={logoUrl($logo)} alt="" class="size-7 shrink-0" />
       <span class="font-display font-bold tracking-wide truncate">ONE PACE <span class="text-primary">·</span> AUTOMATOR</span>
       {#if $status}
-        <span class="badge badge-ghost badge-sm font-mono">v{$status.version}</span>
+        <div class="tooltip tooltip-bottom" data-tip="View changelog">
+          <button class="badge badge-ghost badge-sm font-mono cursor-pointer hover:badge-outline" onclick={() => ($changelogOpen = true)}>
+            v{$status.version}
+          </button>
+        </div>
       {/if}
     </div>
     <div class="flex items-center gap-3 shrink-0">

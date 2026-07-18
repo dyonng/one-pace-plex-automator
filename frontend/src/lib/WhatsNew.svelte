@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { status } from "./stores";
+  import { status, changelogOpen } from "./stores";
   import changelogRaw from "../../../CHANGELOG.md?raw";
 
   // Last dashboard version this browser has seen. Compared against the running
@@ -102,9 +102,19 @@
   const sections = parseChangelog(changelogRaw);
 
   let open = $state(false);
+  let manual = $state(false); // opened via the navbar version badge → full history
   let showSections = $state<Section[]>([]);
   let dialogEl = $state<HTMLDialogElement | null>(null);
   let handled = false;
+
+  // Manual open: show the whole changelog (skip empty sections).
+  $effect(() => {
+    if ($changelogOpen && !open) {
+      showSections = sections.filter((s) => s.blocks.length > 0);
+      manual = true;
+      open = true;
+    }
+  });
 
   $effect(() => {
     const version = $status?.version;
@@ -153,6 +163,8 @@
 
   function dismiss() {
     open = false;
+    manual = false;
+    $changelogOpen = false;
     if ($status?.version) remember($status.version);
   }
 </script>
@@ -161,9 +173,13 @@
   <div class="modal-box max-w-2xl w-full deck-card">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <div class="eyebrow">What's New</div>
-        <h3 class="font-display text-lg">Updated to v{$status?.version}</h3>
-        <p class="text-xs opacity-55">Changes since your last visit.</p>
+        <div class="eyebrow">{manual ? "Changelog" : "What's New"}</div>
+        <h3 class="font-display text-lg">
+          {manual ? `v${$status?.version}` : `Updated to v${$status?.version}`}
+        </h3>
+        {#if !manual}
+          <p class="text-xs opacity-55">Changes since your last visit.</p>
+        {/if}
       </div>
       <button class="btn btn-sm btn-circle btn-ghost" onclick={dismiss}>✕</button>
     </div>
