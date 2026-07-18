@@ -15,6 +15,8 @@ into a version heading when a GitHub release is cut.
   the changelog entries added since your last visit (last-seen version is
   remembered per browser).
 - The navbar version badge is clickable and opens the full changelog anytime.
+- **Update notifier** — the version button glows with a pulsing dot when a
+  newer image has been published (checked against the repo every 6 hours).
 
 ## [1.0.10 – 1.0.18] — 2026-07-17
 

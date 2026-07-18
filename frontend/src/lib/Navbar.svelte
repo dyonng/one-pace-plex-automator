@@ -10,15 +10,28 @@
       <img src={logoUrl($logo)} alt="" class="size-7 shrink-0" />
       <span class="font-display font-bold tracking-wide truncate">ONE PACE <span class="text-primary">·</span> AUTOMATOR</span>
       {#if $status}
-        <div class="tooltip tooltip-bottom" data-tip="View changelog">
+        <div
+          class="tooltip tooltip-bottom"
+          data-tip={$status.updateAvailable
+            ? `v${$status.updateAvailable} available — pull the new image. Click for changelog.`
+            : "View changelog"}
+        >
           <button
-            class="btn btn-xs btn-ghost border border-base-content/20 hover:border-base-content/40 gap-1 font-mono normal-case"
+            class="btn btn-xs btn-ghost border gap-1 font-mono normal-case relative {$status.updateAvailable
+              ? 'border-warning/60 text-warning hover:border-warning'
+              : 'border-base-content/20 hover:border-base-content/40'}"
             onclick={() => ($changelogOpen = true)}
           >
             <svg class="size-3 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l2.5 2.5M21 12a9 9 0 11-9-9c2.52 0 4.8 1.04 6.44 2.72L21 8.25M21 3v5.25h-5.25"/>
             </svg>
             v{$status.version}
+            {#if $status.updateAvailable}
+              <span class="absolute -top-1 -right-1 flex size-2">
+                <span class="animate-ping absolute inline-flex size-full rounded-full bg-warning opacity-75"></span>
+                <span class="relative inline-flex size-2 rounded-full bg-warning"></span>
+              </span>
+            {/if}
           </button>
         </div>
       {/if}

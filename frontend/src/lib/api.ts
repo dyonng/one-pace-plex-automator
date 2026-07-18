@@ -38,6 +38,7 @@ export interface Status {
   counts: Record<string, number>;
   coverageScannedAt: number | null;
   metadataAuditScannedAt: number | null;
+  updateAvailable: string | null; // newest published version when newer than running
   episodes: Episode[];
 }
 
