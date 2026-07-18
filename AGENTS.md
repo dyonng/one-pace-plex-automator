@@ -25,6 +25,8 @@ change). The cycle logic lives in `src/cycle.ts` (`pollRss` → `dispatchPending
   **`POLL_ENABLED`** (default `true`, dashboard-editable): when `false` the cron isn't scheduled —
   refreshing is manual-only (the dashboard "Refresh Sources" button still works); the
   download-check interval is unaffected.
+- **DB backup cron** (fixed `0 4 * * *`, not dashboard-editable) → `backupDatabase()`; plus a
+  boot-time `backupIfStale()` catch-up for servers that were off at 04:00.
 - **download-check interval** (`DOWNLOAD_CHECK_SECONDS`, default 30, dashboard-editable) →
   `processDownloading()` only (sub-minute completion check; cron can't go below 1 min). Skips the
   tick while a heavier action holds the lock.
@@ -202,6 +204,10 @@ dirty set is derived from the data change itself.
 - Idempotent and restart-safe: state is persistent, so a failed push or a mid-way restart is picked
   up next pass; it converges. Re-audits at the end so the stored report reflects the fix.
 
+**Posters** — reconcile also runs the ETag-conditional `syncPosters()` at most once per 24h (KV
+`posters_reconcile_checked_at`; a manual Full Plex sync stamps the same clock), gated on
+`AUTO_POSTERS` — so updated fan art flows in without a manual sync.
+
 **Automatic** — gated by **`AUTO_RECONCILE`** (default on): `reconcilePlexMetadata({thumbnails:true})`
 runs after every **Refresh Sources** (`runAction("refresh-sources")`) and after each **ingest**
 (`processor` `_processDownloading`, when `completed > 0`). When off, source refreshes only
@@ -227,7 +233,8 @@ stages without touching the deployment stack manager.
 - **Server** (`src/web/server.ts`) — native Node `http` (no express, small `Router` in
   `src/web/router.ts`). The dashboard **always starts**; auth is checked **per request** via
   `checkRequestAuth` so changes apply live. Routes: `GET /api/status` (includes `counts`,
-  `coverageScannedAt`, and per-episode `file_size`), `GET /api/logs`, `GET /api/logs/stream` (SSE),
+  `coverageScannedAt`, `updateAvailable` — newest published version when newer than running — and
+  per-episode `file_size`), `GET /api/logs`, `GET /api/logs/stream` (SSE),
   `POST /api/actions/<id>`, `POST /api/episodes/<crc32>/<action>`,
   `GET /api/metadata/<crc32>` (resolved episode for the compare modal),
   `GET /api/downloads/progress` (per-crc32 `{progress,dlspeed,eta,state,size}`; no-ops when nothing
@@ -344,7 +351,8 @@ once when the running version is newer than localStorage's last-seen version), `
 `Settings` (a `<dialog>` modal opened from the
 navbar gear icon via the `settingsOpen` store — Appearance pickers, System & Services / Preferences
 groups, and `Auth` as a sub-section), `Episodes` (pipeline table — newest-first, live download
-progress + size, Clear done, per-row actions + remove-confirm modal), `Logs` (+ Clear), `Auth`,
+progress + size, Clear done, per-row actions + remove-confirm modal), `Logs` (Clear + client-side
+text/level filters), `Auth`,
 `Toasts`, `Navbar` (logo, busy badge, uptime, settings gear).
 
 ### Frontend (`frontend/`)
@@ -443,7 +451,9 @@ Zod-validated env (`src/config.ts`):
 | `src/coverage.ts` | Library coverage scan/diff, magnet caching, stored report + scanned-at |
 | `src/metadata-audit.ts` | Metadata/thumbnail reconciliation engine (desired/applied state, dirty-marking, push + thumbnail generation) |
 | `src/naming.ts` | Normalize-naming candidate scan + batch rename |
-| `src/posters.ts` | Fan-made season/show poster sync (auto on new seasons; ETag-aware re-check during Full Plex sync) |
+| `src/posters.ts` | Fan-made season/show poster sync (auto on new seasons; ETag-aware re-check daily via reconcile + Full Plex sync) |
+| `src/update-check.ts` | Update notifier — compares running version against main's package.json (6h cache) |
+| `src/backup.ts` | Nightly SQLite backups to DATA_DIR/backups (04:00 + boot catch-up, keep 7) |
 | `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel |
 | `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync, `scanPlexMetadata`, `refreshItem`/`analyzeItem` for thumbnails) |
 | `src/processor.ts` | Completion handler; coverage refresh on ingest; `runMetadataSync`/`retryFailed` (manual-only) |
