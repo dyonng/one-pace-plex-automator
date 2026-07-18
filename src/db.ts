@@ -306,13 +306,6 @@ export function getRecentLogs(limit = 200): LogRow[] {
   return rows.reverse(); // chronological order for display
 }
 
-export function getEpisodeByTorrentHash(hash: string): EpisodeRecord | null {
-  const row = getDb()
-    .prepare("SELECT * FROM episodes WHERE torrent_hash = ?")
-    .get(hash) as EpisodeRow | undefined;
-  return row ? rowToRecord(row) : null;
-}
-
 // ── Plex metadata/thumbnail reconciliation state ────────────────────────────
 
 export interface MetaStateRow {
@@ -335,12 +328,6 @@ export interface MetaStateRow {
 
 export function getAllMetaStates(): MetaStateRow[] {
   return getDb().prepare("SELECT * FROM plex_meta_state").all() as MetaStateRow[];
-}
-
-export function getMetaState(id: string): MetaStateRow | null {
-  return (getDb()
-    .prepare("SELECT * FROM plex_meta_state WHERE season_episode_id = ?")
-    .get(id) as MetaStateRow | undefined) ?? null;
 }
 
 /**

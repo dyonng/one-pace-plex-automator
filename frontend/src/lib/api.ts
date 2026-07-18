@@ -24,7 +24,6 @@ export interface Status {
     startedAt: number;
     lastPollAt: number | null;
     lastSyncAt: number | null;
-    lastRefreshAt: number | null;
     lastRetryAt: number | null;
   };
   metadata: { arcs: number; episodes: number } | null;

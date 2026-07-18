@@ -245,10 +245,6 @@ export function getPreferArabasta(): boolean {
   return getSettingValue("PREFER_ARABASTA") === "true";
 }
 
-export function getAnimeToshoApiKey(): string {
-  return getSettingValue("ANIMETOSHO_API_KEY");
-}
-
 export function getGoogleSheetsApiKey(): string {
   return getSettingValue("GOOGLE_SHEETS_API_KEY");
 }
