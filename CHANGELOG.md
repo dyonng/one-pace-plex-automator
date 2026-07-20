@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-07-20
+
+Quality-of-life release: self-describing updates, automated upkeep, and a
+mobile-friendly dashboard.
+
 ### Added
 - **What's New modal** — after an update, the dashboard greets you once with
   the changelog entries added since your last visit (last-seen version is
