@@ -25,6 +25,10 @@ into a version heading when a GitHub release is cut.
   is older than a day), keeping the last 7.
 - **Log filtering** — the Logs panel gained a text filter and a level selector
   (Info+ / Warn+ / Errors), applied client-side over the live tail.
+- **Mobile-friendly dashboard** — the pipeline table collapses low-value
+  columns on small screens (with a compact download-progress readout), the
+  release compare modal stacks vertically, and the dashboard is installable to
+  a phone home screen (web app manifest + theme color).
 
 ## [1.0.10 – 1.0.18] — 2026-07-17
 

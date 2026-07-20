@@ -658,7 +658,7 @@
             <span class="loading loading-spinner loading-md"></span>
           </div>
         {:else}
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div class="rounded-lg border border-warning/40 bg-warning/5 p-3 flex flex-col gap-3">
               <div class="text-xs font-semibold text-warning uppercase tracking-wider">On Disk</div>
               {#if modal.ep.diskCrc32}

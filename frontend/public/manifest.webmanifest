@@ -1,0 +1,13 @@
+{
+  "name": "One Pace Automator",
+  "short_name": "One Pace",
+  "description": "Automates One Pace downloads, renaming, and Plex metadata",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1d232a",
+  "theme_color": "#1d232a",
+  "icons": [
+    { "src": "/logos/straw-hat.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/logos/jolly-roger.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
