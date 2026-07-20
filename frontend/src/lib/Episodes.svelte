@@ -76,7 +76,7 @@
       <table class="table table-sm table-pin-rows">
         <thead>
           <tr class="text-xs uppercase tracking-wider">
-            <th>S/E</th><th>Arc</th><th>Status</th><th>Res</th><th>File</th><th>Size</th><th>Updated</th><th class="text-right">Actions</th>
+            <th>S/E</th><th>Arc</th><th>Status</th><th class="hidden md:table-cell">Res</th><th class="hidden lg:table-cell">File</th><th class="hidden md:table-cell">Size</th><th class="hidden lg:table-cell">Updated</th><th class="text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -86,9 +86,19 @@
             <tr class="hover:bg-base-200/40">
               <td class="font-mono text-primary whitespace-nowrap">S{e.arc_part}E{e.episode_num}</td>
               <td class="max-w-[14rem] truncate font-display">{e.arc_title}</td>
-              <td><span class="badge badge-sm {STATUS_BADGE[e.status] ?? 'badge-ghost'}">{e.status}</span></td>
-              <td class="font-mono text-xs">{e.resolution}</td>
-              <td class="max-w-xs font-mono text-xs opacity-70">
+              <td>
+                <span class="badge badge-sm {STATUS_BADGE[e.status] ?? 'badge-ghost'}">{e.status}</span>
+                {#if e.status === "downloading" && $downloadProgress[e.crc32]}
+                  {@const p = $downloadProgress[e.crc32]}
+                  <!-- Compact progress for small screens, where the File column is hidden -->
+                  <div class="lg:hidden flex flex-col gap-0.5 mt-1 min-w-[6rem]">
+                    <progress class="progress progress-info h-1 w-full" value={p.progress} max={1}></progress>
+                    <span class="font-mono text-[0.65rem] opacity-60">{Math.round(p.progress * 100)}% · {fmtSpeed(p.dlspeed)}</span>
+                  </div>
+                {/if}
+              </td>
+              <td class="hidden md:table-cell font-mono text-xs">{e.resolution}</td>
+              <td class="hidden lg:table-cell max-w-xs font-mono text-xs opacity-70">
                 {#if e.status === "downloading" && $downloadProgress[e.crc32]}
                   {@const p = $downloadProgress[e.crc32]}
                   <div class="flex flex-col gap-1 min-w-[12rem]">
@@ -99,7 +109,7 @@
                   <span class="truncate block" title={file}>{file}</span>
                 {/if}
               </td>
-              <td class="whitespace-nowrap font-mono text-xs opacity-60">
+              <td class="hidden md:table-cell whitespace-nowrap font-mono text-xs opacity-60">
                 {#if e.status === "downloading" && $downloadProgress[e.crc32]?.size}
                   {fmtBytes($downloadProgress[e.crc32].size)}
                 {:else if e.file_size != null}
@@ -108,7 +118,7 @@
                   —
                 {/if}
               </td>
-              <td class="whitespace-nowrap text-xs opacity-60">{fmtTime(e.updated_at)}</td>
+              <td class="hidden lg:table-cell whitespace-nowrap text-xs opacity-60">{fmtTime(e.updated_at)}</td>
               <td>
                 <div class="flex gap-1 justify-end">
                   {#if e.status === "available"}

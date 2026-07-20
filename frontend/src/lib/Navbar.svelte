@@ -8,7 +8,7 @@
   <div class="max-w-screen-2xl mx-auto px-4 h-14 flex items-center justify-between gap-4">
     <div class="flex items-center gap-3 min-w-0">
       <img src={logoUrl($logo)} alt="" class="size-7 shrink-0" />
-      <span class="font-display font-bold tracking-wide truncate">ONE PACE <span class="text-primary">·</span> AUTOMATOR</span>
+      <span class="font-display font-bold tracking-wide truncate">ONE PACE<span class="hidden sm:inline"> <span class="text-primary">·</span> AUTOMATOR</span></span>
       {#if $status}
         <div
           class="tooltip tooltip-bottom"
