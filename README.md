@@ -9,15 +9,17 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 3. Sends magnet links to qBittorrent
 4. Renames completed downloads to Plex naming format
 5. Moves files to the correct Plex library folder, replacing superseded copies
-6. Updates episode metadata via the Plex API
-7. Applies fan-made season posters to new seasons (see [Posters](#posters))
-8. Sends Discord webhook notifications
+6. Keeps Plex metadata, thumbnails, and posters rich and current automatically
+   (see [Metadata & thumbnails](#metadata--thumbnails) and [Posters](#posters))
+7. Sends Discord webhook notifications
+8. Backs up its own state nightly (`/data/backups/`, keeps the last 7)
 
-A web dashboard (port `8282`) provides live logs, manual controls, a **library
-coverage report**, a **metadata & thumbnail audit**, **live download progress**,
-and a system health panel. Settings live behind the gear icon in the navbar,
-including appearance options (light/dark/auto theme, any DaisyUI theme, and a
-choice of logo).
+A web dashboard (port `8282`) provides live logs with text/level filtering,
+manual controls, a **library coverage report**, a **metadata & thumbnail
+audit**, **live download progress**, and a system health panel. It's responsive
+on phones and installable to a home screen. Settings live behind the gear icon
+in the navbar, including appearance options (light/dark/auto theme, any DaisyUI
+theme, and a choice of logo).
 
 ### Dashboard controls
 
@@ -105,7 +107,7 @@ Examples:
 
 ### Docker Compose (recommended)
 
-Save this as `docker-compose.yml`, change the five highlighted values, and run
+Save this as `docker-compose.yml`, change the highlighted values, and run
 `docker compose up -d`. This is a complete, self-contained config — no `.env` or
 external network required.
 
@@ -234,10 +236,27 @@ poster set goes to them. The images are pulled from the
 [SpykerNZ/one-pace-for-plex](https://github.com/SpykerNZ/one-pace-for-plex) repo,
 which distributes them. When a brand-new season first appears,
 its poster is applied automatically (`AUTO_POSTERS`, on by default); existing
-seasons are left untouched so any art you set manually is preserved. A **Full
-Plex sync** from the dashboard also re-checks every season's poster — change
-detection is ETag-based, so unchanged images are skipped without re-downloading.
+seasons are left untouched so any art you set manually is preserved. The poster
+repo is also **re-checked daily** as part of the automatic reconcile (and during
+a manual **Full Plex sync**) — change detection is ETag-based, so unchanged
+images are skipped without re-downloading, and updated art flows in on its own.
 Point `POSTER_REPO_RAW_BASE` elsewhere to use a different source.
+
+## Updates
+
+Pull the new image and restart (e.g. `docker compose pull && docker compose up
+-d`) — the dashboard auto-reloads when the server restarts. The navbar's
+**version button glows** when a newer image has been published, a **What's New
+modal** shows the changelog entries added since your last visit, and clicking
+the version button opens the full changelog anytime (also in
+[CHANGELOG.md](CHANGELOG.md)).
+
+## Backups
+
+The SQLite state (settings overrides, dashboard password hash, pipeline and
+reconcile state) is backed up nightly at 04:00 to `/data/backups/` — plus on
+startup when the newest backup is older than a day — keeping the last 7. To
+restore, stop the container and copy a backup over `data/state.db`.
 
 ## Development
 
@@ -248,6 +267,16 @@ npm run install:dev
 # Type check
 npm run typecheck
 
-# Run locally (requires .env)
+# Full build (backend tsc + frontend vite) — run before committing
+npm run build
+
+# Run locally (requires .env and the better-sqlite3 native build)
 npm run dev
+
+# Frontend-only development: mock backend + Vite HMR (no Plex/qBit needed)
+npm run mock     # fake API on :8282
+npm run dev:web  # HMR dev server proxying /api to :8282
 ```
+
+See [AGENTS.md](AGENTS.md) for architecture details and
+[CHANGELOG.md](CHANGELOG.md) for release history.
