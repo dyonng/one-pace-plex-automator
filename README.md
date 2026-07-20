@@ -258,6 +258,21 @@ reconcile state) is backed up nightly at 04:00 to `/data/backups/` — plus on
 startup when the newest backup is older than a day — keeping the last 7. To
 restore, stop the container and copy a backup over `data/state.db`.
 
+## Tech stack
+
+- **Backend** — TypeScript on Node.js 22; native `http` server with a tiny
+  router (no Express), Zod-validated config, pino logging, node-cron scheduling
+- **State** — SQLite via `better-sqlite3` (WAL mode), single file at
+  `/data/state.db`
+- **Frontend** — Svelte 5 (runes) + Vite, Tailwind CSS v4 with DaisyUI v5;
+  builds to static files served by the backend — no separate frontend server
+- **Integrations** — Plex HTTP API, qBittorrent Web API, Discord webhooks,
+  Google Sheets API (optional), AnimeTosho/Nyaa feeds
+- **Media** — ffmpeg/ffprobe for thumbnail frame extraction; pure-JS `jpeg-js`
+  / `pngjs` for pixel analysis (no native image dependencies)
+- **Packaging** — multi-stage Alpine Docker image, built and published to GHCR
+  by GitHub Actions on every push to `main`; releases are tagged semver images
+
 ## Development
 
 ```bash
