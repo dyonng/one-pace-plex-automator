@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.2] — 2026-07-22
+
+Reliability release: fixes a notification regression and adds the first
+automated test coverage.
+
 ### Added
 - **Unit tests** (Vitest) covering the pure logic most prone to silent
   regressions — filename building/parsing, arc-title canonicalization, Discord
