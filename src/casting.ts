@@ -24,23 +24,37 @@ export async function syncCast(): Promise<CastSyncResult> {
 
   try {
     const sourceKey = await resolveShowRatingKeyByName(sourceName);
+    logger.info("Cast sync: resolved source show", { source: sourceName, sourceKey });
     if (!sourceKey) {
       logger.info("Cast sync: source show not found in library — skipping", { source: sourceName });
       return { applied: 0, verified: 0, source: null };
     }
 
-    const roles = (await getShowRoles(sourceKey)).slice(0, getConfig().CAST_LIMIT);
+    const allRoles = await getShowRoles(sourceKey);
+    const roles = allRoles.slice(0, getConfig().CAST_LIMIT);
+    logger.info("Cast sync: read source cast", {
+      source: sourceName,
+      totalOnSource: allRoles.length,
+      taking: roles.length,
+      sample: roles.slice(0, 5).map((r) => `${r.tag}${r.role ? ` — ${r.role}` : ""}`),
+    });
     if (roles.length === 0) {
       logger.info("Cast sync: source show has no cast listed — skipping", { source: sourceName });
       return { applied: 0, verified: 0, source: sourceName };
     }
 
     const { showKey } = await getShowAndSeasonKeys();
+    logger.info("Cast sync: target One Pace show", { showKey });
     await setShowCast(showKey, roles);
 
     // Plex 200s even for params it ignores, so read the cast back to confirm the
     // write actually took. verified << applied ⇒ wrong edit-param format.
-    const verified = (await getShowRoles(showKey)).length;
+    const after = await getShowRoles(showKey);
+    const verified = after.length;
+    logger.info("Cast sync: read back target cast", {
+      verified,
+      sample: after.slice(0, 5).map((r) => `${r.tag}${r.role ? ` — ${r.role}` : ""}`),
+    });
     if (verified === 0) {
       logger.warn("Cast sync: wrote roles but Plex shows none — edit params may be wrong for this Plex", {
         source: sourceName, applied: roles.length,

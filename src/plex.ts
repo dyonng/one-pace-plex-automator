@@ -135,9 +135,27 @@ export function buildCastEditParams(roles: CastRole[]): Record<string, string | 
   return params;
 }
 
-/** Replaces the cast on a show with the given roles (locked). */
+/** Replaces the cast on a show with the given roles (locked). Verbose — logs the
+ *  exact params (first actor sample) and the HTTP status so a format mismatch is
+ *  diagnosable from one run. */
 export async function setShowCast(ratingKey: string, roles: CastRole[]): Promise<void> {
-  await plexPut(`/library/metadata/${ratingKey}`, buildCastEditParams(roles));
+  const { PLEX_URL } = getConfig();
+  const params = buildCastEditParams(roles);
+  const sample = Object.entries(params)
+    .filter(([k]) => k === "type" || k === "actor.locked" || k.startsWith("actor[0]"))
+    .map(([k, v]) => `${k}=${v}`);
+  logger.info("Cast edit request", {
+    ratingKey,
+    roles: roles.length,
+    paramCount: Object.keys(params).length,
+    firstActorParams: sample,
+  });
+  const resp = await axios.put(`${PLEX_URL}/library/metadata/${ratingKey}`, null, {
+    params: { ...baseParams(), ...params },
+    timeout: 20_000,
+    validateStatus: () => true,
+  });
+  logger.info("Cast edit response", { ratingKey, status: resp.status });
 }
 
 /** Uploads a poster image (bytes) to a metadata item; Plex makes it the selected art. */
