@@ -8,20 +8,20 @@ describe("buildCastEditParams", () => {
     expect(p["type"]).toBe(2);
   });
 
-  it("maps each role to indexed actor tag + role params", () => {
+  it("maps each role to the Plex tag.tag / tag.role params", () => {
     const p = buildCastEditParams([
       { tag: "Mayumi Tanaka", role: "Monkey D. Luffy" },
       { tag: "Kazuya Nakai", role: "Roronoa Zoro" },
     ]);
-    expect(p["actor[0].tag"]).toBe("Mayumi Tanaka");
-    expect(p["actor[0].role"]).toBe("Monkey D. Luffy");
-    expect(p["actor[1].tag"]).toBe("Kazuya Nakai");
-    expect(p["actor[1].role"]).toBe("Roronoa Zoro");
+    expect(p["actor[0].tag.tag"]).toBe("Mayumi Tanaka");
+    expect(p["actor[0].tag.role"]).toBe("Monkey D. Luffy");
+    expect(p["actor[1].tag.tag"]).toBe("Kazuya Nakai");
+    expect(p["actor[1].tag.role"]).toBe("Roronoa Zoro");
   });
 
   it("omits the role param when the character is empty (still writes the actor)", () => {
     const p = buildCastEditParams([{ tag: "Some Actor", role: "" }]);
-    expect(p["actor[0].tag"]).toBe("Some Actor");
-    expect(p).not.toHaveProperty("actor[0].role");
+    expect(p["actor[0].tag.tag"]).toBe("Some Actor");
+    expect(p).not.toHaveProperty("actor[0].tag.role");
   });
 });

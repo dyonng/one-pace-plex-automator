@@ -124,10 +124,13 @@ export async function getShowRoles(ratingKey: string): Promise<CastRole[]> {
  * unit-tested; the one place to adjust if a Plex build wants a different format.
  */
 export function buildCastEditParams(roles: CastRole[]): Record<string, string | number> {
+  // Plex's multi-value tag fields want `actor[i].tag.tag` for the tag value
+  // (the old script's `actor[i].tag` is silently ignored — Plex still 200s).
+  // The character goes on `actor[i].tag.role`.
   const params: Record<string, string | number> = { type: 2, "actor.locked": 1 };
   roles.forEach((r, i) => {
-    params[`actor[${i}].tag`] = r.tag;
-    if (r.role) params[`actor[${i}].role`] = r.role;
+    params[`actor[${i}].tag.tag`] = r.tag;
+    if (r.role) params[`actor[${i}].tag.role`] = r.role;
   });
   return params;
 }

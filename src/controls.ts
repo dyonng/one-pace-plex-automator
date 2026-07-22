@@ -118,7 +118,7 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
           ok: true,
           message:
             `Full Plex sync complete. Posters: ${posters.applied} applied, ${posters.skipped} up to date` +
-            `${cast.applied ? `. Cast: ${cast.applied} roles from ${cast.source}` : ""}`,
+            `${cast.applied ? `. Cast: ${cast.verified}/${cast.applied} roles from ${cast.source}` : ""}`,
         };
       });
 
