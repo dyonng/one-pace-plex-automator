@@ -13,13 +13,20 @@ let _inFlight = false;
 
 type Ver = [number, number, number];
 
-function parseVer(s: string | null | undefined): Ver | null {
+export function parseVer(s: string | null | undefined): Ver | null {
   const m = (s ?? "").match(/^(\d+)\.(\d+)\.(\d+)$/);
   return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
 }
 
 const newer = (a: Ver, b: Ver): boolean =>
   (a[0] - b[0] || a[1] - b[1] || a[2] - b[2]) > 0;
+
+/** True when semver `candidate` is strictly newer than `base`. Bad input = false. */
+export function isVersionNewer(candidate: string | null | undefined, base: string | null | undefined): boolean {
+  const c = parseVer(candidate);
+  const b = parseVer(base);
+  return !!c && !!b && newer(c, b);
+}
 
 async function refresh(): Promise<void> {
   if (_inFlight) return;

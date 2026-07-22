@@ -15,7 +15,7 @@ export interface DiscordNotification {
   error?: string;
 }
 
-function buildEmbed(n: DiscordNotification) {
+export function buildEmbed(n: DiscordNotification) {
   const season = n.arcPart != null ? `S${String(n.arcPart).padStart(2, "0")}` : "";
   const ep = n.episodeNum != null ? `E${String(n.episodeNum).padStart(2, "0")}` : "";
 

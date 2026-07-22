@@ -10,6 +10,13 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Unit tests** (Vitest) covering the pure logic most prone to silent
+  regressions — filename building/parsing, arc-title canonicalization, Discord
+  embed content, version comparison, and blank-thumbnail pixel analysis — plus a
+  regression guard proving a slow reconcile can't block download-completion
+  detection. Run with `npm test`; also runs in CI on every push.
+
 ### Fixed
 - **Download-complete / Episode-updated Discord notifications** could stop
   firing: the post-ingest reconcile (a heavy, minutes-long pass) ran inside the
