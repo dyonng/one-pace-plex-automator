@@ -80,7 +80,7 @@ const THUMB_DETECTOR_VERSION = "v3";
 
 const thumbCacheKey = (thumbPath: string): string => `${THUMB_DETECTOR_VERSION}:${thumbPath}`;
 
-interface ThumbStats {
+export interface ThumbStats {
   rgbStddev: number;      // max per-channel stddev over opaque pixels
   transparentFrac: number; // fraction of near-transparent pixels
 }
@@ -109,7 +109,7 @@ function decodeImage(buf: Buffer): { data: Uint8Array | Buffer; width: number; h
 }
 
 /** Pixel statistics (color spread + transparency) for a thumbnail, or null. */
-function thumbStats(buf: Buffer): ThumbStats | null {
+export function thumbStats(buf: Buffer): ThumbStats | null {
   const img = decodeImage(buf);
   if (!img) return null;
   const n = img.width * img.height;
@@ -174,7 +174,7 @@ async function analyzeThumb(thumbPath: string): Promise<ThumbAnalysis> {
 }
 
 /** A thumbnail is blank if it's mostly transparent or a single color. */
-const isBlankStats = (s: ThumbStats): boolean =>
+export const isBlankStats = (s: ThumbStats): boolean =>
   s.transparentFrac >= BLANK_TRANSPARENT_FRACTION || s.rgbStddev < BLANK_STDDEV_THRESHOLD;
 
 /**

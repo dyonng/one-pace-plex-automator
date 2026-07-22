@@ -282,6 +282,9 @@ npm run install:dev
 # Type check
 npm run typecheck
 
+# Unit tests (Vitest)
+npm test
+
 # Full build (backend tsc + frontend vite) — run before committing
 npm run build
 

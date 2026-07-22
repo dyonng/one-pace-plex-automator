@@ -521,6 +521,12 @@ npm run mock            # mock backend on :8282 (no sqlite/Plex/qBit, no auth) f
   skips the bump for docs-only commits automatically, and `.github/workflows/docker.yml` has a
   matching `paths-ignore` so docs-only pushes to `main` don't rebuild the GHCR image.
 - If a docs-only push must be extra-sure not to trigger CI, add `[skip ci]` to the commit message.
+- **Tests** (`npm test`, Vitest) live in `test/` (kept out of `src/` so they never compile into
+  `dist/` or the image; `.github/workflows/test.yml` runs typecheck + tests on every push/PR).
+  They cover pure logic (filename build/parse, arc-title canonicalization, Discord embeds, version
+  compare, blank-thumbnail pixel analysis) plus a processor regression guard (a slow reconcile must
+  not block download-completion detection — the bug that silenced completion notifications). Add a
+  test with new pure logic; keep flow tests mock-based rather than hitting real Plex/qBit/SQLite.
 - **Changelog** (`CHANGELOG.md`, Keep a Changelog format): every user-facing change lands with an
   entry under `## [Unreleased]` in the same commit. Docs/CI/refactor-only commits are exempt.
   Because the hook bumps the patch version on every commit, there is **no** heading per patch —
