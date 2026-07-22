@@ -179,8 +179,8 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
           message:
             r.remaining > 0
               ? `Tried to clear One Pace cast but ${r.remaining} still remain — the removal didn't take (check logs).`
-              : `Removed ${r.cleared} cast member(s) from One Pace` +
-                `${r.sourceRefreshed ? ` and refreshed ${r.source} to rebuild its cast` : ""}.`,
+              : `Removed ${r.cleared} cast member(s) from One Pace. ` +
+                `To fully recover the original series, run Fix Match + Clean Bundles + Optimize Database in Plex.`,
         };
       });
 
