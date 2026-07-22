@@ -280,22 +280,41 @@ function fileSize(p: string): number {
 }
 
 let _processing = false;
+let _reconcilingAfterIngest = false;
 
 export async function processDownloading(): Promise<void> {
   // The 30s interval and the cron cycle can both call this; never run two at once
   // (would double-process the same episode if one run exceeds the interval).
   if (_processing) return;
   _processing = true;
+  let completed = false;
   try {
-    await _processDownloading();
+    completed = await _processDownloading();
   } finally {
     _processing = false;
   }
+
+  // Reconcile OUTSIDE the download-check guard. It's heavy (full Plex scan +
+  // thumbnail analysis + ffmpeg), so running it while _processing is held would
+  // freeze completion detection — and completion is what fires the "download
+  // complete" notifications. Kept single-flight via its own flag; while it runs,
+  // the 30s interval keeps detecting and notifying new completions normally.
+  if (completed && getAutoReconcile() && !_reconcilingAfterIngest) {
+    _reconcilingAfterIngest = true;
+    try {
+      const r = await reconcilePlexMetadata({ thumbnails: true });
+      logger.info("Reconcile after ingest complete", { ...r });
+    } catch (err) {
+      logger.warn("Reconcile after ingest failed", { error: (err as Error).message });
+    } finally {
+      _reconcilingAfterIngest = false;
+    }
+  }
 }
 
-async function _processDownloading(): Promise<void> {
+async function _processDownloading(): Promise<boolean> {
   const downloading = getEpisodesByStatus("downloading");
-  if (downloading.length === 0) return;
+  if (downloading.length === 0) return false;
 
   const qbit = getQbitClient();
   let completed = 0;
@@ -438,17 +457,10 @@ async function _processDownloading(): Promise<void> {
     }
   }
 
-  // Freshly-ingested episodes have metadata (from syncSingleEpisode) but no
-  // thumbnail yet. When auto-reconcile is on, run a reconcile pass to adopt the
-  // applied metadata state and trigger thumbnail generation for the new files.
-  if (completed > 0 && getAutoReconcile()) {
-    try {
-      const r = await reconcilePlexMetadata({ thumbnails: true });
-      logger.info("Reconcile after ingest complete", { completed, ...r });
-    } catch (err) {
-      logger.warn("Reconcile after ingest failed", { error: (err as Error).message });
-    }
-  }
+  // The post-ingest reconcile (metadata state + thumbnail generation for the new
+  // files) is run by the caller, outside the download-check guard — see
+  // processDownloading. It must not block completion detection here.
+  return completed > 0;
 }
 
 export async function runMetadataSync(): Promise<void> {

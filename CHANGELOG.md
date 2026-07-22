@@ -10,6 +10,13 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Download-complete / Episode-updated Discord notifications** could stop
+  firing: the post-ingest reconcile (a heavy, minutes-long pass) ran inside the
+  download-check guard, so while it ran, completed downloads weren't detected —
+  and detection is what sends those notifications. The reconcile now runs
+  outside that guard, so completions are always detected and notified promptly.
+
 ## [1.1.0] — 2026-07-20
 
 Quality-of-life release: self-describing updates, automated upkeep, and a
