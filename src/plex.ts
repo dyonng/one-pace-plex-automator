@@ -94,8 +94,9 @@ export async function getShowAndSeasonKeys(): Promise<{
 }
 
 export interface CastRole {
-  tag: string;  // actor name
-  role: string; // character
+  tag: string;     // actor name
+  role: string;    // character
+  tagKey?: string; // Plex person GUID (links to the person's photo + other roles)
 }
 
 /** Finds a show by title in the configured library (case-insensitive). Null if absent. */
@@ -108,13 +109,30 @@ export async function resolveShowRatingKeyByName(name: string): Promise<string |
   return show?.ratingKey ?? null;
 }
 
-/** The cast (actor + character) listed on a show, in Plex's billing order. */
+/** The cast (actor + character + person key) listed on a show, in billing order. */
 export async function getShowRoles(ratingKey: string): Promise<CastRole[]> {
   const result = await plexGet<{
-    MediaContainer: { Metadata?: Array<{ Role?: Array<{ tag?: string; role?: string }> }> };
+    MediaContainer: { Metadata?: Array<{ Role?: Array<{ tag?: string; role?: string; tagKey?: string }> }> };
   }>(`/library/metadata/${ratingKey}`);
   const roles = result.MediaContainer.Metadata?.[0]?.Role ?? [];
-  return roles.filter((r) => r.tag).map((r) => ({ tag: r.tag as string, role: r.role ?? "" }));
+  return roles
+    .filter((r) => r.tag)
+    .map((r) => ({ tag: r.tag as string, role: r.role ?? "", tagKey: r.tagKey }));
+}
+
+/**
+ * Removes all cast from a show and unlocks the field — the undo for a cast sync
+ * that left bare/duplicate actor tags. Uses Plex's tag-removal form
+ * (`actor[].tag.tag-` = comma-joined names). Returns how many were removed.
+ */
+export async function clearShowCast(ratingKey: string): Promise<number> {
+  const current = await getShowRoles(ratingKey);
+  const params: Record<string, string | number> = { type: 2, "actor.locked": 0 };
+  if (current.length > 0) {
+    params["actor[].tag.tag-"] = current.map((r) => r.tag).join(",");
+  }
+  await plexPut(`/library/metadata/${ratingKey}`, params);
+  return current.length;
 }
 
 /**

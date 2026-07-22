@@ -1,7 +1,14 @@
 import { logger } from "./logger";
 import { getConfig } from "./config";
 import { getSyncCast, getCastSourceShow } from "./settings";
-import { resolveShowRatingKeyByName, getShowRoles, setShowCast, getShowAndSeasonKeys } from "./plex";
+import {
+  resolveShowRatingKeyByName,
+  getShowRoles,
+  setShowCast,
+  clearShowCast,
+  refreshItem,
+  getShowAndSeasonKeys,
+} from "./plex";
 
 export interface CastSyncResult {
   applied: number;        // roles we attempted to write
@@ -67,4 +74,40 @@ export async function syncCast(): Promise<CastSyncResult> {
     logger.warn("Cast sync failed", { source: sourceName, error: (err as Error).message });
     return { applied: 0, verified: 0, source: sourceName };
   }
+}
+
+export interface CastResetResult {
+  cleared: number;         // roles removed from the One Pace show
+  sourceRefreshed: boolean; // whether the source show's metadata refresh was triggered
+  source: string | null;
+}
+
+/**
+ * Undo a cast sync: remove the (bare/duplicate) actors from the One Pace show and
+ * unlock the field, then trigger a metadata refresh on the source show so Plex
+ * rebuilds its cast/relations (fixes a source cast view left loading/broken by
+ * the duplicate name tags). Never throws.
+ */
+export async function resetCast(): Promise<CastResetResult> {
+  const sourceName = getCastSourceShow();
+  let cleared = 0;
+  let sourceRefreshed = false;
+  try {
+    const { showKey } = await getShowAndSeasonKeys();
+    cleared = await clearShowCast(showKey);
+    logger.info("Cast reset: cleared One Pace cast", { cleared });
+  } catch (err) {
+    logger.warn("Cast reset: clearing One Pace cast failed", { error: (err as Error).message });
+  }
+  try {
+    const sourceKey = await resolveShowRatingKeyByName(sourceName);
+    if (sourceKey) {
+      await refreshItem(sourceKey);
+      sourceRefreshed = true;
+      logger.info("Cast reset: refreshed source show metadata", { source: sourceName, sourceKey });
+    }
+  } catch (err) {
+    logger.warn("Cast reset: source refresh failed", { error: (err as Error).message });
+  }
+  return { cleared, sourceRefreshed, source: sourceName };
 }

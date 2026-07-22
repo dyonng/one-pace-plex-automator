@@ -10,17 +10,16 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
-### Fixed
-- **Cast sync** wrote roles Plex silently ignored (wrong edit-param format).
-  Now uses Plex's `actor[i].tag.tag` / `actor[i].tag.role` form and reads the
-  cast back to confirm the write actually took.
-
-### Added
-- **Cast from the original series** — One Pace has no TMDB/TVDB listing (no
-  cast), so Full Plex sync now copies the main cast (voice actors + characters)
-  from the original series' show in the same library onto the One Pace show,
-  where Plex shows it on every episode. Configurable via `SYNC_CAST`,
-  `CAST_SOURCE_SHOW` (default "One Piece"), and `CAST_LIMIT`.
+### Changed
+- **Cast sync is now off by default** (`SYNC_CAST=false`). Plex can only add bare
+  actor-name tags to an agent-less show — no characters, no photos, no
+  person-linking — and doing so collides with the original series' real cast
+  tags (leaving the source show's cast view broken). The capability remains for
+  opt-in experimentation but isn't recommended until proper person-linking is
+  solved.
+- **Reset cast** action/button — removes the cast added to the One Pace show and
+  refreshes the original series so Plex rebuilds its cast; the undo for a cast
+  sync that left blank/broken actors.
 
 ## [1.1.2] — 2026-07-22
 

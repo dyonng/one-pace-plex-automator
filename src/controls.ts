@@ -1,7 +1,7 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters } from "./posters";
-import { syncCast } from "./casting";
+import { syncCast, resetCast } from "./casting";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
 import { getQbitClient } from "./qbittorrent";
@@ -61,6 +61,7 @@ export type ActionId =
   | "metadata-scan"
   | "metadata-sync"
   | "retry-thumbs"
+  | "reset-cast"
   | "retry-failed"
   | "clear-done";
 
@@ -167,6 +168,17 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
                 `${r.thumbsGenerated ? `, generated ${r.thumbsGenerated} custom` : ""}` +
                 `${r.reset ? ` (reset ${r.reset} attempt counter(s))` : ""}. ` +
                 "Plex generates them in the background — re-scan in a few minutes.",
+        };
+      });
+
+    case "reset-cast":
+      return withLock("Reset cast", async () => {
+        const r = await resetCast();
+        return {
+          ok: true,
+          message:
+            `Removed ${r.cleared} cast member(s) from One Pace` +
+            `${r.sourceRefreshed ? ` and refreshed ${r.source} to rebuild its cast` : ""}.`,
         };
       });
 

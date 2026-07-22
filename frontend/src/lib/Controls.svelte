@@ -153,6 +153,19 @@
           Normalize File Naming
         </button>
       </div>
+      <div
+        class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+        data-tip="Removes the cast added to the One Pace show and refreshes the original series to rebuild its cast — use if a cast sync left blank/broken actors."
+      >
+        <button
+          class="btn btn-sm btn-ghost gap-1.5"
+          disabled={$status?.busy || pending !== null}
+          onclick={() => run("reset-cast")}
+        >
+          {#if pending === "reset-cast"}<span class="loading loading-spinner loading-xs"></span>{/if}
+          Reset cast
+        </button>
+      </div>
     </div>
   </div>
 </section>
@@ -162,8 +175,8 @@
   <div class="modal-box deck-card">
     <h3 class="font-bold text-base">Full Plex sync?</h3>
     <p class="text-sm opacity-70 mt-1 mb-3">
-      This updates metadata for every season and episode in Plex, checks all arc posters for changes,
-      and copies the cast from the original series. It makes a large number of requests to Plex and may take a while.
+      This updates metadata for every season and episode in Plex, then checks all arc posters for changes.
+      It makes a large number of requests to Plex and may take a while.
     </p>
     <div class="modal-action">
       <button class="btn btn-sm btn-ghost" onclick={closeSyncModal}>Cancel</button>
