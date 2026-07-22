@@ -162,11 +162,11 @@ episode-level only holds per-episode crew/guest, so the main voice cast lives at
 is inherited by every episode in Plex's UI. Flow: `resolveShowRatingKeyByName(CAST_SOURCE_SHOW)` →
 `getShowRoles` (top `CAST_LIMIT`) → `setShowCast(onePaceShowKey, roles)`. The write uses
 `buildCastEditParams` (pure, unit-tested) mirroring `old_scripts/sync_cast_list.py`:
-`actor[i].tag` = actor, `actor[i].role` = character, `actor.locked=1`, `type=2`. Gated on
+`actor[i].tag.tag` = actor, `actor[i].tag.role` = character, `actor.locked=1`, `type=2`. Gated on
 **`SYNC_CAST`** (default on); no-ops (never throws) when disabled or the source show isn't in the
 library. Runs as a step of **Full Plex sync** (`sync` action). The `actor[i].tag`/`.role` param
 format is Plex-version-sensitive — if a write doesn't take, `buildCastEditParams` is the single
-place to adjust (e.g. to `actor[i].tag.tag`).
+place to adjust (e.g. drop `.role`, or use `actor[i].role`).
 
 ## Metadata & Thumbnail Reconciliation (key feature)
 

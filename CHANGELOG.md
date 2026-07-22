@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Cast sync** wrote roles Plex silently ignored (wrong edit-param format).
+  Now uses Plex's `actor[i].tag.tag` / `actor[i].tag.role` form and reads the
+  cast back to confirm the write actually took.
+
 ### Added
 - **Cast from the original series** — One Pace has no TMDB/TVDB listing (no
   cast), so Full Plex sync now copies the main cast (voice actors + characters)
