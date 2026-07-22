@@ -77,7 +77,8 @@ export async function syncCast(): Promise<CastSyncResult> {
 }
 
 export interface CastResetResult {
-  cleared: number;         // roles removed from the One Pace show
+  cleared: number;          // roles present before the clear
+  remaining: number;        // roles still on the show after the clear (should be 0)
   sourceRefreshed: boolean; // whether the source show's metadata refresh was triggered
   source: string | null;
 }
@@ -91,11 +92,21 @@ export interface CastResetResult {
 export async function resetCast(): Promise<CastResetResult> {
   const sourceName = getCastSourceShow();
   let cleared = 0;
+  let remaining = 0;
   let sourceRefreshed = false;
   try {
     const { showKey } = await getShowAndSeasonKeys();
     cleared = await clearShowCast(showKey);
-    logger.info("Cast reset: cleared One Pace cast", { cleared });
+    // Read back — Plex 200s even when it ignores a param, so confirm the actors
+    // are actually gone (remaining > 0 ⇒ the removal form is wrong for this Plex).
+    remaining = (await getShowRoles(showKey)).length;
+    if (remaining > 0) {
+      logger.warn("Cast reset: cast still present after clear — removal form may be wrong", {
+        cleared, remaining,
+      });
+    } else {
+      logger.info("Cast reset: cleared One Pace cast", { cleared });
+    }
   } catch (err) {
     logger.warn("Cast reset: clearing One Pace cast failed", { error: (err as Error).message });
   }
@@ -109,5 +120,5 @@ export async function resetCast(): Promise<CastResetResult> {
   } catch (err) {
     logger.warn("Cast reset: source refresh failed", { error: (err as Error).message });
   }
-  return { cleared, sourceRefreshed, source: sourceName };
+  return { cleared, remaining, sourceRefreshed, source: sourceName };
 }

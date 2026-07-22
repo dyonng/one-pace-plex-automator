@@ -175,10 +175,12 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
       return withLock("Reset cast", async () => {
         const r = await resetCast();
         return {
-          ok: true,
+          ok: r.remaining === 0,
           message:
-            `Removed ${r.cleared} cast member(s) from One Pace` +
-            `${r.sourceRefreshed ? ` and refreshed ${r.source} to rebuild its cast` : ""}.`,
+            r.remaining > 0
+              ? `Tried to clear One Pace cast but ${r.remaining} still remain — the removal didn't take (check logs).`
+              : `Removed ${r.cleared} cast member(s) from One Pace` +
+                `${r.sourceRefreshed ? ` and refreshed ${r.source} to rebuild its cast` : ""}.`,
         };
       });
 
