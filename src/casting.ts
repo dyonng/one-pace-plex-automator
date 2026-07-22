@@ -6,7 +6,6 @@ import {
   getShowRoles,
   setShowCast,
   clearShowCast,
-  refreshItem,
   getShowAndSeasonKeys,
 } from "./plex";
 
@@ -77,23 +76,19 @@ export async function syncCast(): Promise<CastSyncResult> {
 }
 
 export interface CastResetResult {
-  cleared: number;          // roles present before the clear
-  remaining: number;        // roles still on the show after the clear (should be 0)
-  sourceRefreshed: boolean; // whether the source show's metadata refresh was triggered
-  source: string | null;
+  cleared: number;   // roles present before the clear
+  remaining: number; // roles still on the show after the clear (should be 0)
 }
 
 /**
  * Undo a cast sync: remove the (bare/duplicate) actors from the One Pace show and
- * unlock the field, then trigger a metadata refresh on the source show so Plex
- * rebuilds its cast/relations (fixes a source cast view left loading/broken by
- * the duplicate name tags). Never throws.
+ * unlock the field. Only touches the One Pace show — recovering the source series
+ * (Fix Match, Clean Bundles, Optimize Database) is a deliberate, Plex-side action,
+ * NOT a heavy force-refresh triggered here. Never throws.
  */
 export async function resetCast(): Promise<CastResetResult> {
-  const sourceName = getCastSourceShow();
   let cleared = 0;
   let remaining = 0;
-  let sourceRefreshed = false;
   try {
     const { showKey } = await getShowAndSeasonKeys();
     cleared = await clearShowCast(showKey);
@@ -110,15 +105,5 @@ export async function resetCast(): Promise<CastResetResult> {
   } catch (err) {
     logger.warn("Cast reset: clearing One Pace cast failed", { error: (err as Error).message });
   }
-  try {
-    const sourceKey = await resolveShowRatingKeyByName(sourceName);
-    if (sourceKey) {
-      await refreshItem(sourceKey);
-      sourceRefreshed = true;
-      logger.info("Cast reset: refreshed source show metadata", { source: sourceName, sourceKey });
-    }
-  } catch (err) {
-    logger.warn("Cast reset: source refresh failed", { error: (err as Error).message });
-  }
-  return { cleared, remaining, sourceRefreshed, source: sourceName };
+  return { cleared, remaining };
 }

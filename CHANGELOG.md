@@ -17,9 +17,11 @@ into a version heading when a GitHub release is cut.
   tags (leaving the source show's cast view broken). The capability remains for
   opt-in experimentation but isn't recommended until proper person-linking is
   solved.
-- **Reset cast** action/button — removes the cast added to the One Pace show and
-  refreshes the original series so Plex rebuilds its cast; the undo for a cast
-  sync that left blank/broken actors.
+- **Reset cast** action/button — removes the cast added to the One Pace show
+  (undo for a cast sync that left blank actors). Only touches One Pace; it no
+  longer force-refreshes the original series (that heavy 1000-episode refresh
+  caused latency) — recover the source with Fix Match + Clean Bundles + Optimize
+  Database in Plex.
 
 ## [1.1.2] — 2026-07-22
 

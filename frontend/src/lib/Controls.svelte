@@ -155,7 +155,7 @@
       </div>
       <div
         class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
-        data-tip="Removes the cast added to the One Pace show and refreshes the original series to rebuild its cast — use if a cast sync left blank/broken actors."
+        data-tip="Removes the cast added to the One Pace show (undo for a cast sync that left blank actors). Only touches One Pace; recover the original series in Plex with Fix Match + Clean Bundles + Optimize Database."
       >
         <button
           class="btn btn-sm btn-ghost gap-1.5"
