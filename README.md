@@ -27,7 +27,7 @@ theme, and a choice of logo).
 |---------|--------------|
 | **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. With auto-reconcile on, it also pushes any changed metadata and generates missing thumbnails. |
 | **Library → Scan / Reconcile** | Scan checks your media folder for coverage (present/missing/upgradeable) and diffs Plex against the dataset, flagging episodes with missing/drifted metadata or no thumbnail. Reconcile fixes only the flagged ones — pushing metadata and triggering thumbnail generation. See [below](#metadata--thumbnails). |
-| **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
+| **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, syncs season posters (skipping unchanged), and copies the cast from the original series (see [below](#cast)). The resync-everything hammer — day-to-day most of this happens automatically, so it's rarely needed. |
 | **Retry failed** | Re-queues episodes whose download or processing failed. |
 | **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
 | **Clear done** | Removes completed rows from the pipeline table (files are kept). |
@@ -182,6 +182,8 @@ rest fall back to the defaults shown.
 | `AUTO_DOWNLOAD` | | Auto-download discovered releases (default `true`) |
 | `AUTO_POSTERS` | | Auto-apply posters to new seasons (default `true`) |
 | `AUTO_RECONCILE` | | Auto-sync Plex metadata & thumbnails on source changes/ingest (default `true`) |
+| `SYNC_CAST` | | Copy the original series' cast onto the One Pace show during Full Plex sync (default `true`) |
+| `CAST_SOURCE_SHOW` | | Original series' show title in your Plex library (default `One Piece`) |
 | `PREFER_EXTENDED` | | Prefer the extended cut when an episode has both (default `true`) |
 | `PREFER_ARABASTA` | | Render arc 14's title as "Arabasta" instead of the dataset's "Alabasta" (default `true`) |
 | `POSTER_REPO_RAW_BASE` | | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
@@ -227,6 +229,17 @@ the official One Pace **episode guide** and the metadata maintainer's working
 sheet. These are usually updated before the published dataset, so brand-new
 releases can be resolved (CRC32, titles, descriptions) without waiting for the
 dataset to catch up. Without a key the sheets are simply skipped.
+
+## Cast
+
+One Pace is a fan edit with no TMDB/TVDB listing, so Plex has no cast for it.
+During a **Full Plex sync**, the tool copies the main cast (voice actors +
+characters) from the **original series' show** — which must be in the same Plex
+library — onto the One Pace show. Plex shows the show-level cast on every
+episode, so one copy covers the whole series. Configure with `SYNC_CAST` (on by
+default), `CAST_SOURCE_SHOW` (default `One Piece` — set this if your library
+names it differently, e.g. `One Piece (1999)`), and `CAST_LIMIT`. If the source
+show isn't found, it's skipped silently.
 
 ## Posters
 

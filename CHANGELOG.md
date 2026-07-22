@@ -10,6 +10,13 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Cast from the original series** — One Pace has no TMDB/TVDB listing (no
+  cast), so Full Plex sync now copies the main cast (voice actors + characters)
+  from the original series' show in the same library onto the One Pace show,
+  where Plex shows it on every episode. Configurable via `SYNC_CAST`,
+  `CAST_SOURCE_SHOW` (default "One Piece"), and `CAST_LIMIT`.
+
 ## [1.1.2] — 2026-07-22
 
 Reliability release: fixes a notification regression and adds the first

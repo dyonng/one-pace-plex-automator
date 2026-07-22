@@ -5,8 +5,9 @@
 Automates download, renaming, and Plex metadata management for **One Pace** — a fan-edited
 version of One Piece that removes filler and aligns episodes with manga pacing. Replaces a
 manual workflow: Discord notification → download → rename → move to Plex folder → add metadata.
-Also replaces the old `old_scripts/one_pace_sync.py` (full Plex metadata sync) and
-`old_scripts/sync_cast_list.py` (cast actors), which remain in-repo as behavioral reference.
+Also replaces the old `old_scripts/one_pace_sync.py` (full Plex metadata sync); the old
+`old_scripts/sync_cast_list.py` (cast actors) informed `src/casting.ts` (see Casting). Both
+remain in-repo as behavioral reference.
 
 ## Architecture
 
@@ -153,6 +154,20 @@ is 1080p; the Plex filename's `[resolution]` tag is read from the torrent filena
 (The full `episodes{}` map retains historical CRC32s, so any past release still resolves for coverage
 and upgrade lookups.)
 
+## Casting
+
+One Pace has no TMDB/TVDB listing, so no cast. `src/casting.ts` `syncCast()` copies the original
+series' **show-level** cast onto the One Pace show — Plex has no season-level cast field, and
+episode-level only holds per-episode crew/guest, so the main voice cast lives at the show level and
+is inherited by every episode in Plex's UI. Flow: `resolveShowRatingKeyByName(CAST_SOURCE_SHOW)` →
+`getShowRoles` (top `CAST_LIMIT`) → `setShowCast(onePaceShowKey, roles)`. The write uses
+`buildCastEditParams` (pure, unit-tested) mirroring `old_scripts/sync_cast_list.py`:
+`actor[i].tag` = actor, `actor[i].role` = character, `actor.locked=1`, `type=2`. Gated on
+**`SYNC_CAST`** (default on); no-ops (never throws) when disabled or the source show isn't in the
+library. Runs as a step of **Full Plex sync** (`sync` action). The `actor[i].tag`/`.role` param
+format is Plex-version-sensitive — if a write doesn't take, `buildCastEditParams` is the single
+place to adjust (e.g. to `actor[i].tag.tag`).
+
 ## Metadata & Thumbnail Reconciliation (key feature)
 
 Keeps Plex episode/season **titles, summaries, and thumbnails** rich and current with minimal work,
@@ -255,7 +270,7 @@ stages without touching the deployment stack manager.
 - **Actions** (`src/controls.ts`) — global: `refresh-sources` (clear metadata + sheet caches →
   `refreshMetadata` → eager sheet prefetch → `runCycle` → reconcile or `markDirtyFromSource` per
   `AUTO_RECONCILE`; also what the cron runs), `sync` ("Full Plex sync": `runMetadataSync` +
-  ETag-aware `syncPosters`; heavy, confirmation modal in the UI), `metadata-scan` (read-only audit →
+  ETag-aware `syncPosters` + `syncCast`; heavy, confirmation modal in the UI), `metadata-scan` (read-only audit →
   report), `metadata-sync` ("Reconcile": `reconcilePlexMetadata` — push flagged metadata + trigger
   thumbnails), `retry-failed`, `clear-done` (remove all `done` rows; files kept). All serialized
   behind one lock (`isBusy`/`withLock`) so manual triggers never overlap the cron cycle. Tracks last-run
@@ -271,10 +286,9 @@ Settings editable live from the dashboard without a redeploy, each tagged with a
 (`service` | `preference`) that the UI groups into "System & Services" vs "Preferences":
 - **service:** **POLL_CRON**, **POLL_ENABLED** (bool), **DOWNLOAD_CHECK_SECONDS**,
   **RSS_FEED_URL**, **DISCORD_WEBHOOK_URL**, **POSTER_REPO_RAW_BASE**, **ANIMETOSHO_API_KEY**,
-  **ANIMETOSHO_BASE_URL**, **NYAA_BASE_URL**, **GOOGLE_SHEETS_API_KEY**.
+  **ANIMETOSHO_BASE_URL**, **NYAA_BASE_URL**, **GOOGLE_SHEETS_API_KEY**, **CAST_SOURCE_SHOW**.
 - **preference:** **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS** (bool), **AUTO_RECONCILE** (bool),
-  **PREFER_EXTENDED** (bool),
-  **PREFER_ARABASTA** (bool).
+  **SYNC_CAST** (bool), **PREFER_EXTENDED** (bool), **PREFER_ARABASTA** (bool).
 
 (Secrets and volume paths stay env-only by design.)
 
@@ -412,6 +426,9 @@ Zod-validated env (`src/config.ts`):
 | `AUTO_DOWNLOAD` | `true` | auto-queue discovered releases; off = manual download (dashboard-editable) |
 | `AUTO_POSTERS` | `true` | auto-apply a poster when a new season first appears (dashboard-editable) |
 | `AUTO_RECONCILE` | `true` | auto-sync Plex metadata + thumbnails on source changes/ingest (dashboard-editable) |
+| `SYNC_CAST` | `true` | copy the original series' cast onto the One Pace show during Full Plex sync (dashboard-editable) |
+| `CAST_SOURCE_SHOW` | `One Piece` | the original series' show title in the same Plex library (dashboard-editable) |
+| `CAST_LIMIT` | `30` | number of top-billed roles to copy (env-only) |
 | `PREFER_EXTENDED` | `true` | prefer the extended cut when an episode has both (dashboard-editable) |
 | `PREFER_ARABASTA` | `true` | render arc 14 "Alabasta" as "Arabasta" (dashboard-editable) |
 | `DASHBOARD_TOKEN_HASH` | — (optional bootstrap) | scrypt hash; password is normally set in the UI |
@@ -452,6 +469,7 @@ Zod-validated env (`src/config.ts`):
 | `src/metadata-audit.ts` | Metadata/thumbnail reconciliation engine (desired/applied state, dirty-marking, push + thumbnail generation) |
 | `src/naming.ts` | Normalize-naming candidate scan + batch rename |
 | `src/posters.ts` | Fan-made season/show poster sync (auto on new seasons; ETag-aware re-check daily via reconcile + Full Plex sync) |
+| `src/casting.ts` | Copies the original series' show-level cast onto the One Pace show (see Casting) |
 | `src/update-check.ts` | Update notifier — compares running version against main's package.json (6h cache) |
 | `src/backup.ts` | Nightly SQLite backups to DATA_DIR/backups (04:00 + boot catch-up, keep 7) |
 | `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel |

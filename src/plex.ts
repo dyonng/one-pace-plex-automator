@@ -93,6 +93,50 @@ export async function getShowAndSeasonKeys(): Promise<{
   return { showKey, seasonMap };
 }
 
+export interface CastRole {
+  tag: string;  // actor name
+  role: string; // character
+}
+
+/** Finds a show by title in the configured library (case-insensitive). Null if absent. */
+export async function resolveShowRatingKeyByName(name: string): Promise<string | null> {
+  const sectionId = await resolveSectionId();
+  const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, { type: "2" });
+  const show = result.MediaContainer.Metadata?.find(
+    (m) => m.title.toLowerCase() === name.toLowerCase()
+  );
+  return show?.ratingKey ?? null;
+}
+
+/** The cast (actor + character) listed on a show, in Plex's billing order. */
+export async function getShowRoles(ratingKey: string): Promise<CastRole[]> {
+  const result = await plexGet<{
+    MediaContainer: { Metadata?: Array<{ Role?: Array<{ tag?: string; role?: string }> }> };
+  }>(`/library/metadata/${ratingKey}`);
+  const roles = result.MediaContainer.Metadata?.[0]?.Role ?? [];
+  return roles.filter((r) => r.tag).map((r) => ({ tag: r.tag as string, role: r.role ?? "" }));
+}
+
+/**
+ * Edit params that replace a show's cast, mirroring the reference
+ * `old_scripts/sync_cast_list.py`: `actor[i].tag` = actor name, `actor[i].role`
+ * = character. Locks the field so the Plex agent won't overwrite it. Pure —
+ * unit-tested; the one place to adjust if a Plex build wants a different format.
+ */
+export function buildCastEditParams(roles: CastRole[]): Record<string, string | number> {
+  const params: Record<string, string | number> = { type: 2, "actor.locked": 1 };
+  roles.forEach((r, i) => {
+    params[`actor[${i}].tag`] = r.tag;
+    if (r.role) params[`actor[${i}].role`] = r.role;
+  });
+  return params;
+}
+
+/** Replaces the cast on a show with the given roles (locked). */
+export async function setShowCast(ratingKey: string, roles: CastRole[]): Promise<void> {
+  await plexPut(`/library/metadata/${ratingKey}`, buildCastEditParams(roles));
+}
+
 /** Uploads a poster image (bytes) to a metadata item; Plex makes it the selected art. */
 export async function uploadPoster(ratingKey: string, image: Buffer, contentType = "image/png"): Promise<void> {
   const { PLEX_URL } = getConfig();

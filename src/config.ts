@@ -43,6 +43,12 @@ const ConfigSchema = z.object({
   AUTO_POSTERS: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   // Auto-sync Plex metadata + thumbnails when source data changes (reconcile).
   AUTO_RECONCILE: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  // Copy the cast (voice actors + characters) from the original series' show to
+  // the One Pace show during Full Plex sync — One Pace has no TMDB/TVDB listing,
+  // so this borrows the cast from the real show in the same library.
+  SYNC_CAST: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  CAST_SOURCE_SHOW: z.string().default("One Piece"),
+  CAST_LIMIT: z.coerce.number().int().positive().default(30),
   // When true, the extended cut is preferred over the standard cut for episodes
   // that have both. Affects which release is treated as canonical in coverage
   // and which variant the RSS poll downloads.
