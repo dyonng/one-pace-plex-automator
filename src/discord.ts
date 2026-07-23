@@ -1,6 +1,6 @@
 import axios from "axios";
 import { logger } from "./logger";
-import { getSettingValue } from "./settings";
+import { getSettingValue, type SettingKey } from "./settings";
 
 export interface DiscordNotification {
   type: "new_episode" | "download_complete" | "episode_updated" | "error";
@@ -71,14 +71,61 @@ export function buildEmbed(n: DiscordNotification) {
   };
 }
 
+// Which per-type toggle gates each notification. All default on; a disabled
+// toggle drops that event before any HTTP call.
+const TYPE_SETTING: Record<DiscordNotification["type"], SettingKey> = {
+  new_episode: "NOTIFY_NEW_EPISODE",
+  download_complete: "NOTIFY_DOWNLOAD_COMPLETE",
+  episode_updated: "NOTIFY_EPISODE_UPDATED",
+  error: "NOTIFY_ERROR",
+};
+
 export async function sendDiscordNotification(n: DiscordNotification): Promise<void> {
   const DISCORD_WEBHOOK_URL = getSettingValue("DISCORD_WEBHOOK_URL");
   if (!DISCORD_WEBHOOK_URL) return;
+  if (getSettingValue(TYPE_SETTING[n.type]) !== "true") return;
 
   try {
     await axios.post(DISCORD_WEBHOOK_URL, { embeds: [buildEmbed(n)] }, { timeout: 10_000 });
   } catch (err) {
     logger.warn("Discord notification failed", { error: (err as Error).message });
+  }
+}
+
+// Health alerts carry no CRC32, so they get their own payload/embed rather than
+// riding on DiscordNotification. Status "ok" means "recovered".
+export interface HealthAlert {
+  status: "ok" | "warn" | "error";
+  lines: string[]; // failing checks/disks; empty on recovery
+}
+
+export function buildHealthEmbed(a: HealthAlert) {
+  if (a.status === "ok") {
+    return {
+      title: "✅ Health Recovered",
+      description: "All systems are back to normal.",
+      color: 0x2ecc71,
+      timestamp: new Date().toISOString(),
+    };
+  }
+  const isError = a.status === "error";
+  return {
+    title: isError ? "🔴 Health Alert — Error" : "🟡 Health Alert — Warning",
+    description: a.lines.length ? a.lines.map((l) => `• ${l}`).join("\n") : "A health check is failing.",
+    color: isError ? 0xe74c3c : 0xf39c12,
+    timestamp: new Date().toISOString(),
+  };
+}
+
+export async function sendDiscordHealthAlert(a: HealthAlert): Promise<void> {
+  const DISCORD_WEBHOOK_URL = getSettingValue("DISCORD_WEBHOOK_URL");
+  if (!DISCORD_WEBHOOK_URL) return;
+  if (getSettingValue("NOTIFY_HEALTH") !== "true") return;
+
+  try {
+    await axios.post(DISCORD_WEBHOOK_URL, { embeds: [buildHealthEmbed(a)] }, { timeout: 10_000 });
+  } catch (err) {
+    logger.warn("Discord health alert failed", { error: (err as Error).message });
   }
 }
 

@@ -13,6 +13,11 @@ export type SettingKey =
   | "PREFER_EXTENDED"
   | "PREFER_ARABASTA"
   | "DISCORD_WEBHOOK_URL"
+  | "NOTIFY_NEW_EPISODE"
+  | "NOTIFY_DOWNLOAD_COMPLETE"
+  | "NOTIFY_EPISODE_UPDATED"
+  | "NOTIFY_ERROR"
+  | "NOTIFY_HEALTH"
   | "RSS_FEED_URL"
   | "POSTER_REPO_RAW_BASE"
   | "ANIMETOSHO_API_KEY"
@@ -20,21 +25,27 @@ export type SettingKey =
   | "NYAA_BASE_URL"
   | "GOOGLE_SHEETS_API_KEY";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
-export type SettingCategory = "service" | "preference";
+export type SettingCategory = "service" | "preference" | "notification";
 
 // Splits the settings UI: "service" = infrastructure/integration config,
-// "preference" = how the app behaves and names things for you.
+// "notification" = the Discord webhook + which events to send, "preference" =
+// how the app behaves and names things for you.
 const CATEGORY: Record<SettingKey, SettingCategory> = {
   POLL_ENABLED: "service",
   POLL_CRON: "service",
   DOWNLOAD_CHECK_SECONDS: "service",
   RSS_FEED_URL: "service",
-  DISCORD_WEBHOOK_URL: "service",
   POSTER_REPO_RAW_BASE: "service",
   ANIMETOSHO_API_KEY: "service",
   ANIMETOSHO_BASE_URL: "service",
   NYAA_BASE_URL: "service",
   GOOGLE_SHEETS_API_KEY: "service",
+  DISCORD_WEBHOOK_URL: "notification",
+  NOTIFY_NEW_EPISODE: "notification",
+  NOTIFY_DOWNLOAD_COMPLETE: "notification",
+  NOTIFY_EPISODE_UPDATED: "notification",
+  NOTIFY_ERROR: "notification",
+  NOTIFY_HEALTH: "notification",
   AUTO_DOWNLOAD: "preference",
   AUTO_POSTERS: "preference",
   AUTO_RECONCILE: "preference",
@@ -166,6 +177,41 @@ const DEFS: Record<SettingKey, SettingDef> = {
     type: "url_or_empty",
     envValue: () => getConfig().DISCORD_WEBHOOK_URL ?? "",
     validate: validateDiscordWebhook,
+  },
+  NOTIFY_NEW_EPISODE: {
+    key: "NOTIFY_NEW_EPISODE",
+    label: "Notify: new episode detected",
+    type: "bool",
+    envValue: () => String(getConfig().NOTIFY_NEW_EPISODE),
+    validate: validateBool,
+  },
+  NOTIFY_DOWNLOAD_COMPLETE: {
+    key: "NOTIFY_DOWNLOAD_COMPLETE",
+    label: "Notify: episode downloaded & imported",
+    type: "bool",
+    envValue: () => String(getConfig().NOTIFY_DOWNLOAD_COMPLETE),
+    validate: validateBool,
+  },
+  NOTIFY_EPISODE_UPDATED: {
+    key: "NOTIFY_EPISODE_UPDATED",
+    label: "Notify: episode updated (re-release)",
+    type: "bool",
+    envValue: () => String(getConfig().NOTIFY_EPISODE_UPDATED),
+    validate: validateBool,
+  },
+  NOTIFY_ERROR: {
+    key: "NOTIFY_ERROR",
+    label: "Notify: processing errors",
+    type: "bool",
+    envValue: () => String(getConfig().NOTIFY_ERROR),
+    validate: validateBool,
+  },
+  NOTIFY_HEALTH: {
+    key: "NOTIFY_HEALTH",
+    label: "Notify: health alerts (service/disk problems)",
+    type: "bool",
+    envValue: () => String(getConfig().NOTIFY_HEALTH),
+    validate: validateBool,
   },
   RSS_FEED_URL: {
     key: "RSS_FEED_URL",

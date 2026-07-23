@@ -10,6 +10,13 @@ const ConfigSchema = z.object({
   PLEX_TOKEN: z.string(),
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
+  // Per-type Discord notification toggles (all default on). No-op unless a
+  // webhook is configured. Editable live from the dashboard.
+  NOTIFY_NEW_EPISODE: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  NOTIFY_DOWNLOAD_COMPLETE: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  NOTIFY_EPISODE_UPDATED: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  NOTIFY_ERROR: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  NOTIFY_HEALTH: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   POLL_CRON: z.string().default("*/5 * * * *"),
   // When false, the RSS poll cron is not scheduled — polling is manual-only
   // (dashboard "Poll RSS"). The download-completion check is unaffected.

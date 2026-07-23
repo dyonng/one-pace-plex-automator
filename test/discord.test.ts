@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildEmbed } from "../src/discord";
+import { buildEmbed, buildHealthEmbed } from "../src/discord";
 
 describe("buildEmbed", () => {
   it("new_episode: blue, arc/season/episode in description", () => {
@@ -55,5 +55,32 @@ describe("buildEmbed", () => {
     expect(e.title).toBe("One Pace Automator Error");
     expect(e.color).toBe(0xe74c3c);
     expect(e.description).toBe("boom");
+  });
+});
+
+describe("buildHealthEmbed", () => {
+  it("error: red, lists failing checks as bullets", () => {
+    const e = buildHealthEmbed({ status: "error", lines: ["Plex: timeout", "Media disk: 0.4% free"] });
+    expect(e.title).toContain("Error");
+    expect(e.color).toBe(0xe74c3c);
+    expect(e.description).toContain("• Plex: timeout");
+    expect(e.description).toContain("• Media disk: 0.4% free");
+  });
+
+  it("warn: amber", () => {
+    const e = buildHealthEmbed({ status: "warn", lines: ["qBittorrent: unreachable"] });
+    expect(e.title).toContain("Warning");
+    expect(e.color).toBe(0xf39c12);
+  });
+
+  it("ok: green recovery message, no bullets", () => {
+    const e = buildHealthEmbed({ status: "ok", lines: [] });
+    expect(e.color).toBe(0x2ecc71);
+    expect(e.title).toContain("Recovered");
+  });
+
+  it("degraded with no lines still describes a failure", () => {
+    const e = buildHealthEmbed({ status: "warn", lines: [] });
+    expect(e.description).toBe("A health check is failing.");
   });
 });

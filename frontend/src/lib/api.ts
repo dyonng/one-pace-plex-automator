@@ -122,7 +122,7 @@ export interface SettingView {
   key: string;
   label: string;
   type: string;
-  category: "service" | "preference";
+  category: "service" | "preference" | "notification";
   value: string;
   envValue: string;
   overridden: boolean;

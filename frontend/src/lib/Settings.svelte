@@ -19,6 +19,7 @@
   let testing = $state(false);
 
   const serviceSettings = $derived($settings.filter((s) => s.category === "service"));
+  const notificationSettings = $derived($settings.filter((s) => s.category === "notification"));
   const preferenceSettings = $derived($settings.filter((s) => s.category === "preference"));
 
   $effect(() => {
@@ -154,6 +155,15 @@
         <h3 class="text-xs uppercase tracking-wider opacity-60 mb-1">System &amp; Services</h3>
         <div class="flex flex-col divide-y divide-base-content/5">
           {#each serviceSettings as s (s.key)}
+            {@render settingRow(s)}
+          {/each}
+        </div>
+      </div>
+      <div>
+        <h3 class="text-xs uppercase tracking-wider opacity-60 mb-1">Discord Notifications</h3>
+        <p class="text-xs opacity-45 mb-1">Set a webhook, then choose which events get sent. Toggles do nothing until a webhook is saved.</p>
+        <div class="flex flex-col divide-y divide-base-content/5">
+          {#each notificationSettings as s (s.key)}
             {@render settingRow(s)}
           {/each}
         </div>
