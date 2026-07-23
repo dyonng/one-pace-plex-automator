@@ -383,7 +383,7 @@ export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | nul
  * into the right season folder before the episode appears in the dataset.
  */
 export async function resolveArcByTitle(arcTitle: string): Promise<ArcSummary | null> {
-  await _getData();
+  const data = await _getData();
   const entry = findArcByTitle(arcTitle);
   if (!entry) return null;
   return {
@@ -392,6 +392,7 @@ export async function resolveArcByTitle(arcTitle: string): Promise<ArcSummary | 
     arcTitle: displayArcTitle(entry.arc.title),
     arcSaga: entry.arc.saga,
     arcDescription: entry.arc.description,
+    arcReleased: earliestArcRelease(entry.arc, data),
   };
 }
 
@@ -401,6 +402,19 @@ export interface ArcSummary {
   arcTitle: string;
   arcSaga: string;
   arcDescription: string;
+  arcReleased: string; // earliest episode air date in the arc ("YYYY-MM-DD"), "" if unknown
+}
+
+// The season's air date = the earliest release among its episodes. Dates are
+// stored ISO-ish, so a plain string compare orders them chronologically.
+function earliestArcRelease(arc: DataJsonArc, data: DataJson): string {
+  let earliest = "";
+  for (const ve of arc.episodes) {
+    const crc = (ve.standard || ve.extended || "").toUpperCase();
+    const rel = (data.episodes[crc]?.released ?? "").trim();
+    if (rel && (earliest === "" || rel < earliest)) earliest = rel;
+  }
+  return earliest;
 }
 
 export interface EpisodeSummary extends ResolvedEpisode {
@@ -418,6 +432,7 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
       arcTitle: displayArcTitle(a.title),
       arcSaga: a.saga,
       arcDescription: a.description,
+      arcReleased: earliestArcRelease(a, data),
     }));
 }
 

@@ -12,6 +12,7 @@ interface PlexMetadata {
   index: number;
   parentIndex?: number;
   seasonEpisode?: string;
+  originallyAvailableAt?: string;
   type: string;
 }
 
@@ -125,6 +126,85 @@ export async function clearShowCast(ratingKey: string): Promise<number> {
   return current.length;
 }
 
+// Desired show-level metadata for the agent-less One Pace show. One Pace is a
+// fixed fan re-edit of Toei's One Piece, so these are static — written locked so
+// Plex keeps them, since without a metadata agent the show has none of its own.
+export const SHOW_GENRES = ["Anime", "Action", "Adventure", "Fantasy", "Comedy"];
+export const SHOW_CONTENT_RATING = "TV-14";
+export const SHOW_STUDIO = "Toei Animation";
+
+export interface ShowMeta {
+  genres: string[];
+  contentRating: string;
+  studio: string;
+}
+
+/** Reads the show's current genres, content rating, and studio. */
+export async function getShowMeta(ratingKey: string): Promise<ShowMeta> {
+  const result = await plexGet<{
+    MediaContainer: {
+      Metadata?: Array<{ Genre?: Array<{ tag?: string }>; contentRating?: string; studio?: string }>;
+    };
+  }>(`/library/metadata/${ratingKey}`);
+  const m = result.MediaContainer.Metadata?.[0];
+  return {
+    genres: (m?.Genre ?? []).map((g) => g.tag ?? "").filter(Boolean),
+    contentRating: m?.contentRating ?? "",
+    studio: m?.studio ?? "",
+  };
+}
+
+/** Pure: the PUT params to set a show's genres, content rating, and studio (locked). */
+export function buildShowMetaParams(meta: ShowMeta): Record<string, string | number> {
+  const params: Record<string, string | number> = {
+    type: 2,
+    "contentRating.value": meta.contentRating,
+    "contentRating.locked": 1,
+    "studio.value": meta.studio,
+    "studio.locked": 1,
+    "genre.locked": 1,
+  };
+  meta.genres.forEach((g, i) => {
+    params[`genre[${i}].tag.tag`] = g;
+  });
+  return params;
+}
+
+// Have-what-we-want? Genres are additive (we only ever add + lock), so a subset
+// check suffices; rating/studio must match exactly.
+function showMetaSatisfied(current: ShowMeta, desired: ShowMeta): boolean {
+  const has = (g: string) => current.genres.some((c) => c.toLowerCase() === g.toLowerCase());
+  return (
+    current.contentRating === desired.contentRating &&
+    current.studio === desired.studio &&
+    desired.genres.every(has)
+  );
+}
+
+/**
+ * Applies the static show-level metadata (genres, content rating, studio) if Plex
+ * is missing any of it. Idempotent read-compare-push — only writes on drift, so
+ * it's cheap to call on every Full Plex sync and on the reconcile daily cadence.
+ */
+export async function applyShowMetadata(): Promise<{ changed: boolean }> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
+  const desired: ShowMeta = {
+    genres: SHOW_GENRES,
+    contentRating: SHOW_CONTENT_RATING,
+    studio: SHOW_STUDIO,
+  };
+  const current = await getShowMeta(showKey);
+  if (showMetaSatisfied(current, desired)) return { changed: false };
+  await plexPut(`/library/metadata/${showKey}`, buildShowMetaParams(desired));
+  logger.info("Applied show-level metadata", {
+    genres: desired.genres.length,
+    contentRating: desired.contentRating,
+    studio: desired.studio,
+  });
+  return { changed: true };
+}
+
 /** Uploads a poster image (bytes) to a metadata item; Plex makes it the selected art. */
 export async function uploadPoster(ratingKey: string, image: Buffer, contentType = "image/png"): Promise<void> {
   const { PLEX_URL } = getConfig();
@@ -223,12 +303,17 @@ export async function updateSeasonInPlex(
   ratingKey: string,
   arc: ArcSummary
 ): Promise<void> {
-  await plexPut(`/library/metadata/${ratingKey}`, {
+  const params: Record<string, string | number> = {
     "title.value": arc.arcTitle,
     "title.locked": 1,
     "summary.value": buildSeasonSummary(arc),
     "summary.locked": 1,
-  });
+  };
+  if (arc.arcReleased) {
+    params["originallyAvailableAt.value"] = arc.arcReleased;
+    params["originallyAvailableAt.locked"] = 1;
+  }
+  await plexPut(`/library/metadata/${ratingKey}`, params);
 }
 
 export async function syncSingleEpisode(ep: EpisodeSummary): Promise<void> {
@@ -260,6 +345,9 @@ export async function syncSingleEpisode(ep: EpisodeSummary): Promise<void> {
         arcTitle: ep.arcTitle,
         arcSaga: ep.arcSaga,
         arcDescription: ep.arcDescription,
+        // Best-effort season date from this episode; reconcile later corrects it
+        // to the arc's earliest release once the full arc is known.
+        arcReleased: ep.released,
       });
       logger.info("Updated season metadata", { part: ep.arcPart, title: ep.arcTitle });
     } catch (err) {
@@ -306,6 +394,12 @@ export async function syncFullLibrary(
     }
   }
 
+  try {
+    await applyShowMetadata();
+  } catch (err) {
+    logger.warn("Full sync: show metadata failed", { error: (err as Error).message });
+  }
+
   await refreshShow();
   logger.info("Full library sync complete", { updated, skipped });
 }
@@ -315,6 +409,7 @@ export interface PlexItemMeta {
   summary: string;
   hasThumb: boolean;
   thumbPath: string | null; // versioned path (…/thumb/<ts>) — changes on regen
+  airDate: string | null;   // originallyAvailableAt as Plex reports it ("YYYY-MM-DD")
   ratingKey: string;
 }
 
@@ -353,6 +448,7 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
       summary: s.summary ?? "",
       hasThumb: hasRealThumb(s.thumb),
       thumbPath: s.thumb ?? null,
+      airDate: s.originallyAvailableAt ?? null,
       ratingKey: s.ratingKey,
     });
   }
@@ -366,6 +462,7 @@ export async function scanPlexMetadata(): Promise<PlexMetadataSnapshot> {
       summary: e.summary ?? "",
       hasThumb: hasRealThumb(e.thumb),
       thumbPath: e.thumb ?? null,
+      airDate: e.originallyAvailableAt ?? null,
       ratingKey: e.ratingKey,
     });
   }

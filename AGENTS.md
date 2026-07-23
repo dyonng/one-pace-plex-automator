@@ -179,8 +179,9 @@ driven by source changes rather than blind full syncs. Lives in `src/metadata-au
 
 **State model** — one row per episode, keyed by `season_episode_id` (stable across re-releases,
 unlike CRC32):
-- `desired_hash` — sha1 of the dataset's `title` + `summary` (both observable from Plex, so drift
-  detection is symmetric; air date is written but not hashed).
+- `desired_hash` — sha1 of the dataset's `title` + `summary` + air date (all observable from Plex —
+  incl. `originallyAvailableAt` — so drift detection is symmetric). Air date only participates when it
+  normalizes to a clean `YYYY-MM-DD` (`isoDate`), so a format Plex won't echo back can't loop.
 - `applied_hash` — the desired hash we last successfully pushed to Plex (NULL = never). **`desired !=
   applied` ⇒ needs a metadata sync.**
 - `in_plex`, `has_thumb`, `plex_title`, `plex_rating_key`, `thumb_attempts`, timestamps.
@@ -192,12 +193,17 @@ dirty set is derived from the data change itself.
 
 **Reconcile pass** (`reconcilePlexMetadata`, 2 Plex reads — `/children` + `/allLeaves` via
 `scanPlexMetadata`):
-- Per episode: recompute desired, observe Plex (title/summary/`thumb`/ratingKey), and **adopt**
-  Plex's copy as applied when it already matches (so prior manual/full syncs don't re-push).
+- Per episode: recompute desired, observe Plex (title/summary/air date/`thumb`/ratingKey), and
+  **adopt** Plex's copy as applied when it already matches (so prior manual/full syncs don't re-push).
 - Classify → `ok` / `missing` (blank summary or placeholder title) / `drifted` (present but ≠ dataset)
-  / `not_in_plex`. Push title/summary for flagged episodes+seasons where we hold canonical data,
-  using ratingKeys straight from the scan (`updateEpisodeInPlex`/`updateSeasonInPlex`), then
-  `setAppliedMeta`.
+  / `not_in_plex`. Push title/summary/air date for flagged episodes+seasons where we hold canonical
+  data, using ratingKeys straight from the scan (`updateEpisodeInPlex`/`updateSeasonInPlex`), then
+  `setAppliedMeta`. Seasons also get `originallyAvailableAt` = the arc's earliest episode release
+  (`ArcSummary.arcReleased`).
+- **Show-level metadata** (`applyShowMetadata`): the show's genres, content rating, and studio are
+  static + locked (`SHOW_GENRES`/`SHOW_CONTENT_RATING`/`SHOW_STUDIO` in `plex.ts`, params built by the
+  unit-tested `buildShowMetaParams`). Read-compare-push, re-asserted once a day here (and on every Full
+  Plex sync). Agent-less shows have none of these on their own.
 - **Thumbnails (tiered):** episodes with no real `thumb` get generation attempts, spaced by
   `THUMB_RETRY_SPACING_MS` (30 min, `thumb_last_attempt_at`) because Plex generates asynchronously.
   Tier 1 (attempts < `THUMB_PLEX_ATTEMPT_CAP` = 3): ask Plex to regenerate — `refreshItem` (**PUT**
