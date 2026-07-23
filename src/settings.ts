@@ -10,8 +10,6 @@ export type SettingKey =
   | "AUTO_DOWNLOAD"
   | "AUTO_POSTERS"
   | "AUTO_RECONCILE"
-  | "SYNC_CAST"
-  | "CAST_SOURCE_SHOW"
   | "PREFER_EXTENDED"
   | "PREFER_ARABASTA"
   | "DISCORD_WEBHOOK_URL"
@@ -37,11 +35,9 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   ANIMETOSHO_BASE_URL: "service",
   NYAA_BASE_URL: "service",
   GOOGLE_SHEETS_API_KEY: "service",
-  CAST_SOURCE_SHOW: "service",
   AUTO_DOWNLOAD: "preference",
   AUTO_POSTERS: "preference",
   AUTO_RECONCILE: "preference",
-  SYNC_CAST: "preference",
   PREFER_EXTENDED: "preference",
   PREFER_ARABASTA: "preference",
 };
@@ -150,20 +146,6 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().AUTO_RECONCILE),
     validate: validateBool,
   },
-  SYNC_CAST: {
-    key: "SYNC_CAST",
-    label: "Copy cast from the original series during Full Plex sync",
-    type: "bool",
-    envValue: () => String(getConfig().SYNC_CAST),
-    validate: validateBool,
-  },
-  CAST_SOURCE_SHOW: {
-    key: "CAST_SOURCE_SHOW",
-    label: "Cast source show (original series in your library)",
-    type: "text",
-    envValue: () => getConfig().CAST_SOURCE_SHOW,
-    validate: validateText,
-  },
   PREFER_EXTENDED: {
     key: "PREFER_EXTENDED",
     label: "Prefer extended cuts over standard",
@@ -253,14 +235,6 @@ export function getAutoPosters(): boolean {
 
 export function getAutoReconcile(): boolean {
   return getSettingValue("AUTO_RECONCILE") === "true";
-}
-
-export function getSyncCast(): boolean {
-  return getSettingValue("SYNC_CAST") === "true";
-}
-
-export function getCastSourceShow(): string {
-  return getSettingValue("CAST_SOURCE_SHOW");
 }
 
 export function getPreferExtended(): boolean {

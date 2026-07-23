@@ -1,7 +1,7 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters } from "./posters";
-import { syncCast, resetCast } from "./casting";
+import { resetCast } from "./casting";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
 import { getQbitClient } from "./qbittorrent";
@@ -113,13 +113,10 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         await runMetadataSync();
         const posters = await syncPosters();
         markPostersChecked(); // reconcile's daily poster check starts fresh
-        const cast = await syncCast();
         runtime.lastSyncAt = Date.now();
         return {
           ok: true,
-          message:
-            `Full Plex sync complete. Posters: ${posters.applied} applied, ${posters.skipped} up to date` +
-            `${cast.applied ? `. Cast: ${cast.verified}/${cast.applied} roles from ${cast.source}` : ""}`,
+          message: `Full Plex sync complete. Posters: ${posters.applied} applied, ${posters.skipped} up to date`,
         };
       });
 
