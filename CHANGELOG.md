@@ -10,18 +10,20 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Removed
+- **Cast sync** — removed entirely (the `SYNC_CAST` / `CAST_SOURCE_SHOW` /
+  `CAST_LIMIT` settings and the cast-copy step of Full Plex sync). Plex can only
+  add bare, unlinked actor-name tags to an agent-less fan-edit show — no
+  characters, no photos, no person-linking (that comes only from agent matching,
+  which One Pace has no access to). Worse, the bare tags collide with the source
+  series' real cast, leaving its cast view broken. There is no working path to
+  proper cast on this show via the Plex API, so the feature is gone.
+
 ### Changed
-- **Cast sync is now off by default** (`SYNC_CAST=false`). Plex can only add bare
-  actor-name tags to an agent-less show — no characters, no photos, no
-  person-linking — and doing so collides with the original series' real cast
-  tags (leaving the source show's cast view broken). The capability remains for
-  opt-in experimentation but isn't recommended until proper person-linking is
-  solved.
-- **Reset cast** action/button — removes the cast added to the One Pace show
-  (undo for a cast sync that left blank actors). Only touches One Pace; it no
-  longer force-refreshes the original series (that heavy 1000-episode refresh
-  caused latency) — recover the source with Fix Match + Clean Bundles + Optimize
-  Database in Plex.
+- **Reset cast** action/button retained as a cleanup tool — removes any bare
+  actor tags left on the One Pace show by earlier cast-sync attempts. Only ever
+  touches One Pace; recover the source series in Plex with Fix Match + Clean
+  Bundles + Optimize Database.
 
 ## [1.1.2] — 2026-07-22
 

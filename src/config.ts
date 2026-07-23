@@ -43,14 +43,6 @@ const ConfigSchema = z.object({
   AUTO_POSTERS: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   // Auto-sync Plex metadata + thumbnails when source data changes (reconcile).
   AUTO_RECONCILE: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
-  // Copy the cast from the original series' show onto the One Pace show. OFF by
-  // default: Plex can only add bare actor-name tags to an agent-less show (no
-  // characters, no photos, no person-linking) and doing so collides with the
-  // source show's real cast tags. Kept for opt-in; use the Reset cast action to
-  // undo. CAST_SOURCE_SHOW is still used by Reset cast to refresh the source.
-  SYNC_CAST: z.coerce.string().default("false").transform((v) => v.toLowerCase() === "true"),
-  CAST_SOURCE_SHOW: z.string().default("One Piece"),
-  CAST_LIMIT: z.coerce.number().int().positive().default(30),
   // When true, the extended cut is preferred over the standard cut for episodes
   // that have both. Affects which release is treated as canonical in coverage
   // and which variant the RSS poll downloads.

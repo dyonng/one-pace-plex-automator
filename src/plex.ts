@@ -99,16 +99,6 @@ export interface CastRole {
   tagKey?: string; // Plex person GUID (links to the person's photo + other roles)
 }
 
-/** Finds a show by title in the configured library (case-insensitive). Null if absent. */
-export async function resolveShowRatingKeyByName(name: string): Promise<string | null> {
-  const sectionId = await resolveSectionId();
-  const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, { type: "2" });
-  const show = result.MediaContainer.Metadata?.find(
-    (m) => m.title.toLowerCase() === name.toLowerCase()
-  );
-  return show?.ratingKey ?? null;
-}
-
 /** The cast (actor + character + person key) listed on a show, in billing order. */
 export async function getShowRoles(ratingKey: string): Promise<CastRole[]> {
   const result = await plexGet<{
@@ -133,47 +123,6 @@ export async function clearShowCast(ratingKey: string): Promise<number> {
   }
   await plexPut(`/library/metadata/${ratingKey}`, params);
   return current.length;
-}
-
-/**
- * Edit params that replace a show's cast, mirroring the reference
- * `old_scripts/sync_cast_list.py`: `actor[i].tag` = actor name, `actor[i].role`
- * = character. Locks the field so the Plex agent won't overwrite it. Pure —
- * unit-tested; the one place to adjust if a Plex build wants a different format.
- */
-export function buildCastEditParams(roles: CastRole[]): Record<string, string | number> {
-  // Plex's multi-value tag fields want `actor[i].tag.tag` for the tag value
-  // (the old script's `actor[i].tag` is silently ignored — Plex still 200s).
-  // The character goes on `actor[i].tag.role`.
-  const params: Record<string, string | number> = { type: 2, "actor.locked": 1 };
-  roles.forEach((r, i) => {
-    params[`actor[${i}].tag.tag`] = r.tag;
-    if (r.role) params[`actor[${i}].tag.role`] = r.role;
-  });
-  return params;
-}
-
-/** Replaces the cast on a show with the given roles (locked). Verbose — logs the
- *  exact params (first actor sample) and the HTTP status so a format mismatch is
- *  diagnosable from one run. */
-export async function setShowCast(ratingKey: string, roles: CastRole[]): Promise<void> {
-  const { PLEX_URL } = getConfig();
-  const params = buildCastEditParams(roles);
-  const sample = Object.entries(params)
-    .filter(([k]) => k === "type" || k === "actor.locked" || k.startsWith("actor[0]"))
-    .map(([k, v]) => `${k}=${v}`);
-  logger.info("Cast edit request", {
-    ratingKey,
-    roles: roles.length,
-    paramCount: Object.keys(params).length,
-    firstActorParams: sample,
-  });
-  const resp = await axios.put(`${PLEX_URL}/library/metadata/${ratingKey}`, null, {
-    params: { ...baseParams(), ...params },
-    timeout: 20_000,
-    validateStatus: () => true,
-  });
-  logger.info("Cast edit response", { ratingKey, status: resp.status });
 }
 
 /** Uploads a poster image (bytes) to a metadata item; Plex makes it the selected art. */
