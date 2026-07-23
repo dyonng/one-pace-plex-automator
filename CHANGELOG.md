@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.10] — 2026-07-23
+
+Richer Plex presentation for the agent-less show, and the removal of cast sync
+(which can't work on a fan edit).
+
 ### Added
 - **Show-level metadata** — the One Pace show now gets genres (Anime, Action,
   Adventure, Fantasy, Comedy), a content rating (TV-14), and a studio (Toei
@@ -26,6 +31,10 @@ into a version heading when a GitHub release is cut.
   release date in the dataset later — or is missing one in Plex — gets it
   backfilled automatically instead of only on the initial sync. Dates that don't
   normalize to `YYYY-MM-DD` are ignored for drift to avoid needless re-writes.
+- **Reset cast** action/button retained as a cleanup tool — removes any bare
+  actor tags left on the One Pace show by earlier cast-sync attempts. Only ever
+  touches One Pace; recover the source series in Plex with Fix Match + Clean
+  Bundles + Optimize Database.
 
 ### Removed
 - **Cast sync** — removed entirely (the `SYNC_CAST` / `CAST_SOURCE_SHOW` /
@@ -35,12 +44,6 @@ into a version heading when a GitHub release is cut.
   which One Pace has no access to). Worse, the bare tags collide with the source
   series' real cast, leaving its cast view broken. There is no working path to
   proper cast on this show via the Plex API, so the feature is gone.
-
-### Changed
-- **Reset cast** action/button retained as a cleanup tool — removes any bare
-  actor tags left on the One Pace show by earlier cast-sync attempts. Only ever
-  touches One Pace; recover the source series in Plex with Fix Match + Clean
-  Bundles + Optimize Database.
 
 ## [1.1.2] — 2026-07-22
 
