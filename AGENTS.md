@@ -93,7 +93,10 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
 6. **Plex** (`src/plex.ts`) — resolves section + show by name (cached). All edits use
    `.value`/`.locked` params so the Plex agent can't overwrite custom metadata.
 7. **Discord** (`src/discord.ts`) — embeds: `new_episode`, `download_complete`,
-   `episode_updated` (changelog + replaced file), `error`.
+   `episode_updated` (changelog + replaced file), `error`, plus health alerts
+   (`buildHealthEmbed`/`sendDiscordHealthAlert`). Each event type is gated by its own
+   `NOTIFY_*` toggle (`TYPE_SETTING` map; health on `NOTIFY_HEALTH`) — a disabled toggle
+   drops the event before any HTTP call, and everything no-ops without a webhook.
 
 ### State
 
@@ -293,10 +296,14 @@ stages without touching the deployment stack manager.
 ### Runtime Settings (`src/settings.ts`)
 
 Settings editable live from the dashboard without a redeploy, each tagged with a **category**
-(`service` | `preference`) that the UI groups into "System & Services" vs "Preferences":
+(`service` | `notification` | `preference`) that the UI groups into "System & Services",
+"Discord Notifications", and "Preferences":
 - **service:** **POLL_CRON**, **POLL_ENABLED** (bool), **DOWNLOAD_CHECK_SECONDS**,
-  **RSS_FEED_URL**, **DISCORD_WEBHOOK_URL**, **POSTER_REPO_RAW_BASE**, **ANIMETOSHO_API_KEY**,
+  **RSS_FEED_URL**, **POSTER_REPO_RAW_BASE**, **ANIMETOSHO_API_KEY**,
   **ANIMETOSHO_BASE_URL**, **NYAA_BASE_URL**, **GOOGLE_SHEETS_API_KEY**.
+- **notification:** **DISCORD_WEBHOOK_URL**, **NOTIFY_NEW_EPISODE** (bool),
+  **NOTIFY_DOWNLOAD_COMPLETE** (bool), **NOTIFY_EPISODE_UPDATED** (bool),
+  **NOTIFY_ERROR** (bool), **NOTIFY_HEALTH** (bool).
 - **preference:** **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS** (bool), **AUTO_RECONCILE** (bool),
   **PREFER_EXTENDED** (bool), **PREFER_ARABASTA** (bool).
 
@@ -429,7 +436,8 @@ Zod-validated env (`src/config.ts`):
 | `PLEX_URL` | `http://plex:32400` | **host IP** — Plex is baremetal |
 | `PLEX_TOKEN` | — | |
 | `PLEX_LIBRARY_NAME` | `TV Shows` | library containing the "One Pace" show |
-| `DISCORD_WEBHOOK_URL` | — (optional) | notifications disabled if unset |
+| `DISCORD_WEBHOOK_URL` | — (optional) | notifications disabled if unset (dashboard-editable) |
+| `NOTIFY_NEW_EPISODE` / `NOTIFY_DOWNLOAD_COMPLETE` / `NOTIFY_EPISODE_UPDATED` / `NOTIFY_ERROR` / `NOTIFY_HEALTH` | `true` | per-event Discord toggles; no-op without a webhook (dashboard-editable) |
 | `POLL_CRON` | `*/5 * * * *` | RSS poll schedule (dashboard-editable) |
 | `POLL_ENABLED` | `true` | gate the scheduled RSS poll; `false` = manual-only (dashboard-editable) |
 | `DOWNLOAD_CHECK_SECONDS` | `30` | qBit completion check interval (dashboard-editable) |
@@ -479,7 +487,7 @@ Zod-validated env (`src/config.ts`):
 | `src/casting.ts` | Cleanup only: `resetCast()` removes bare actor tags from the One Pace show (see Casting) |
 | `src/update-check.ts` | Update notifier — compares running version against main's package.json (6h cache) |
 | `src/backup.ts` | Nightly SQLite backups to DATA_DIR/backups (04:00 + boot catch-up, keep 7) |
-| `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel |
+| `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel; fires Discord alerts on overall status transitions (boot-grace + change-only, gated on `NOTIFY_HEALTH`) |
 | `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync, `scanPlexMetadata`, `refreshItem`/`analyzeItem` for thumbnails) |
 | `src/processor.ts` | Completion handler; coverage refresh on ingest; `runMetadataSync`/`retryFailed` (manual-only) |
 | `src/discord.ts` | Webhook embeds |

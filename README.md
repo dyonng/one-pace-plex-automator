@@ -11,7 +11,9 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 5. Moves files to the correct Plex library folder, replacing superseded copies
 6. Keeps Plex metadata, thumbnails, and posters rich and current automatically
    (see [Metadata & thumbnails](#metadata--thumbnails) and [Posters](#posters))
-7. Sends Discord webhook notifications
+7. Sends Discord webhook notifications — per-event toggles (new episode,
+   downloaded, updated, errors) plus **health alerts** when a service or disk
+   problem starts or clears (Settings → Discord Notifications)
 8. Backs up its own state nightly (`/data/backups/`, keeps the last 7)
 
 A web dashboard (port `8282`) provides live logs with text/level filtering,
@@ -191,6 +193,7 @@ rest fall back to the defaults shown.
 | `PREFER_ARABASTA` | | Render arc 14's title as "Arabasta" instead of the dataset's "Alabasta" (default `true`) |
 | `POSTER_REPO_RAW_BASE` | | Raw base URL for the poster repo (default: SpykerNZ — see [Posters](#posters)) |
 | `DISCORD_WEBHOOK_URL` | | Discord webhook URL for notifications |
+| `NOTIFY_NEW_EPISODE` / `NOTIFY_DOWNLOAD_COMPLETE` / `NOTIFY_EPISODE_UPDATED` / `NOTIFY_ERROR` / `NOTIFY_HEALTH` | | Per-event Discord toggles (all default `true`); no-op without a webhook |
 | `GOOGLE_SHEETS_API_KEY` | | Enables reading the official One Pace episode-guide sheets — an early metadata source for releases the dataset doesn't list yet |
 | `ANIMETOSHO_API_KEY` | | Optional AnimeTosho key (raises rate limits for torrent search) |
 | `TZ` | | Timezone for cron schedules (default `UTC`) |

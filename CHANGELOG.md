@@ -10,6 +10,19 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Discord Notifications settings section** — a dedicated Settings group holding
+  the Discord webhook (moved here from System & Services) plus per-event toggles:
+  new episode detected, episode downloaded & imported, episode updated
+  (re-release), processing errors, and health alerts. All default on and no-op
+  without a webhook.
+- **Health alerts to Discord** — the health monitor already knew when Plex or
+  qBittorrent went unreachable, a disk got low, or items were failing, but only
+  showed it on the dashboard. It now sends a Discord alert when the overall
+  status **changes** into a warning/error state (with the failing checks listed)
+  and a recovery message when it clears. Change-only + a short boot grace window
+  mean no steady-state spam and no restart false alarms. Gated on `NOTIFY_HEALTH`.
+
 ## [1.1.10] — 2026-07-23
 
 Richer Plex presentation for the agent-less show, and the removal of cast sync

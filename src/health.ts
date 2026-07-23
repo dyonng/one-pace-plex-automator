@@ -7,6 +7,7 @@ import { pingPlex } from "./plex";
 import { getQbitClient } from "./qbittorrent";
 import { isMetadataLoaded } from "./metadata";
 import { runtime } from "./controls";
+import { sendDiscordHealthAlert } from "./discord";
 
 export type HealthStatus = "ok" | "warn" | "error";
 
@@ -37,6 +38,12 @@ export interface HealthReport {
 }
 
 const KV_KEY = "health_report";
+// Last overall status we've alerted from — the baseline for detecting a change.
+const KV_ALERT_STATUS = "health_alert_status";
+// Suppress alerts for the first couple of minutes after boot, while metadata
+// loads and Plex/qBittorrent connections warm up (otherwise every restart would
+// fire a transient "warn").
+const HEALTH_ALERT_GRACE_MS = 2 * 60 * 1000;
 const GB = 1024 ** 3;
 const SEVERITY: Record<HealthStatus, number> = { ok: 0, warn: 1, error: 2 };
 
@@ -87,6 +94,32 @@ function checkDisk(name: string, path: string): DiskInfo {
   }
 }
 
+// One line per failing check/disk, plus the failed-item count, for the alert body.
+function failingLines(report: HealthReport): string[] {
+  const lines: string[] = [];
+  for (const c of report.checks) if (c.status !== "ok") lines.push(`${c.name}: ${c.detail}`);
+  for (const d of report.disks) if (d.status !== "ok") lines.push(`${d.name} disk: ${d.freePct.toFixed(1)}% free`);
+  if (report.failedCount > 0) lines.push(`${report.failedCount} failed item(s) in the pipeline`);
+  return lines;
+}
+
+// Fire a Discord alert only when the overall status *changes* (into or out of a
+// degraded state) — not every check — so a steady problem doesn't spam. The very
+// first run just seeds the baseline; boot-time flapping is swallowed by the grace
+// window.
+async function maybeSendHealthAlert(report: HealthReport): Promise<void> {
+  const prev = getKv(KV_ALERT_STATUS);
+  const overall = report.overall;
+  if (!prev) {
+    setKv(KV_ALERT_STATUS, overall);
+    return;
+  }
+  if (overall === prev) return;
+  setKv(KV_ALERT_STATUS, overall);
+  if (Date.now() - _startedAt < HEALTH_ALERT_GRACE_MS) return;
+  await sendDiscordHealthAlert({ status: overall, lines: overall === "ok" ? [] : failingLines(report) });
+}
+
 export async function runHealthCheck(): Promise<HealthReport> {
   const [plex, qbit, rss] = await Promise.all([
     timed("Plex", async () => {
@@ -126,6 +159,11 @@ export async function runHealthCheck(): Promise<HealthReport> {
   };
 
   setKv(KV_KEY, JSON.stringify(report));
+  try {
+    await maybeSendHealthAlert(report);
+  } catch (err) {
+    logger.warn("Health alert dispatch failed", { error: (err as Error).message });
+  }
   return report;
 }
 
@@ -140,8 +178,11 @@ export function getStoredHealth(): HealthReport | null {
 }
 
 let _timer: ReturnType<typeof setInterval> | null = null;
+// When the monitor started — anchors the alert grace window (see HEALTH_ALERT_GRACE_MS).
+let _startedAt = 0;
 
 export function startHealthMonitor(intervalMs = 60_000): void {
+  _startedAt = Date.now();
   // Run once immediately so the dashboard has data right after boot.
   runHealthCheck().catch((err) => logger.warn("Health check failed", { error: (err as Error).message }));
   _timer = setInterval(() => {
