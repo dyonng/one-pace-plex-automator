@@ -10,6 +10,23 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Show-level metadata** — the One Pace show now gets genres (Anime, Action,
+  Adventure, Fantasy, Comedy), a content rating (TV-14), and a studio (Toei
+  Animation) written as locked fields, so an agent-less show stops reading as
+  "Not Rated / unknown" and shows up in Plex's genre-based discovery. Applied on
+  Full Plex sync and re-asserted once a day during reconcile (read-compare, so it
+  only writes when Plex is missing them).
+- **Season air dates** — each season (arc) now gets `originallyAvailableAt` set
+  to its earliest episode's release date.
+
+### Changed
+- **Air-date drift now self-heals.** Episode air dates are part of the
+  reconcile identity hash (alongside title + summary), so an episode that gains a
+  release date in the dataset later — or is missing one in Plex — gets it
+  backfilled automatically instead of only on the initial sync. Dates that don't
+  normalize to `YYYY-MM-DD` are ignored for drift to avoid needless re-writes.
+
 ### Removed
 - **Cast sync** — removed entirely (the `SYNC_CAST` / `CAST_SOURCE_SHOW` /
   `CAST_LIMIT` settings and the cast-copy step of Full Plex sync). Plex can only

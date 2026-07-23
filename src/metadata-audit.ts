@@ -32,6 +32,7 @@ import {
   buildEpisodeSummary,
   buildSeasonSummary,
   refreshShow,
+  applyShowMetadata,
   type PlexItemMeta,
   type PlexMetadataSnapshot,
 } from "./plex";
@@ -60,6 +61,10 @@ const GENERATE_PER_PASS = 5;
 // conditional HTTP requests.
 const POSTER_RECHECK_MS = 24 * 60 * 60 * 1000;
 const KV_POSTERS_CHECKED_AT = "posters_reconcile_checked_at";
+// Show-level metadata (genres/rating/studio) is static and locked; re-assert it
+// on the same daily cadence (read-compare, so it only writes when Plex lost it).
+const SHOW_META_RECHECK_MS = 24 * 60 * 60 * 1000;
+const KV_SHOW_META_CHECKED_AT = "show_meta_reconcile_checked_at";
 // Generation is asynchronous (Plex queues the analysis), so give it real time
 // between attempts. Without this, back-to-back auto-reconciles would burn the
 // whole attempt budget before Plex has worked through its queue.
@@ -316,18 +321,38 @@ const isPlaceholderTitle = (t: string): boolean => {
   return n === "" || /^(episode|season)\s+\d+$/.test(n);
 };
 
-// Identity of the metadata we want in Plex: title + summary only (both
-// observable from /allLeaves, so drift detection stays symmetric).
-function desiredHash(title: string, summary: string): string {
-  return createHash("sha1").update(norm(title) + "\x00" + norm(summary)).digest("hex");
+// A clean YYYY-MM-DD or "". Plex reports originallyAvailableAt in this form, so
+// we only ever treat a source date as an air-date signal when it normalizes to
+// the same shape — otherwise a format we can't match would push forever.
+const isoDate = (s: string | null | undefined): string => {
+  const m = /(\d{4}-\d{2}-\d{2})/.exec(s ?? "");
+  return m ? m[1] : "";
+};
+
+// Identity of the metadata we want in Plex: title + summary + air date. All
+// three are observable from /allLeaves, so drift detection stays symmetric. Air
+// date only participates when it's a clean date (see isoDate).
+function desiredHash(title: string, summary: string, airDate: string): string {
+  return createHash("sha1")
+    .update(norm(title) + "\x00" + norm(summary) + "\x00" + isoDate(airDate))
+    .digest("hex");
 }
 
 const hasData = (title: string, summary: string): boolean =>
   norm(title).length > 0 || norm(summary).length > 0;
 
 // True when Plex's copy already equals what we want (adopt without re-pushing).
-function plexMatchesDesired(plex: PlexItemMeta, title: string, summary: string): boolean {
-  return norm(plex.title) === norm(title) && norm(plex.summary) === norm(summary);
+// A desired air date is only enforced when it's a clean date; when we have none
+// to assert, Plex's air date is ignored so it never reads as drift.
+function plexMatchesDesired(
+  plex: PlexItemMeta,
+  title: string,
+  summary: string,
+  airDate: string
+): boolean {
+  if (norm(plex.title) !== norm(title) || norm(plex.summary) !== norm(summary)) return false;
+  const desiredDate = isoDate(airDate);
+  return desiredDate === "" || desiredDate === isoDate(plex.airDate);
 }
 
 interface EpisodeStateView {
@@ -350,7 +375,7 @@ function reconcileEpisodeState(
 ): EpisodeStateView {
   const title = ep.episodeTitle;
   const summary = buildEpisodeSummary(ep);
-  const dHash = desiredHash(title, summary);
+  const dHash = desiredHash(title, summary, ep.released);
   setDesiredMeta(ep.seasonEpisodeId, ep.arcPart, ep.episodeNum, dHash);
 
   if (!plex) {
@@ -370,7 +395,7 @@ function reconcileEpisodeState(
   // Adopt Plex's copy as applied when it already matches — avoids needless
   // re-pushes for episodes synced before we tracked state.
   let applied = prev?.applied_hash ?? null;
-  if (plexMatchesDesired(plex, title, summary)) {
+  if (plexMatchesDesired(plex, title, summary, ep.released)) {
     setAppliedMeta(ep.seasonEpisodeId, dHash);
     applied = dHash;
   }
@@ -403,7 +428,7 @@ function reconcileSeasonState(arc: ArcSummary, plex: PlexItemMeta | undefined): 
   if (!plex) return { state: "not_in_plex", needsMetadata: false };
   const title = arc.arcTitle;
   const summary = buildSeasonSummary(arc);
-  if (plexMatchesDesired(plex, title, summary)) return { state: "ok", needsMetadata: false };
+  if (plexMatchesDesired(plex, title, summary, arc.arcReleased)) return { state: "ok", needsMetadata: false };
   const plexEmpty = norm(plex.summary).length === 0 || isPlaceholderTitle(plex.title);
   return { state: plexEmpty ? "missing" : "drifted", needsMetadata: hasData(title, summary) };
 }
@@ -589,7 +614,7 @@ export async function reconcilePlexMetadata(
   for (const { ep, ratingKey } of episodesToPush) {
     try {
       await updateEpisodeInPlex(ratingKey, ep);
-      setAppliedMeta(ep.seasonEpisodeId, desiredHash(ep.episodeTitle, buildEpisodeSummary(ep)));
+      setAppliedMeta(ep.seasonEpisodeId, desiredHash(ep.episodeTitle, buildEpisodeSummary(ep), ep.released));
       episodesUpdated++;
     } catch (err) {
       logger.warn("Reconcile: episode push failed", { id: ep.seasonEpisodeId, error: (err as Error).message });
@@ -656,6 +681,17 @@ export async function reconcilePlexMetadata(
     }
   }
 
+  // Show-level metadata (genres, content rating, studio): static + locked, so a
+  // read-compare once a day keeps it present without a manual Full Plex sync.
+  if (Date.now() - Number(getKv(KV_SHOW_META_CHECKED_AT) ?? 0) >= SHOW_META_RECHECK_MS) {
+    try {
+      await applyShowMetadata();
+      setKv(KV_SHOW_META_CHECKED_AT, String(Date.now()));
+    } catch (err) {
+      logger.warn("Reconcile: show metadata check failed", { error: (err as Error).message });
+    }
+  }
+
   if (seasonsUpdated || episodesUpdated) await refreshShow();
 
   // Re-audit so the stored report reflects the pushes (Plex-triggered
@@ -700,7 +736,7 @@ export async function markDirtyFromSource(): Promise<void> {
       ep.seasonEpisodeId,
       ep.arcPart,
       ep.episodeNum,
-      desiredHash(ep.episodeTitle, buildEpisodeSummary(ep))
+      desiredHash(ep.episodeTitle, buildEpisodeSummary(ep), ep.released)
     );
   }
   logger.debug("Marked desired metadata from source", { episodes: episodes.length });

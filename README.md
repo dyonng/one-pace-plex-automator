@@ -27,7 +27,7 @@ theme, and a choice of logo).
 |---------|--------------|
 | **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. With auto-reconcile on, it also pushes any changed metadata and generates missing thumbnails. |
 | **Library → Scan / Reconcile** | Scan checks your media folder for coverage (present/missing/upgradeable) and diffs Plex against the dataset, flagging episodes with missing/drifted metadata or no thumbnail. Reconcile fixes only the flagged ones — pushing metadata and triggering thumbnail generation. See [below](#metadata--thumbnails). |
-| **Full Plex sync** | Re-pushes titles/descriptions for **every** season and episode to Plex, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
+| **Full Plex sync** | Re-pushes titles/descriptions/air dates for **every** season and episode to Plex, applies the show's genres/rating/studio, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
 | **Retry failed** | Re-queues episodes whose download or processing failed. |
 | **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
 | **Clear done** | Removes completed rows from the pipeline table (files are kept). |
@@ -38,14 +38,19 @@ individually or in batch.
 
 ### Metadata & thumbnails
 
-Plex episode/season **titles, summaries, and thumbnails** are kept rich and
-current automatically. The tool tracks, per episode, what the dataset says the
-metadata *should* be versus what it last pushed to Plex — so when the metadata
-source updates (a new `data.min.json` or an episode-guide sheet edit), it knows
-exactly which episodes changed and re-syncs only those, no full library sweep.
+Plex episode/season **titles, summaries, air dates, and thumbnails** are kept
+rich and current automatically. The tool tracks, per episode, what the dataset
+says the metadata *should* be versus what it last pushed to Plex — so when the
+metadata source updates (a new `data.min.json` or an episode-guide sheet edit),
+it knows exactly which episodes changed and re-syncs only those, no full library
+sweep.
 
 - **Metadata** — missing (never synced) or drifted (differs from the dataset)
-  titles/summaries are pushed for just the affected episodes and seasons.
+  titles/summaries/air dates are pushed for just the affected episodes and
+  seasons (seasons get the arc's earliest release date).
+- **Show details** — since a fan edit has no metadata agent, the show itself
+  gets genres, a content rating, and a studio applied (locked) so it looks
+  complete and shows up in Plex's genre browsing.
 - **Thumbnails** — episodes with no thumbnail get generation triggered in Plex
   (a still frame plus scrubber previews). Generation runs in Plex's background
   queue, so results appear on a later scan; attempts are spaced ~30 minutes
