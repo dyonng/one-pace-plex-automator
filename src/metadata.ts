@@ -171,14 +171,17 @@ export function isMetadataLoaded(): boolean {
   return _data !== null;
 }
 
+/**
+ * Invalidates the dataset so the next `refreshMetadata()` does a full (non-304)
+ * re-fetch. Deliberately keeps the current `_data` + indexes live until that
+ * fetch succeeds and atomically swaps them (via `buildIndexes`): a scheduled
+ * Refresh Sources therefore never leaves the dataset momentarily "unloaded"
+ * (which surfaced as a spurious health warning every poll), and a failed refresh
+ * keeps serving the last-good data instead of nulling everything.
+ */
 export function clearMetadataCache(): void {
-  _data = null;
   _etag = null;
-  _arcByPart = null;
-  _descByKey = null;
-  _variantByKey = null;
-  _episodesCache = null;
-  logger.debug("Metadata cache cleared");
+  logger.debug("Metadata cache invalidated (next refresh re-fetches in full)");
 }
 
 export async function resolveEpisodeByCrc32(
