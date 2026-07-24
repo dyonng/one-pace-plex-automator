@@ -10,6 +10,18 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Spurious "dataset not loaded yet" health alerts on every source refresh.**
+  Refresh Sources cleared the in-memory metadata dataset *before* re-fetching it,
+  so a health check landing in that window reported the dataset as unloaded and
+  fired a Discord warning (then a recovery a minute later). The cache is now
+  invalidated by resetting only its ETag — the current dataset stays live and is
+  swapped atomically once the fresh copy loads, so there's no unloaded window
+  (and a failed refresh keeps serving the last-good data instead of nulling it).
+- **Health alerts are now debounced.** A status must persist across two
+  consecutive checks before it alerts, and a recovery is only sent if a problem
+  was actually announced — so transient blips can't page you.
+
 ### Added
 - **Discord Notifications settings section** — a dedicated Settings group holding
   the Discord webhook (moved here from System & Services) plus per-event toggles:

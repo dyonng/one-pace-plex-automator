@@ -487,7 +487,7 @@ Zod-validated env (`src/config.ts`):
 | `src/casting.ts` | Cleanup only: `resetCast()` removes bare actor tags from the One Pace show (see Casting) |
 | `src/update-check.ts` | Update notifier — compares running version against main's package.json (6h cache) |
 | `src/backup.ts` | Nightly SQLite backups to DATA_DIR/backups (04:00 + boot catch-up, keep 7) |
-| `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel; fires Discord alerts on overall status transitions (boot-grace + change-only, gated on `NOTIFY_HEALTH`) |
+| `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel; fires Discord alerts on overall status transitions — debounced (`nextAlertState`, confirm ×2), boot-grace, change-only, no lone recoveries, gated on `NOTIFY_HEALTH` |
 | `src/plex.ts` | Plex API (scan, lock-aware metadata update, single + full sync, `scanPlexMetadata`, `refreshItem`/`analyzeItem` for thumbnails) |
 | `src/processor.ts` | Completion handler; coverage refresh on ingest; `runMetadataSync`/`retryFailed` (manual-only) |
 | `src/discord.ts` | Webhook embeds |
