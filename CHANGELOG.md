@@ -10,6 +10,8 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.14] — 2026-07-25
+
 ### Fixed
 - **Doubled "v" in the qBittorrent version** shown in the System panel (e.g.
   `vv5.2.3`) — qBittorrent's version string already includes a leading `v`, so
