@@ -172,7 +172,9 @@ export async function runHealthCheck(): Promise<HealthReport> {
       await pingPlex();
       return "reachable";
     }),
-    timed("qBittorrent", async () => `v${await getQbitClient().ping()}`),
+    // qBittorrent's /app/version already includes a leading "v" — normalize so
+    // we don't end up with "vv5.2.3".
+    timed("qBittorrent", async () => `v${(await getQbitClient().ping()).replace(/^v/i, "")}`),
     checkRss(),
   ]);
   const metadata = checkMetadata();

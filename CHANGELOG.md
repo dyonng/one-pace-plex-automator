@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Doubled "v" in the qBittorrent version** shown in the System panel (e.g.
+  `vv5.2.3`) — qBittorrent's version string already includes a leading `v`, so
+  the health check no longer adds its own.
+
 ## [1.1.13] — 2026-07-25
 
 Adds Discord health alerts and a dedicated notifications settings section, then
