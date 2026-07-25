@@ -10,6 +10,11 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.13] — 2026-07-25
+
+Adds Discord health alerts and a dedicated notifications settings section, then
+tames the alerting so it only fires on real, sustained problems.
+
 ### Fixed
 - **Spurious "dataset not loaded yet" health alerts on every source refresh.**
   Refresh Sources cleared the in-memory metadata dataset *before* re-fetching it,
