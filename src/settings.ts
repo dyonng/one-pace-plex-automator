@@ -175,7 +175,7 @@ const DEFS: Record<SettingKey, SettingDef> = {
   },
   SHOW_POSTER_VARIANT: {
     key: "SHOW_POSTER_VARIANT",
-    label: "Series poster design (1 or 2 — the poster repo ships two)",
+    label: "Series poster design",
     type: "int",
     envValue: () => String(getConfig().SHOW_POSTER_VARIANT),
     validate: validateInt(1, 2),
