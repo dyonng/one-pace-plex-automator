@@ -10,6 +10,23 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Specials support.** The One Pace **Specials** arc (dataset arc part 0 — the
+  animated specials, including *One Piece Fan Letter*) is no longer skipped. It
+  now flows through coverage, metadata reconciliation, and Full Plex sync like
+  any other season, landing in Plex's native Season 0 / Specials. The specials
+  poster was already wired up, so it applies automatically.
+
+### Fixed
+- **A release whose CRC32 isn't catalogued yet no longer dead-ends.** Previously
+  an RSS entry carrying a real-but-unpublished CRC32 (common when a release lands
+  before the metadata dataset and episode guide regenerate) failed with
+  `CRC32 … not found in metadata dataset` and was skipped outright. It now falls
+  through to the same provisional path used for entries with no CRC32, so it can
+  still be identified from its title and downloaded. If the provisional path
+  can't place it either, the feed item is deliberately left unmarked so a later
+  poll picks it up once the sources catch up — rather than being dropped.
+
 ## [1.1.14] — 2026-07-25
 
 ### Fixed

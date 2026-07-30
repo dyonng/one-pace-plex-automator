@@ -9,6 +9,7 @@ import {
   parseReleaseTitle,
   resolveArcByTitle,
   provisionalKey,
+  type ResolvedEpisode,
 } from "./metadata";
 import { getArcResolution } from "./onepace-sheet";
 import { getQbitClient } from "./qbittorrent";
@@ -52,7 +53,23 @@ export async function pollRss(): Promise<number> {
       }
 
       const resolution = extractResolutionFromFilename(rssEp.filename);
-      const ep = await resolveEpisodeByCrc32(rssEp.crc32, resolution);
+      let ep: ResolvedEpisode;
+      try {
+        ep = await resolveEpisodeByCrc32(rssEp.crc32, resolution);
+      } catch (err) {
+        // The CRC32 isn't in the dataset or the episode guide yet — normal when a
+        // release lands before either regenerates. Fall through to the
+        // title-derived provisional path instead of dead-ending here; the GUID is
+        // deliberately left unseen so the entry re-resolves properly once the
+        // sources catch up.
+        logger.info("CRC32 not resolvable yet — trying provisional path", {
+          crc32: rssEp.crc32,
+          title: rssEp.title,
+          reason: (err as Error).message,
+        });
+        provisional.push(rssEp);
+        continue;
+      }
 
       upsertEpisode({
         crc32: rssEp.crc32,
@@ -136,11 +153,20 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
   }
   const groups = new Map<string, Candidate[]>();
 
+  // An item that arrived here *with* a CRC32 came from the unresolvable-CRC
+  // fallback, not from a missing hash. Giving up on those must not mark the GUID
+  // seen: the CRC is real and the dataset/guide will very likely publish it soon,
+  // so the entry has to stay eligible for a proper resolve on a later poll.
+  const retriesLater = (rssEp: RssEpisode): boolean => rssEp.crc32 !== null;
+
   for (const rssEp of items) {
     const parsed = parseReleaseTitle(rssEp.title);
     if (!parsed) {
-      logger.warn("Provisional download skipped — can't parse arc/episode from title", { title: rssEp.title });
-      markGuidSeen(rssEp.guid);
+      logger.warn("Provisional download skipped — can't parse arc/episode from title", {
+        title: rssEp.title,
+        willRetry: retriesLater(rssEp),
+      });
+      if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
       continue;
     }
     const arc = await resolveArcByTitle(parsed.arcTitle);
@@ -148,8 +174,9 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
       logger.warn("Provisional download skipped — arc not in dataset", {
         title: rssEp.title,
         arcTitle: parsed.arcTitle,
+        willRetry: retriesLater(rssEp),
       });
-      markGuidSeen(rssEp.guid);
+      if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
       continue;
     }
     const key = `${arc.arcPart}-${parsed.epNum}`;

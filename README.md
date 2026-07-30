@@ -236,6 +236,15 @@ sheet. These are usually updated before the published dataset, so brand-new
 releases can be resolved (CRC32, titles, descriptions) without waiting for the
 dataset to catch up. Without a key the sheets are simply skipped.
 
+**Specials** (the One Pace animated specials, including *One Piece Fan Letter*)
+are arc part 0 in the dataset and are handled like any other season — they land
+in Plex's native **Season 0 / Specials**, with the specials poster applied.
+
+If a release appears in the feed before *any* source lists its CRC32, it's still
+downloaded provisionally when its arc can be identified from the title. If it
+can't be placed at all, the feed item is left pending rather than discarded, so a
+later poll retries it once the dataset or guide catches up.
+
 ## Posters
 
 Season and show posters are the fan-made artwork by

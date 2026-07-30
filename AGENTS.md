@@ -49,6 +49,13 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
    **Extended-cut preference:** before queueing, `isPreferredRelease(crc32)` is checked — when
    `PREFER_EXTENDED` is on and an episode has both cuts, the non-preferred variant (e.g. a standard
    re-release) is skipped and its GUID marked seen, so it never replaces an extended cut on disk.
+   **Unresolvable CRC32:** an entry whose CRC32 is real but not yet published in the dataset *or* the
+   guide (a release landing before either regenerates) does **not** dead-end — it falls through to
+   the same provisional path used for entries with no CRC32 at all. If the provisional path also
+   can't place it (title's arc isn't a dataset arc — e.g. `One Piece Fan Letter 01`, since Fan Letter
+   is an *episode* of the `Specials` arc), the GUID is deliberately left **unseen** so a later poll
+   re-resolves it once the sources catch up. Entries that never had a CRC32 keep the old
+   mark-seen-and-move-on behavior. See `test/rss-provisional-fallback.test.ts`.
 2. **Metadata** (`src/metadata.ts`, supplemented by `src/onepace-sheet.ts` +
    `src/onepace-descriptions.ts`) — the richer `metadata/data.min.json` from
    [`ladyisatis/one-pace-metadata`](https://github.com/ladyisatis/one-pace-metadata) branch `v2`
@@ -57,6 +64,11 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
    - `arcs.en[]` — `{ part, saga, title, description, episodes: [{ episode, standard, extended }] }`.
      The `episodes[]` list maps each (arc part, episode) to its **current** standard CRC32 and
      extended CRC32 (`""` when no extended cut). This is the authoritative canonical-release source.
+     **`part: 0` is the `Specials` arc** (One Pace's animated specials, incl. *One Piece Fan Letter*)
+     and is treated as a normal season everywhere — Plex models season 0 as Specials natively and
+     `posters.ts` already maps it to `season-specials-poster.png`. Only **negative** parts are
+     filtered out as sentinels (`getAllArcs`/`getAllEpisodes`/the sheet merge all use `part >= 0`).
+     `arcIndex` is captured before filtering, so it stays aligned with dataset order regardless.
    - `descriptions.en[]` — `{ arc, episode, title, description }` keyed by (arc **part**, episode).
    - `episodes{CRC32}` — per-release technical metadata `{ arc, episode, manga_chapters,
      anime_episodes, released, duration, extended, file:{name,size,…} }`, **retains release history**
