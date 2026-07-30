@@ -1,7 +1,7 @@
 import { logger } from "./logger";
 import { getKv, setKv } from "./db";
 import { getSettingValue } from "./settings";
-import { getShowAndSeasonKeys, uploadPoster } from "./plex";
+import { getShowAndSeasonKeys, listPosterTargets, uploadPoster } from "./plex";
 
 // Map of poster target -> { url, etag } last applied, so we can skip unchanged
 // art via conditional HTTP requests and re-apply only when the image changes.
@@ -60,6 +60,17 @@ async function listTargets(): Promise<Array<{ key: string; ratingKey: string }>>
   return targets;
 }
 
+/**
+ * Re-applies every poster from scratch, ignoring the stored ETags. The escape
+ * hatch for when our bookkeeping and Plex disagree in a way the automatic
+ * self-heal can't see.
+ */
+export async function resyncPosters(): Promise<PosterSyncResult> {
+  setKv(APPLIED_KEY, "{}");
+  logger.info("Poster state cleared — re-applying all posters");
+  return syncPosters();
+}
+
 /** Fetches a poster image using a conditional GET (If-None-Match) when an ETag
  *  is available. Returns "not-modified" on 304, null on 404, or the image + new ETag. */
 async function fetchImageConditional(
@@ -84,14 +95,23 @@ export async function syncPosters(): Promise<PosterSyncResult> {
   const applied = loadApplied();
   const result: PosterSyncResult = { applied: 0, skipped: 0, missing: 0, failed: 0 };
 
-  const targets = await listTargets();
-  for (const { key, ratingKey } of targets) {
+  const targets = await listPosterTargets();
+  for (const { key, ratingKey, hasPoster } of targets) {
     const url = posterUrl(base, key);
     const entry = getAppliedEntry(applied, key);
+    // Only trust our "already applied" ETag while Plex actually shows art for
+    // this target. If the poster isn't there — an upload that silently didn't
+    // take, art removed in Plex, a season recreated — the cached ETag would make
+    // the conditional GET 304 and skip it forever. Drop the ETag so we re-fetch
+    // and re-upload instead.
+    const etag = hasPoster ? entry?.etag : undefined;
+    if (!hasPoster && entry) {
+      logger.info("Poster recorded as applied but missing in Plex — re-applying", { key });
+    }
     try {
-      const fetched = await fetchImageConditional(url, entry?.etag);
+      const fetched = await fetchImageConditional(url, etag);
       if (fetched === "not-modified") {
-        applied[key] = { url, etag: entry?.etag };
+        applied[key] = { url, etag };
         result.skipped++;
         continue;
       }

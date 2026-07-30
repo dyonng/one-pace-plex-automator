@@ -205,6 +205,40 @@ export async function applyShowMetadata(): Promise<{ changed: boolean }> {
   return { changed: true };
 }
 
+export interface PosterTarget {
+  key: string;        // "show" or the season index as a string
+  ratingKey: string;
+  hasPoster: boolean; // whether Plex currently shows real art for it
+}
+
+/**
+ * The show and its seasons with whether each currently has real art in Plex.
+ * Poster sync uses `hasPoster` to decide whether its own "already applied"
+ * bookkeeping can be trusted — an upload that didn't take would otherwise be
+ * skipped forever by the cached ETag.
+ */
+export async function listPosterTargets(): Promise<PosterTarget[]> {
+  const sectionId = await resolveSectionId();
+  const showKey = await resolveShowRatingKey(sectionId);
+  const [showRes, childrenRes] = await Promise.all([
+    plexGet<PlexContainer>(`/library/metadata/${showKey}`),
+    plexGet<PlexContainer>(`/library/metadata/${showKey}/children`),
+  ]);
+
+  const show = showRes.MediaContainer.Metadata?.[0];
+  const targets: PosterTarget[] = [
+    { key: "show", ratingKey: showKey, hasPoster: hasRealThumb(show?.thumb) },
+  ];
+  for (const s of childrenRes.MediaContainer.Metadata ?? []) {
+    targets.push({
+      key: String(s.index),
+      ratingKey: s.ratingKey,
+      hasPoster: hasRealThumb(s.thumb),
+    });
+  }
+  return targets;
+}
+
 /** Uploads a poster image (bytes) to a metadata item; Plex makes it the selected art. */
 export async function uploadPoster(ratingKey: string, image: Buffer, contentType = "image/png"): Promise<void> {
   const { PLEX_URL } = getConfig();

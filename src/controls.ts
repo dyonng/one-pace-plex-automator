@@ -1,6 +1,6 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
-import { syncPosters } from "./posters";
+import { syncPosters, resyncPosters } from "./posters";
 import { resetCast } from "./casting";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
@@ -61,6 +61,7 @@ export type ActionId =
   | "metadata-scan"
   | "metadata-sync"
   | "retry-thumbs"
+  | "resync-posters"
   | "reset-cast"
   | "retry-failed"
   | "clear-done";
@@ -117,6 +118,19 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         return {
           ok: true,
           message: `Full Plex sync complete. Posters: ${posters.applied} applied, ${posters.skipped} up to date`,
+        };
+      });
+
+    case "resync-posters":
+      return withLock("Re-apply posters", async () => {
+        const p = await resyncPosters();
+        markPostersChecked();
+        return {
+          ok: p.failed === 0,
+          message:
+            `Posters re-applied: ${p.applied} uploaded` +
+            `${p.missing ? `, ${p.missing} not in the repo` : ""}` +
+            `${p.failed ? `, ${p.failed} failed` : ""}.`,
         };
       });
 

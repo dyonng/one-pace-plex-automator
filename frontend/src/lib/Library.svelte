@@ -91,6 +91,7 @@
   }
 
   let retryingThumbs = $state(false);
+  let resyncingPosters = $state(false);
 
   // Reset attempt counters (incl. episodes written off as unavailable) and
   // re-request generation from Plex for everything still missing a thumbnail.
@@ -103,6 +104,21 @@
       toast("Thumbnail retry failed", false);
     } finally {
       retryingThumbs = false;
+      refreshStatus();
+    }
+  }
+
+  // Forget which posters we think are applied and push them all again — the
+  // escape hatch when Plex is missing art our bookkeeping believes it has.
+  async function resyncPosters() {
+    resyncingPosters = true;
+    try {
+      const res = await postAction("resync-posters");
+      toast(res.message, res.ok);
+    } catch {
+      toast("Poster re-apply failed", false);
+    } finally {
+      resyncingPosters = false;
       refreshStatus();
     }
   }
@@ -320,6 +336,19 @@
             </button>
           </div>
         {/if}
+        <div
+          class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+          data-tip="Forgets which posters are already applied and uploads them all again. Use when Plex is missing season art the app believes it already set (e.g. a newly created Specials season)."
+        >
+          <button
+            class="btn btn-sm btn-outline"
+            class:loading={resyncingPosters}
+            disabled={resyncingPosters || syncing || scanning || $status?.busy}
+            onclick={resyncPosters}
+          >
+            {resyncingPosters ? "Applying…" : "Re-apply posters"}
+          </button>
+        </div>
         {#if $metadataAudit}
           <div
             class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
