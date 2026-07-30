@@ -24,6 +24,10 @@ into a version heading when a GitHub release is cut.
   **Specials S00E98**, the slot where the catalog already stores its title and
   description, so it downloads and picks that metadata up automatically.
 
+- **Re-apply posters** button (Library card) — forgets which posters are recorded
+  as applied and uploads them all again. The escape hatch for when Plex is
+  missing art the app believes it already set.
+
 - **The feed's publication date is now kept** (`published_at`, normalized to
   `YYYY-MM-DD`). It was parsed and discarded. It's used as the air date for an
   episode the catalog doesn't list yet, so Plex gets a real date instead of a
@@ -39,6 +43,12 @@ into a version heading when a GitHub release is cut.
   landed before the dataset regenerated — i.e. it's newer. Those now report as
   **present (not in catalog yet)** instead of prompting an update that would
   replace the newer file with an older one.
+- **A poster that never actually took would be skipped forever.** Poster sync
+  trusted its own "already applied" record: once an ETag was stored, every later
+  sync sent a conditional request, got `304 Not Modified`, and skipped the target
+  — even while Plex showed no art (visible as `applied:0, skipped:38`). It now
+  reads Plex's actual poster state per target and ignores the cached ETag when the
+  art isn't there, so a silently-failed upload self-heals on the next sync.
 - **A brand-new season could end up with no poster.** After an ingest created a
   season (e.g. the first special creating Season 0), the poster step looked the
   season up in Plex immediately — but the library scan that creates it runs

@@ -6,10 +6,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // returned silently — no art, no log. It must now poll for the season and, if it
 // still can't find it, say so.
 
-const { getKv, setKv, getShowAndSeasonKeys, uploadPoster } = vi.hoisted(() => ({
+const { getKv, setKv, getShowAndSeasonKeys, listPosterTargets, uploadPoster } = vi.hoisted(() => ({
   getKv: vi.fn(() => null),
   setKv: vi.fn(),
   getShowAndSeasonKeys: vi.fn(),
+  listPosterTargets: vi.fn(),
   uploadPoster: vi.fn(async () => {}),
 }));
 
@@ -17,9 +18,9 @@ vi.mock("../src/db", () => ({ getKv, setKv }));
 vi.mock("../src/settings", () => ({
   getSettingValue: () => "https://posters.test/One%20Pace",
 }));
-vi.mock("../src/plex", () => ({ getShowAndSeasonKeys, uploadPoster }));
+vi.mock("../src/plex", () => ({ getShowAndSeasonKeys, listPosterTargets, uploadPoster }));
 
-import { ensureSeasonPoster } from "../src/posters";
+import { ensureSeasonPoster, syncPosters } from "../src/posters";
 
 const IMG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const fetched: string[] = [];
@@ -70,6 +71,51 @@ describe("ensureSeasonPoster for a season Plex just created", () => {
 
     expect(getShowAndSeasonKeys).toHaveBeenCalledTimes(3);
     expect(uploadPoster).not.toHaveBeenCalled();
+  });
+
+  it("re-uploads when we recorded a poster but Plex has none", async () => {
+    // The exact stuck state: an earlier upload stored an ETag, so the conditional
+    // GET 304s and the target is skipped forever — while Plex shows no art.
+    getKv.mockReturnValue(
+      JSON.stringify({
+        "0": { url: "https://posters.test/One%20Pace/season-specials-poster.png", etag: '"old"' },
+      })
+    );
+    listPosterTargets.mockResolvedValue([{ key: "0", ratingKey: "s0key", hasPoster: false }]);
+    // 304 only if an If-None-Match header is sent; assert we don't send one.
+    vi.stubGlobal("fetch", async (url: string, init: { headers?: Record<string, string> }) => {
+      fetched.push(url);
+      const conditional = Boolean(init?.headers?.["If-None-Match"]);
+      return conditional
+        ? { ok: false, status: 304, headers: { get: () => null }, arrayBuffer: async () => IMG }
+        : { ok: true, status: 200, headers: { get: () => '"new"' }, arrayBuffer: async () => IMG };
+    });
+
+    const r = await syncPosters();
+
+    expect(uploadPoster).toHaveBeenCalledWith("s0key", IMG);
+    expect(r.applied).toBe(1);
+    expect(r.skipped).toBe(0);
+  });
+
+  it("still skips via ETag when Plex does have the poster", async () => {
+    getKv.mockReturnValue(
+      JSON.stringify({
+        "0": { url: "https://posters.test/One%20Pace/season-specials-poster.png", etag: '"old"' },
+      })
+    );
+    listPosterTargets.mockResolvedValue([{ key: "0", ratingKey: "s0key", hasPoster: true }]);
+    vi.stubGlobal("fetch", async (url: string, init: { headers?: Record<string, string> }) => {
+      fetched.push(url);
+      return init?.headers?.["If-None-Match"]
+        ? { ok: false, status: 304, headers: { get: () => null }, arrayBuffer: async () => IMG }
+        : { ok: true, status: 200, headers: { get: () => '"new"' }, arrayBuffer: async () => IMG };
+    });
+
+    const r = await syncPosters();
+
+    expect(uploadPoster).not.toHaveBeenCalled();
+    expect(r.skipped).toBe(1);
   });
 
   it("does not upload twice for an already-applied poster", async () => {

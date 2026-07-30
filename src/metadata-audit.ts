@@ -239,7 +239,7 @@ async function detectBlankThumbs(
   const unfetchableIds: string[] = [];
   const brokenSigs: string[] = [];
   const missingInfo: string[] = [];
-  const measured: { id: string; std: number; tf: number }[] = [];
+  const measured: { id: string; std: number; tf: number; ex: number }[] = [];
   let cursor = 0;
   const worker = async () => {
     while (cursor < toCheck.length) {
@@ -263,7 +263,12 @@ async function detectBlankThumbs(
         missingFound++;
         if (missingInfo.length < 20) missingInfo.push(`${id}:${res.status}`);
       } else {
-        measured.push({ id, std: res.stats.rgbStddev, tf: res.stats.transparentFrac });
+        measured.push({
+          id,
+          std: res.stats.rgbStddev,
+          tf: res.stats.transparentFrac,
+          ex: res.stats.extremeFrac,
+        });
       }
       if (blank) blankFound++;
     }
@@ -271,10 +276,12 @@ async function detectBlankThumbs(
   await Promise.all(Array.from({ length: THUMB_ANALYSIS_CONCURRENCY }, worker));
 
   // Surface the most-suspect episodes so borderline calls are diagnosable.
-  const lowest = measured
-    .sort((a, b) => b.tf - a.tf || a.std - b.std)
-    .slice(0, 10)
-    .map((m) => `${m.id}:std${m.std.toFixed(1)}/tr${Math.round(m.tf * 100)}%`);
+  const fmt = (m: { id: string; std: number; tf: number; ex: number }): string =>
+    `${m.id}:std${m.std.toFixed(1)}/tr${Math.round(m.tf * 100)}%/clip${Math.round(m.ex * 100)}%`;
+  const lowest = [...measured].sort((a, b) => b.tf - a.tf || a.std - b.std).slice(0, 10).map(fmt);
+  // Highest clipped fraction — the frames closest to being judged washed-out.
+  // Useful for tuning BLANK_EXTREME_FRACTION against real thumbnails.
+  const mostClipped = [...measured].sort((a, b) => b.ex - a.ex).slice(0, 10).map(fmt);
   logger.info("Thumbnail blank-frame analysis", {
     analyzed: measured.length,
     blank: blankFound,
@@ -284,6 +291,7 @@ async function detectBlankThumbs(
     missingInfo,                // "<id>:<httpStatus>"
     unfetchable: unfetchableIds.length, // network error — transient, retried next pass
     lowest,
+    mostClipped,
   });
   return blankById;
 }
