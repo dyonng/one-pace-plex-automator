@@ -25,6 +25,14 @@ into a version heading when a GitHub release is cut.
   description, so it downloads and picks that metadata up automatically.
 
 ### Fixed
+- **A newer-than-the-catalog file was offered as an "upgrade" — which would have
+  downgraded it.** Any CRC32 mismatch between disk and the dataset's canonical
+  release was treated as upgradeable. But the dataset retains historical CRC32s,
+  so a mismatch is only genuinely out of date when the on-disk release is one the
+  catalog *knows*. A CRC32 the catalog has never seen came from a release that
+  landed before the dataset regenerated — i.e. it's newer. Those now report as
+  **present (not in catalog yet)** instead of prompting an update that would
+  replace the newer file with an older one.
 - **A brand-new season could end up with no poster.** After an ingest created a
   season (e.g. the first special creating Season 0), the poster step looked the
   season up in Plex immediately — but the library scan that creates it runs

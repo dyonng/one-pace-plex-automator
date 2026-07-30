@@ -3,7 +3,7 @@ import path from "path";
 import { MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getKv, setKv, getEpisodeByCrc32, getEpisodesByStatus } from "./db";
-import { getAllEpisodes, extractCrc32FromFilename } from "./metadata";
+import { getAllEpisodes, extractCrc32FromFilename, getCatalogedCrc32s } from "./metadata";
 import { getRssMagnetMap } from "./rss";
 import { lookupEpisodeText } from "./onepace-descriptions";
 
@@ -111,7 +111,11 @@ function scanDisk(): Map<string, DiskFile> {
 export async function scanCoverage(): Promise<CoverageReport> {
   const mediaPathExists = fs.existsSync(MEDIA_PATH);
   const disk = scanDisk();
-  const [dataset, rssMagnets] = await Promise.all([getAllEpisodes(), getRssMagnetMap()]);
+  const [dataset, rssMagnets, cataloged] = await Promise.all([
+    getAllEpisodes(),
+    getRssMagnetMap(),
+    getCatalogedCrc32s(),
+  ]);
 
   // CRC32s currently moving through the pipeline — an episode being downloaded
   // (e.g. an upgrade in progress) should show as "downloading", not offered
@@ -133,7 +137,14 @@ export async function scanCoverage(): Promise<CoverageReport> {
     if (!onDisk) status = "missing";
     else if (!onDisk.crc32) status = "present_unknown";
     else if (onDisk.crc32.toUpperCase() === ep.crc32.toUpperCase()) status = "present";
-    else {
+    else if (!cataloged.has(onDisk.crc32.toUpperCase())) {
+      // A CRC32 mismatch is only an *upgrade* when what's on disk is a release the
+      // dataset knows about (it keeps historical CRC32s), i.e. genuinely older. A
+      // CRC32 the catalog has never seen came from a release that landed before the
+      // dataset regenerated — it's newer than the "canonical" one, so offering that
+      // as an update would silently downgrade the file.
+      status = "present_uncatalogued";
+    } else {
       status = "upgradeable";
       const rssEntry = rssMagnets.get(ep.crc32.toUpperCase());
       hasMagnet = Boolean(getEpisodeByCrc32(ep.crc32.toUpperCase())?.magnet_uri) || Boolean(rssEntry);
