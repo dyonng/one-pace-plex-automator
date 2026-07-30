@@ -242,8 +242,13 @@ dirty set is derived from the data change itself.
 - **Blank-frame detection:** Plex sometimes extracts a fade-to-black/white transition frame, so a
   "set" thumb can still be visually empty. `detectBlankThumbs` fetches each episode thumb tiny
   (64px via `/photo/:/transcode`, raw fallback), decodes it with `jpeg-js` (pure JS, no native dep),
-  and flags it blank when max per-channel pixel stddev < `BLANK_STDDEV_THRESHOLD` (8) — blank ⇒
-  treated as no thumbnail ⇒ regeneration path. Verdicts are cached per thumb **version**
+  and flags it blank on any of three signals (`isBlankStats`): max per-channel pixel stddev <
+  `BLANK_STDDEV_THRESHOLD` (8, a flat single-colour fade), transparent fraction ≥
+  `BLANK_TRANSPARENT_FRACTION` (0.85), or clipped fraction ≥ `BLANK_EXTREME_FRACTION` (0.92) —
+  the last catches **fade/flash frames** (e.g. blown-out white with a silhouette) that carry real
+  colour spread but no picture, which a stddev test alone passes. Blank ⇒
+  treated as no thumbnail ⇒ regeneration path. Bump `THUMB_DETECTOR_VERSION` whenever these rules
+  change so cached verdicts are recomputed. Verdicts are cached per thumb **version**
   (`thumb_checked_path`/`thumb_blank`; the path embeds a timestamp that changes on regen), so only
   new/changed thumbs are analyzed (concurrency 6). Undecodable images are treated as real and
   re-tried next pass.

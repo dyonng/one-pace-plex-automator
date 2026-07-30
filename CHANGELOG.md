@@ -25,6 +25,18 @@ into a version heading when a GitHub release is cut.
   description, so it downloads and picks that metadata up automatically.
 
 ### Fixed
+- **A brand-new season could end up with no poster.** After an ingest created a
+  season (e.g. the first special creating Season 0), the poster step looked the
+  season up in Plex immediately — but the library scan that creates it runs
+  asynchronously, so the lookup often missed and the function returned *silently*.
+  It now polls for the season before giving up, and logs when it does, instead of
+  failing invisibly. (A Full Plex sync always applied the art after the fact.)
+- **Blown-out / faded thumbnails are now detected.** Blank-frame detection only
+  caught single-colour stills, so a fade-to-white flash with a silhouette in it
+  had enough colour spread to pass as a real frame. Frames whose pixels are almost
+  entirely clipped to black or white are now treated as unusable and regenerated
+  like any other blank thumbnail. The detector version was bumped so existing
+  thumbnails are re-evaluated.
 - **A release whose CRC32 isn't catalogued yet no longer dead-ends.** Previously
   an RSS entry carrying a real-but-unpublished CRC32 (common when a release lands
   before the metadata dataset and episode guide regenerate) failed with

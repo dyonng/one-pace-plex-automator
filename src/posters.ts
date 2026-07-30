@@ -20,6 +20,12 @@ export interface PosterSyncResult {
 
 const pad2 = (n: number): string => String(n).padStart(2, "0");
 
+// A brand-new season (e.g. the first special creating Season 0) doesn't exist in
+// Plex the instant its file lands — the library scan that creates it is
+// asynchronous. Poll a few times before giving up so new seasons reliably get art.
+const SEASON_LOOKUP_ATTEMPTS = 4;
+const SEASON_LOOKUP_DELAY_MS = 5000;
+
 function posterUrl(base: string, key: string): string {
   const b = base.replace(/\/+$/, "");
   if (key === "show") return `${b}/poster.png`;
@@ -113,7 +119,12 @@ export async function syncPosters(): Promise<PosterSyncResult> {
  * Applies one season's poster if not already applied with the current URL.
  * Called after ingest so a brand-new season gets art automatically.
  */
-export async function ensureSeasonPoster(part: number): Promise<void> {
+export async function ensureSeasonPoster(
+  part: number,
+  opts: { attempts?: number; delayMs?: number } = {}
+): Promise<void> {
+  const attempts = opts.attempts ?? SEASON_LOOKUP_ATTEMPTS;
+  const delayMs = opts.delayMs ?? SEASON_LOOKUP_DELAY_MS;
   const key = String(part);
   const base = getSettingValue("POSTER_REPO_RAW_BASE");
   const url = posterUrl(base, key);
@@ -122,11 +133,28 @@ export async function ensureSeasonPoster(part: number): Promise<void> {
   if (getAppliedEntry(applied, key)?.url === url) return;
 
   try {
-    const { seasonMap } = await getShowAndSeasonKeys();
-    const ratingKey = seasonMap.get(part);
-    if (!ratingKey) return;
+    // Poll for the season: when this ingest created it (e.g. the first special
+    // making Season 0), Plex's scan may not have materialized it yet.
+    let ratingKey: string | undefined;
+    for (let attempt = 1; attempt <= attempts; attempt++) {
+      const { seasonMap } = await getShowAndSeasonKeys();
+      ratingKey = seasonMap.get(part);
+      if (ratingKey) break;
+      if (attempt < attempts) {
+        logger.debug("Season not in Plex yet — retrying poster shortly", { part, attempt });
+        await new Promise((r) => setTimeout(r, delayMs));
+      }
+    }
+    if (!ratingKey) {
+      // Used to return silently, which made a missing new-season poster invisible.
+      logger.warn("Season not in Plex yet — poster deferred to the next poster sync", { part });
+      return;
+    }
     const fetched = await fetchImageConditional(url);
-    if (!fetched || fetched === "not-modified") return;
+    if (!fetched || fetched === "not-modified") {
+      if (!fetched) logger.warn("No poster in repo for season", { part, url });
+      return;
+    }
     await uploadPoster(ratingKey, fetched.img);
     applied[key] = { url, etag: fetched.etag ?? undefined };
     saveApplied(applied);
