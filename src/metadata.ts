@@ -428,7 +428,9 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
   const data = await _getData();
   return data.arcs.en
     .map((a, index) => ({ a, index }))
-    .filter(({ a }) => a.part > 0)
+    // Part 0 is the "Specials" arc — kept, since Plex models season 0 as
+    // Specials natively (poster included). Negative parts are sentinels.
+    .filter(({ a }) => a.part >= 0)
     .map(({ a, index }) => ({
       arcIndex: index,
       arcPart: a.part,
@@ -450,7 +452,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
     // technical fields) hangs off that CRC32.
     const list: EpisodeSummary[] = [];
     for (const { arc, index } of _arcByPart!.values()) {
-      if (arc.part <= 0) continue; // skip specials
+      if (arc.part < 0) continue; // sentinel arcs only; part 0 = Specials, kept
       for (const ve of arc.episodes) {
         const epNum = Number(ve.episode);
         const isExtended = Boolean(preferExtended && ve.extended);
@@ -490,7 +492,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
   const merged = [..._episodesCache.list];
   for (const sheetEp of await listSheetEpisodes()) {
     const arcEntry = findArcByTitle(sheetEp.arcTitle);
-    if (!arcEntry || arcEntry.arc.part <= 0) continue;
+    if (!arcEntry || arcEntry.arc.part < 0) continue;
     if (_variantByKey!.has(epKey(arcEntry.arc.part, sheetEp.episodeNum))) continue; // dataset wins
 
     const isExtended = Boolean(preferExtended && sheetEp.extendedCrc32);
