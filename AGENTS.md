@@ -121,8 +121,11 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
 
 SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Six tables:
 - `episodes` — lifecycle `available → pending → downloading → processing → done/failed`
-  (`available` = discovered but awaiting manual download); includes `changelog` (JSON array, added
-  via `addColumnIfMissing` migration)
+  (`available` = discovered but awaiting manual download); includes `changelog` (JSON array) and
+  `published_at` (the feed's pubDate normalized to `YYYY-MM-DD` by `toIsoDate`, used as the air date
+  for episodes the catalog doesn't list yet; reconcile supersedes it once the dataset has one) —
+  both added via `addColumnIfMissing` migrations. `upsertEpisode` takes `published_at` as optional
+  and `COALESCE`s it, so mid-ingest re-upserts don't wipe the stored date.
 - `rss_seen` — seen RSS GUIDs
 - `kv` — small key/value (e.g. `rss_last_modified`, `rss_seeded`, `coverage_report`,
   `coverage_scanned_at`, `metadata_audit_report`, `metadata_audit_scanned_at`,

@@ -33,7 +33,10 @@ vi.mock("../src/db", () => ({
   updateEpisodeStatus,
   getEpisodesByStatus: vi.fn(() => []),
 }));
-vi.mock("../src/rss", () => ({ fetchNewEpisodes }));
+vi.mock("../src/rss", () => ({
+  fetchNewEpisodes,
+  toIsoDate: (s: string) => (s ? s.slice(0, 10) : null),
+}));
 vi.mock("../src/metadata", () => ({
   resolveEpisodeByCrc32,
   resolveArcByTitle,

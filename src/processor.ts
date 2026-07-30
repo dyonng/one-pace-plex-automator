@@ -177,6 +177,7 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
     ]);
     logger.info("Provisional episode still not in dataset — using sheet/parsed metadata", {
       crc32: realCrc32, arc: ep.arc_title, episode: ep.episode_num, sheetHit: Boolean(epText),
+      published: ep.published_at ?? "(none)",
     });
     meta = {
       crc32: realCrc32,
@@ -190,7 +191,10 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
       episodeDescription: epText?.description ?? "",
       chapters: "",
       originalEpisodes: "",
-      released: "",
+      // The catalog has no air date for this release yet; the feed's publication
+      // date is the best available stand-in. Reconcile replaces it with the
+      // dataset's own date once the episode is listed.
+      released: ep.published_at ?? "",
       resolution,
       extended: ep.extended,
     };
