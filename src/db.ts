@@ -29,6 +29,10 @@ export interface EpisodeRecord {
   // download (one started before the catalog listed the episode) still names
   // the file with the [Extended] tag once it completes.
   extended: boolean;
+  // The feed's publication date as YYYY-MM-DD (null when absent/unparseable).
+  // Used as the air date for episodes the catalog doesn't list yet, so Plex gets
+  // a real date instead of a blank until the dataset catches up.
+  published_at: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -136,6 +140,7 @@ function migrate(db: Database.Database) {
   // Add columns introduced after initial release (no-op on fresh DBs).
   addColumnIfMissing(db, "episodes", "changelog", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, "episodes", "extended", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "episodes", "published_at", "TEXT");
   addColumnIfMissing(db, "plex_meta_state", "thumb_last_attempt_at", "INTEGER");
   // Blank-thumbnail detection cache: which thumb version was pixel-analyzed and
   // whether it turned out to be a single-color (fade) frame.
@@ -168,14 +173,18 @@ export function markGuidSeen(guid: string): void {
   );
 }
 
-export function upsertEpisode(ep: Omit<EpisodeRecord, "created_at" | "updated_at">): void {
+// published_at is optional on input: most call sites (re-upserts during ingest)
+// don't know it, and the COALESCE below keeps whatever the row already holds.
+export function upsertEpisode(
+  ep: Omit<EpisodeRecord, "created_at" | "updated_at" | "published_at"> & { published_at?: string | null }
+): void {
   const db = getDb();
   const now = Date.now();
   db.prepare(`
     INSERT INTO episodes (crc32, arc_num, arc_title, arc_part, episode_num, resolution,
       original_filename, final_filename, status, torrent_hash, magnet_uri, error_message,
-      rss_guid, changelog, extended, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      rss_guid, changelog, extended, published_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(crc32) DO UPDATE SET
       status = excluded.status,
       final_filename = excluded.final_filename,
@@ -184,11 +193,13 @@ export function upsertEpisode(ep: Omit<EpisodeRecord, "created_at" | "updated_at
       error_message = excluded.error_message,
       changelog = excluded.changelog,
       extended = excluded.extended,
+      published_at = COALESCE(excluded.published_at, published_at),
       updated_at = excluded.updated_at
   `).run(
     ep.crc32, ep.arc_num, ep.arc_title, ep.arc_part, ep.episode_num, ep.resolution,
     ep.original_filename, ep.final_filename, ep.status, ep.torrent_hash, ep.magnet_uri,
-    ep.error_message, ep.rss_guid, JSON.stringify(ep.changelog ?? []), ep.extended ? 1 : 0, now, now
+    ep.error_message, ep.rss_guid, JSON.stringify(ep.changelog ?? []), ep.extended ? 1 : 0,
+    ep.published_at ?? null, now, now
   );
 }
 

@@ -17,6 +17,23 @@ export interface RssEpisode {
   changelog: string[];
 }
 
+/**
+ * Normalizes a feed publication date to `YYYY-MM-DD` (what Plex's
+ * `originallyAvailableAt` expects). Feeds use RFC-2822 ("Sat, 28 Jun 2026
+ * 00:00:00 +0000"), but ISO strings and bare dates appear too. Returns null when
+ * the value is missing or unparseable, so callers can fall back cleanly.
+ */
+export function toIsoDate(raw: string | null | undefined): string | null {
+  const s = (raw ?? "").trim();
+  if (!s) return null;
+  // Already a plain date — take it as-is rather than risking a timezone shift.
+  const plain = /^(\d{4}-\d{2}-\d{2})/.exec(s);
+  if (plain) return plain[1];
+  const ms = Date.parse(s);
+  if (Number.isNaN(ms)) return null;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 type RssItem = {
   guid?: string;
   title?: string;

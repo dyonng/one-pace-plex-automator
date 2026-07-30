@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus } from "./db";
-import { fetchNewEpisodes, RssEpisode } from "./rss";
+import { fetchNewEpisodes, toIsoDate, RssEpisode } from "./rss";
 import {
   resolveEpisodeByCrc32,
   extractResolutionFromFilename,
@@ -88,6 +88,7 @@ export async function pollRss(): Promise<number> {
         rss_guid: rssEp.guid,
         changelog: rssEp.changelog,
         extended: ep.extended,
+        published_at: toIsoDate(rssEp.pubDate),
       });
 
       markGuidSeen(rssEp.guid);
@@ -251,6 +252,7 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
         rss_guid: rssEp.guid,
         changelog: rssEp.changelog,
         extended,
+        published_at: toIsoDate(rssEp.pubDate),
       });
 
       markGuidSeen(rssEp.guid);

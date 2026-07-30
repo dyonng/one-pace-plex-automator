@@ -24,6 +24,12 @@ into a version heading when a GitHub release is cut.
   **Specials S00E98**, the slot where the catalog already stores its title and
   description, so it downloads and picks that metadata up automatically.
 
+- **The feed's publication date is now kept** (`published_at`, normalized to
+  `YYYY-MM-DD`). It was parsed and discarded. It's used as the air date for an
+  episode the catalog doesn't list yet, so Plex gets a real date instead of a
+  blank; once the dataset publishes the episode, reconcile replaces it with the
+  dataset's own date. Existing databases get the column automatically.
+
 ### Fixed
 - **A newer-than-the-catalog file was offered as an "upgrade" — which would have
   downgraded it.** Any CRC32 mismatch between disk and the dataset's canonical
