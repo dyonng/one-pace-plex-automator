@@ -368,8 +368,12 @@ so the coverage view reflects the change without a manual re-scan.
 
 - **Coverage** (`src/coverage.ts`) — `scanCoverage()` walks `MEDIA_PATH` (by `S##E##` in the
   filename), diffs against `getAllEpisodes()` (the canonical, extended-aware list), and classifies
-  each episode: `present` / `present_unknown` (no CRC in name) / `upgradeable` (disk CRC ≠ canonical)
-  / `downloading` (canonical CRC is in the pipeline — pending/downloading/processing) / `missing`.
+  each episode: `present` / `present_unknown` (no CRC in name) / `upgradeable` (disk CRC ≠ canonical
+  **and** the disk CRC is one the dataset lists, i.e. a genuinely superseded release) /
+  `present_uncatalogued` (disk CRC ≠ canonical but the catalog has never seen the disk CRC — the file
+  came from a release published before the dataset regenerated, so it is *newer*; offering the
+  canonical one would be a downgrade, cf. `getCatalogedCrc32s()`) /
+  `downloading` (canonical CRC is in the pipeline — pending/downloading/processing) / `missing`.
   For upgradeable, `hasMagnet` is set from the DB **or** the live RSS feed (`getRssMagnetMap`), and
   any found magnet is cached to KV (`magnet:<crc32>`) for a later one-click upgrade. The report is a
   single upserted KV row (`coverage_report`) plus a cheap `coverage_scanned_at` timestamp the status

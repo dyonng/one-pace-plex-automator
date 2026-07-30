@@ -353,6 +353,17 @@ export function parseReleaseTitle(
 }
 
 /**
+ * Every CRC32 the dataset lists, uppercase — current canonical releases *and*
+ * historical ones (it retains release history). Used to tell a genuinely
+ * out-of-date file (a catalogued older release) apart from one the catalog has
+ * simply never seen, which is newer than the dataset rather than older.
+ */
+export async function getCatalogedCrc32s(): Promise<Set<string>> {
+  const data = await _getData();
+  return new Set(Object.keys(data.episodes).map((k) => k.toUpperCase()));
+}
+
+/**
  * Releases whose feed title isn't an arc name, so neither `parseReleaseTitle` nor
  * the dataset can place them. Each maps a title pattern onto the (arc part,
  * episode) slot the catalog already uses for that content, so the download lands
