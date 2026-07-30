@@ -24,6 +24,11 @@ into a version heading when a GitHub release is cut.
   **Specials S00E98**, the slot where the catalog already stores its title and
   description, so it downloads and picks that metadata up automatically.
 
+- **Series poster design is selectable** (`SHOW_POSTER_VARIANT`, dashboard-editable
+  under Preferences). The poster repo ships two designs for the show poster —
+  set `2` to use `poster-2.png` instead of the default. Season posters have a
+  single design each and are unaffected. Change it, then hit **Re-apply posters**.
+
 - **Re-apply posters** button (Library card) — forgets which posters are recorded
   as applied and uploads them all again. The escape hatch for when Plex is
   missing art the app believes it already set.

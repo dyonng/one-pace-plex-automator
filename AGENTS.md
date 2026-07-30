@@ -261,6 +261,11 @@ dirty set is derived from the data change itself.
 **Posters** — reconcile also runs the ETag-conditional `syncPosters()` at most once per 24h (KV
 `posters_reconcile_checked_at`; a manual Full Plex sync stamps the same clock), gated on
 `AUTO_POSTERS` — so updated fan art flows in without a manual sync.
+`syncPosters` cross-checks Plex's **actual** art (`listPosterTargets().hasPoster`) before trusting a
+stored ETag: an upload that silently didn't take would otherwise 304 and be skipped forever. The
+`resync-posters` action (**Re-apply posters**) clears `posters_applied` and pushes everything again.
+`posterUrl(base, key, showVariant)` picks the repo path — the **show** poster ships in two designs
+(`poster.png` / `poster-2.png`, chosen by `SHOW_POSTER_VARIANT`); seasons have one design each.
 
 **Automatic** — gated by **`AUTO_RECONCILE`** (default on): `reconcilePlexMetadata({thumbnails:true})`
 runs after every **Refresh Sources** (`runAction("refresh-sources")`) and after each **ingest**
@@ -332,7 +337,7 @@ Settings editable live from the dashboard without a redeploy, each tagged with a
   **NOTIFY_DOWNLOAD_COMPLETE** (bool), **NOTIFY_EPISODE_UPDATED** (bool),
   **NOTIFY_ERROR** (bool), **NOTIFY_HEALTH** (bool).
 - **preference:** **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS** (bool), **AUTO_RECONCILE** (bool),
-  **PREFER_EXTENDED** (bool), **PREFER_ARABASTA** (bool).
+  **PREFER_EXTENDED** (bool), **PREFER_ARABASTA** (bool), **SHOW_POSTER_VARIANT** (int 1–2).
 
 (Secrets and volume paths stay env-only by design.)
 
@@ -474,6 +479,7 @@ Zod-validated env (`src/config.ts`):
 | `DOWNLOAD_CHECK_SECONDS` | `30` | qBit completion check interval (dashboard-editable) |
 | `AUTO_DOWNLOAD` | `true` | auto-queue discovered releases; off = manual download (dashboard-editable) |
 | `AUTO_POSTERS` | `true` | auto-apply a poster when a new season first appears (dashboard-editable) |
+| `SHOW_POSTER_VARIANT` | `1` | which of the repo's two **show** poster designs to use (`2` = `poster-2.png`); seasons have one design each (dashboard-editable) |
 | `AUTO_RECONCILE` | `true` | auto-sync Plex metadata + thumbnails on source changes/ingest (dashboard-editable) |
 | `PREFER_EXTENDED` | `true` | prefer the extended cut when an episode has both (dashboard-editable) |
 | `PREFER_ARABASTA` | `true` | render arc 14 "Alabasta" as "Arabasta" (dashboard-editable) |
