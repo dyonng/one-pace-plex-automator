@@ -67,3 +67,32 @@ describe("thumbStats / isBlankStats", () => {
     expect(thumbStats(Buffer.from("not an image"))).toBeNull();
   });
 });
+
+describe("blown-out / clipped frames", () => {
+  // The case that shipped a bad thumbnail for One Piece Fan Letter: Plex grabbed a
+  // fade-to-white flash with a dark silhouette in it. Plenty of per-channel
+  // spread, so the stddev test passes it — but there's no picture there.
+  it("flags a blown-out white frame with a dark silhouette", () => {
+    const s = thumbStats(
+      jpg((x, y) => (y > H - 6 && x > 20 && x < 44 ? [4, 4, 6] : [253, 252, 250]))
+    )!;
+    expect(s.rgbStddev).toBeGreaterThan(8); // would have slipped past the old test
+    expect(s.extremeFrac).toBeGreaterThanOrEqual(0.92);
+    expect(isBlankStats(s)).toBe(true);
+  });
+
+  it("flags a near-black frame with a small bright element", () => {
+    const s = thumbStats(jpg((x, y) => (x < 3 && y < 3 ? [255, 255, 255] : [2, 2, 3])))!;
+    expect(isBlankStats(s)).toBe(true);
+  });
+
+  it("does NOT flag a legitimate high-contrast frame with real midtones", () => {
+    // Half bright, half dark, but with a genuine gradient between them.
+    const s = thumbStats(jpg((x) => {
+      const v = Math.round((x / (W - 1)) * 255);
+      return [v, Math.round(v * 0.8), Math.round(v * 0.6)];
+    }))!;
+    expect(s.extremeFrac).toBeLessThan(0.92);
+    expect(isBlankStats(s)).toBe(false);
+  });
+});

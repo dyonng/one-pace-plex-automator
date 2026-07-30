@@ -79,15 +79,23 @@ const THUMB_ANALYSIS_CONCURRENCY = 6;
 // Fraction of near-transparent pixels above which a thumbnail is "empty" — a
 // transparent PNG that renders as the Plex backdrop showing through.
 const BLANK_TRANSPARENT_FRACTION = 0.85;
+// Fraction of *clipped* pixels (crushed black or blown-out white) above which a
+// frame carries no usable image. This catches the mid-transition frames a plain
+// stddev test misses: a fade-to-white flash with a silhouette in it has plenty of
+// per-channel spread, but almost every pixel is pinned to an extreme.
+const BLANK_EXTREME_FRACTION = 0.92;
+const EXTREME_DARK = 16;
+const EXTREME_BRIGHT = 239;
 // Bump when the detection logic changes so cached verdicts (thumb_checked_path)
 // are recomputed even for thumbnails whose version hasn't changed.
-const THUMB_DETECTOR_VERSION = "v3";
+const THUMB_DETECTOR_VERSION = "v4";
 
 const thumbCacheKey = (thumbPath: string): string => `${THUMB_DETECTOR_VERSION}:${thumbPath}`;
 
 export interface ThumbStats {
   rgbStddev: number;      // max per-channel stddev over opaque pixels
   transparentFrac: number; // fraction of near-transparent pixels
+  extremeFrac: number;     // fraction of opaque pixels clipped to black or white
 }
 
 /** Decodes a JPEG or PNG to RGBA pixels, or null if the format is unsupported. */
@@ -122,6 +130,7 @@ export function thumbStats(buf: Buffer): ThumbStats | null {
 
   let transparent = 0;
   let opaque = 0;
+  let extreme = 0;
   const sum = [0, 0, 0];
   const sumSq = [0, 0, 0];
   for (let i = 0; i < n; i++) {
@@ -131,6 +140,12 @@ export function thumbStats(buf: Buffer): ThumbStats | null {
       continue; // don't let undefined RGB behind transparent pixels skew the spread
     }
     opaque++;
+    const r = img.data[i * 4];
+    const g = img.data[i * 4 + 1];
+    const b = img.data[i * 4 + 2];
+    // Rec. 601 luma — cheap and good enough to spot clipped pixels.
+    const luma = 0.299 * r + 0.587 * g + 0.114 * b;
+    if (luma <= EXTREME_DARK || luma >= EXTREME_BRIGHT) extreme++;
     for (let c = 0; c < 3; c++) {
       const v = img.data[i * 4 + c];
       sum[c] += v;
@@ -145,7 +160,11 @@ export function thumbStats(buf: Buffer): ThumbStats | null {
       maxStd = Math.max(maxStd, Math.sqrt(Math.max(0, sumSq[c] / opaque - mean * mean)));
     }
   }
-  return { rgbStddev: maxStd, transparentFrac: transparent / n };
+  return {
+    rgbStddev: maxStd,
+    transparentFrac: transparent / n,
+    extremeFrac: opaque > 0 ? extreme / opaque : 0,
+  };
 }
 
 type ThumbAnalysis =
@@ -178,9 +197,15 @@ async function analyzeThumb(thumbPath: string): Promise<ThumbAnalysis> {
   return { kind: "unfetchable" };
 }
 
-/** A thumbnail is blank if it's mostly transparent or a single color. */
+/**
+ * A thumbnail is unusable if it's mostly transparent, a single color, or almost
+ * entirely clipped to black/white (a fade or flash frame — visually blank even
+ * though its pixel spread looks healthy).
+ */
 export const isBlankStats = (s: ThumbStats): boolean =>
-  s.transparentFrac >= BLANK_TRANSPARENT_FRACTION || s.rgbStddev < BLANK_STDDEV_THRESHOLD;
+  s.transparentFrac >= BLANK_TRANSPARENT_FRACTION ||
+  s.rgbStddev < BLANK_STDDEV_THRESHOLD ||
+  s.extremeFrac >= BLANK_EXTREME_FRACTION;
 
 /**
  * Determines which episode thumbnails are blank single-color frames. Verdicts
