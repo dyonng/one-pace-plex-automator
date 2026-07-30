@@ -22,7 +22,9 @@ vi.mock("../src/onepace-descriptions", () => ({
   lookupArcText: async () => null,
 }));
 
-import { getAllArcs, getAllEpisodes, resolveEpisodeByCrc32, refreshMetadata } from "../src/metadata";
+import {
+  getAllArcs, getAllEpisodes, resolveEpisodeByCrc32, refreshMetadata, resolveAliasedRelease,
+} from "../src/metadata";
 
 const DATASET = {
   status: { version: 1 },
@@ -104,5 +106,32 @@ describe("specials (arc part 0)", () => {
   it("still includes regular arcs", async () => {
     const eps = await getAllEpisodes();
     expect(eps.some((e) => e.seasonEpisodeId === "s01e01")).toBe(true);
+  });
+});
+
+describe("resolveAliasedRelease (Fan Letter special case)", () => {
+  it("pins a Fan Letter release to the catalogued Specials slot", async () => {
+    const a = await resolveAliasedRelease("One Piece Fan Letter 01");
+    expect(a).not.toBeNull();
+    expect(a?.arcPart).toBe(0);
+    expect(a?.epNum).toBe(98); // where the dataset already holds its metadata
+    expect(a?.arcTitle).toBe("Specials");
+  });
+
+  it("matches regardless of numbering or surrounding words", async () => {
+    for (const t of ["One Piece Fan Letter 02", "Fan Letter", "[One Pace] One Piece FanLetter 01"]) {
+      expect(await resolveAliasedRelease(t)).not.toBeNull();
+    }
+  });
+
+  it("picks up an extended marker", async () => {
+    expect((await resolveAliasedRelease("One Piece Fan Letter 01 Extended"))?.extended).toBe(true);
+    expect((await resolveAliasedRelease("One Piece Fan Letter 01"))?.extended).toBe(false);
+  });
+
+  it("leaves normal releases alone", async () => {
+    for (const t of ["Baratie 07", "Romance Dawn 01", "Water Seven 12 Extended"]) {
+      expect(await resolveAliasedRelease(t)).toBeNull();
+    }
   });
 });

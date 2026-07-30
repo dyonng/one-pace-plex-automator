@@ -52,10 +52,17 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
    **Unresolvable CRC32:** an entry whose CRC32 is real but not yet published in the dataset *or* the
    guide (a release landing before either regenerates) does **not** dead-end — it falls through to
    the same provisional path used for entries with no CRC32 at all. If the provisional path also
-   can't place it (title's arc isn't a dataset arc — e.g. `One Piece Fan Letter 01`, since Fan Letter
-   is an *episode* of the `Specials` arc), the GUID is deliberately left **unseen** so a later poll
-   re-resolves it once the sources catch up. Entries that never had a CRC32 keep the old
-   mark-seen-and-move-on behavior. See `test/rss-provisional-fallback.test.ts`.
+   can't place it, the GUID is deliberately left **unseen** so a later poll re-resolves it once the
+   sources catch up. Entries that never had a CRC32 keep the old mark-seen-and-move-on behavior.
+   **Special-release aliases** (`SPECIAL_RELEASE_ALIASES` + `resolveAliasedRelease` in `metadata.ts`):
+   a few releases have feed titles that are not arc names, so neither `parseReleaseTitle` nor the
+   dataset can place them. `processProvisional` checks the alias table **first** and pins such a
+   release to the (arc part, episode) slot the catalog already uses for that content. Currently one
+   entry: `/fan\s*letter/i` → **Specials S00E98** — the dataset holds Fan Letter's title/description
+   there (originally CRC `9974A092`), while the feed numbers re-cuts from `01` with fresh CRC32s the
+   dataset can lag on indefinitely. Pinning to E98 means the download inherits the existing metadata
+   via reconcile instead of creating an empty S00E01. Keep this table minimal — it's a last resort.
+   See `test/rss-provisional-fallback.test.ts` and `test/specials.test.ts`.
 2. **Metadata** (`src/metadata.ts`, supplemented by `src/onepace-sheet.ts` +
    `src/onepace-descriptions.ts`) — the richer `metadata/data.min.json` from
    [`ladyisatis/one-pace-metadata`](https://github.com/ladyisatis/one-pace-metadata) branch `v2`

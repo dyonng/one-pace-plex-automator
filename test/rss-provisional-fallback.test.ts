@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // must be created inside vi.hoisted().
 const {
   markGuidSeen, upsertEpisode, updateEpisodeStatus,
-  fetchNewEpisodes, resolveEpisodeByCrc32, resolveArcByTitle, addMagnet,
+  fetchNewEpisodes, resolveEpisodeByCrc32, resolveArcByTitle, resolveAliasedRelease, addMagnet,
 } = vi.hoisted(() => ({
   markGuidSeen: vi.fn(),
   upsertEpisode: vi.fn(),
@@ -22,6 +22,7 @@ const {
   fetchNewEpisodes: vi.fn(),
   resolveEpisodeByCrc32: vi.fn(),
   resolveArcByTitle: vi.fn(),
+  resolveAliasedRelease: vi.fn(),
   addMagnet: vi.fn(async () => "hash123"),
 }));
 
@@ -36,6 +37,7 @@ vi.mock("../src/rss", () => ({ fetchNewEpisodes }));
 vi.mock("../src/metadata", () => ({
   resolveEpisodeByCrc32,
   resolveArcByTitle,
+  resolveAliasedRelease,
   extractResolutionFromFilename: () => "1080p",
   parseResolutionFromFilename: () => "1080p",
   isPreferredRelease: async () => true,
@@ -78,6 +80,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   resolveEpisodeByCrc32.mockRejectedValue(new Error("CRC32 59510B34 not found in metadata dataset"));
   resolveArcByTitle.mockResolvedValue(null); // unknown arc by default
+  resolveAliasedRelease.mockResolvedValue(null); // not a special-cased release by default
 });
 
 describe("unresolvable CRC32 falls back to the provisional path", () => {
@@ -108,6 +111,26 @@ describe("unresolvable CRC32 falls back to the provisional path", () => {
     ]);
     await pollRss();
     expect(markGuidSeen).toHaveBeenCalledWith("guid-3");
+  });
+
+  it("downloads an aliased special (Fan Letter) at its catalogued slot", async () => {
+    // "One Piece Fan Letter" is not an arc, so the generic lookup can't place it;
+    // the alias pins it to Specials S00E98 where the dataset's metadata lives.
+    resolveAliasedRelease.mockResolvedValue({
+      arcIndex: 0, arcPart: 0, arcTitle: "Specials", epNum: 98,
+      extended: false, label: "One Piece Fan Letter",
+    });
+    fetchNewEpisodes.mockResolvedValue([entry({ guid: "guid-fl" })]);
+
+    await pollRss();
+
+    expect(upsertEpisode).toHaveBeenCalledWith(
+      expect.objectContaining({ crc32: "PROV-0-98", arc_part: 0, episode_num: 98, arc_title: "Specials" })
+    );
+    expect(addMagnet).toHaveBeenCalled();
+    expect(markGuidSeen).toHaveBeenCalledWith("guid-fl");
+    // The alias short-circuits the generic arc lookup entirely.
+    expect(resolveArcByTitle).not.toHaveBeenCalled();
   });
 
   it("resolved entries are unaffected by the fallback", async () => {
