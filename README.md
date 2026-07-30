@@ -245,6 +245,11 @@ downloaded provisionally when its arc can be identified from the title. If it
 can't be placed at all, the feed item is left pending rather than discarded, so a
 later poll retries it once the dataset or guide catches up.
 
+A couple of releases have feed titles that aren't arc names and so can never be
+resolved that way — *One Piece Fan Letter* is the current example. These are
+matched by name and pinned to the slot the catalog already uses for them (Fan
+Letter → **S00E98**), so they download and inherit the right metadata.
+
 ## Posters
 
 Season and show posters are the fan-made artwork by

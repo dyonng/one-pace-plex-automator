@@ -352,6 +352,59 @@ export function parseReleaseTitle(
   return { arcTitle: parts.slice(0, -1).join(" "), epNum, extended };
 }
 
+/**
+ * Releases whose feed title isn't an arc name, so neither `parseReleaseTitle` nor
+ * the dataset can place them. Each maps a title pattern onto the (arc part,
+ * episode) slot the catalog already uses for that content, so the download lands
+ * where the dataset's metadata already lives and reconcile fills it in.
+ *
+ * Keep this list minimal — it's a last resort for content upstream never
+ * resolves by title, not a general aliasing mechanism.
+ */
+const SPECIAL_RELEASE_ALIASES: ReadonlyArray<{
+  match: RegExp;
+  arcPart: number;
+  episodeNum: number;
+  label: string;
+}> = [
+  // "One Piece Fan Letter 01" — the feed numbers it from 01, but the dataset
+  // catalogs Fan Letter as Specials S00E98 (originally CRC 9974A092) with a full
+  // title + description. Re-cuts ship new CRC32s the dataset can lag on for a
+  // long time, and "Fan Letter" is never an arc, so title resolution can't work
+  // either. Pin it to the catalogued slot so it downloads and inherits that
+  // metadata rather than landing in an empty S00E01.
+  { match: /\bfan\s*letter\b/i, arcPart: 0, episodeNum: 98, label: "One Piece Fan Letter" },
+];
+
+export interface AliasedRelease {
+  arcIndex: number;
+  arcPart: number;
+  arcTitle: string;
+  epNum: number;
+  extended: boolean;
+  label: string;
+}
+
+/**
+ * Resolves a release title against SPECIAL_RELEASE_ALIASES. Returns null for
+ * everything else, so normal titles keep using the regular parse + arc lookup.
+ */
+export async function resolveAliasedRelease(title: string): Promise<AliasedRelease | null> {
+  const alias = SPECIAL_RELEASE_ALIASES.find((a) => a.match.test(title));
+  if (!alias) return null;
+  await _getData();
+  const entry = _arcByPart!.get(alias.arcPart);
+  if (!entry) return null;
+  return {
+    arcIndex: entry.index,
+    arcPart: alias.arcPart,
+    arcTitle: displayArcTitle(entry.arc.title),
+    epNum: alias.episodeNum,
+    extended: /\bextended(?:\s+cut)?\b/i.test(title),
+    label: alias.label,
+  };
+}
+
 export async function lookupCrc32ByTitle(rssTitle: string): Promise<string | null> {
   const parsed = parseReleaseTitle(rssTitle);
   if (!parsed) return null;

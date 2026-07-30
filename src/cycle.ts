@@ -8,6 +8,7 @@ import {
   isPreferredRelease,
   parseReleaseTitle,
   resolveArcByTitle,
+  resolveAliasedRelease,
   provisionalKey,
   type ResolvedEpisode,
 } from "./metadata";
@@ -160,33 +161,49 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
   const retriesLater = (rssEp: RssEpisode): boolean => rssEp.crc32 !== null;
 
   for (const rssEp of items) {
-    const parsed = parseReleaseTitle(rssEp.title);
-    if (!parsed) {
-      logger.warn("Provisional download skipped — can't parse arc/episode from title", {
+    // Known specials whose title is not an arc name (e.g. "One Piece Fan Letter
+    // 01") are pinned straight to their catalogued slot; everything else goes
+    // through the normal title parse + arc lookup.
+    const alias = await resolveAliasedRelease(rssEp.title);
+    let placement: { arcIndex: number; arcPart: number; arcTitle: string; epNum: number; extended: boolean };
+
+    if (alias) {
+      logger.info("Recognized special release", {
         title: rssEp.title,
-        willRetry: retriesLater(rssEp),
+        as: `${alias.label} S${String(alias.arcPart).padStart(2, "0")}E${String(alias.epNum).padStart(2, "0")}`,
       });
-      if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
-      continue;
+      placement = alias;
+    } else {
+      const parsed = parseReleaseTitle(rssEp.title);
+      if (!parsed) {
+        logger.warn("Provisional download skipped — can't parse arc/episode from title", {
+          title: rssEp.title,
+          willRetry: retriesLater(rssEp),
+        });
+        if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
+        continue;
+      }
+      const arc = await resolveArcByTitle(parsed.arcTitle);
+      if (!arc) {
+        logger.warn("Provisional download skipped — arc not in dataset", {
+          title: rssEp.title,
+          arcTitle: parsed.arcTitle,
+          willRetry: retriesLater(rssEp),
+        });
+        if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
+        continue;
+      }
+      placement = { ...arc, epNum: parsed.epNum, extended: parsed.extended };
     }
-    const arc = await resolveArcByTitle(parsed.arcTitle);
-    if (!arc) {
-      logger.warn("Provisional download skipped — arc not in dataset", {
-        title: rssEp.title,
-        arcTitle: parsed.arcTitle,
-        willRetry: retriesLater(rssEp),
-      });
-      if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
-      continue;
-    }
-    const key = `${arc.arcPart}-${parsed.epNum}`;
+
+    const key = `${placement.arcPart}-${placement.epNum}`;
     const candidate: Candidate = {
       rssEp,
-      arcIndex: arc.arcIndex,
-      arcPart: arc.arcPart,
-      arcTitle: arc.arcTitle,
-      epNum: parsed.epNum,
-      extended: parsed.extended,
+      arcIndex: placement.arcIndex,
+      arcPart: placement.arcPart,
+      arcTitle: placement.arcTitle,
+      epNum: placement.epNum,
+      extended: placement.extended,
     };
     const group = groups.get(key);
     if (group) group.push(candidate);

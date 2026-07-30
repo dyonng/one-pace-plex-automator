@@ -17,6 +17,13 @@ into a version heading when a GitHub release is cut.
   any other season, landing in Plex's native Season 0 / Specials. The specials
   poster was already wired up, so it applies automatically.
 
+- **"One Piece Fan Letter" is now downloadable.** Its feed title isn't an arc
+  name, so neither the dataset nor the episode guide could ever place it by
+  title, and its re-cuts ship CRC32s the dataset may not list for a long time — so
+  it failed on every poll. A small alias table now pins any Fan Letter release to
+  **Specials S00E98**, the slot where the catalog already stores its title and
+  description, so it downloads and picks that metadata up automatically.
+
 ### Fixed
 - **A release whose CRC32 isn't catalogued yet no longer dead-ends.** Previously
   an RSS entry carrying a real-but-unpublished CRC32 (common when a release lands
