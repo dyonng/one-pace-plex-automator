@@ -12,6 +12,7 @@ export type SettingKey =
   | "AUTO_RECONCILE"
   | "PREFER_EXTENDED"
   | "PREFER_ARABASTA"
+  | "SHOW_POSTER_VARIANT"
   | "DISCORD_WEBHOOK_URL"
   | "NOTIFY_NEW_EPISODE"
   | "NOTIFY_DOWNLOAD_COMPLETE"
@@ -51,6 +52,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   AUTO_RECONCILE: "preference",
   PREFER_EXTENDED: "preference",
   PREFER_ARABASTA: "preference",
+  SHOW_POSTER_VARIANT: "preference",
 };
 
 type ValidateResult = { ok: true; value: string } | { ok: false; error: string };
@@ -170,6 +172,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     type: "bool",
     envValue: () => String(getConfig().PREFER_ARABASTA),
     validate: validateBool,
+  },
+  SHOW_POSTER_VARIANT: {
+    key: "SHOW_POSTER_VARIANT",
+    label: "Series poster design (1 or 2 — the poster repo ships two)",
+    type: "int",
+    envValue: () => String(getConfig().SHOW_POSTER_VARIANT),
+    validate: validateInt(1, 2),
   },
   DISCORD_WEBHOOK_URL: {
     key: "DISCORD_WEBHOOK_URL",
@@ -293,6 +302,10 @@ export function getPreferArabasta(): boolean {
 
 export function getGoogleSheetsApiKey(): string {
   return getSettingValue("GOOGLE_SHEETS_API_KEY");
+}
+
+export function getShowPosterVariant(): number {
+  return Number(getSettingValue("SHOW_POSTER_VARIANT"));
 }
 
 export interface SettingView {

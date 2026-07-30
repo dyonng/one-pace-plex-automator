@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { getKv, setKv } from "./db";
-import { getSettingValue } from "./settings";
+import { getSettingValue, getShowPosterVariant } from "./settings";
 import { getShowAndSeasonKeys, listPosterTargets, uploadPoster } from "./plex";
 
 // Map of poster target -> { url, etag } last applied, so we can skip unchanged
@@ -26,9 +26,14 @@ const pad2 = (n: number): string => String(n).padStart(2, "0");
 const SEASON_LOOKUP_ATTEMPTS = 4;
 const SEASON_LOOKUP_DELAY_MS = 5000;
 
-function posterUrl(base: string, key: string): string {
+/**
+ * Repo path for a poster target. The show poster ships in two designs
+ * (`poster.png` / `poster-2.png`) — `showVariant` picks one. Seasons have a
+ * single design each, so the variant doesn't apply to them.
+ */
+export function posterUrl(base: string, key: string, showVariant = 1): string {
   const b = base.replace(/\/+$/, "");
-  if (key === "show") return `${b}/poster.png`;
+  if (key === "show") return showVariant === 2 ? `${b}/poster-2.png` : `${b}/poster.png`;
   if (key === "0") return `${b}/season-specials-poster.png`;
   return `${b}/season${pad2(Number(key))}-poster.png`;
 }
@@ -97,7 +102,7 @@ export async function syncPosters(): Promise<PosterSyncResult> {
 
   const targets = await listPosterTargets();
   for (const { key, ratingKey, hasPoster } of targets) {
-    const url = posterUrl(base, key);
+    const url = posterUrl(base, key, getShowPosterVariant());
     const entry = getAppliedEntry(applied, key);
     // Only trust our "already applied" ETag while Plex actually shows art for
     // this target. If the poster isn't there — an upload that silently didn't
@@ -147,7 +152,7 @@ export async function ensureSeasonPoster(
   const delayMs = opts.delayMs ?? SEASON_LOOKUP_DELAY_MS;
   const key = String(part);
   const base = getSettingValue("POSTER_REPO_RAW_BASE");
-  const url = posterUrl(base, key);
+  const url = posterUrl(base, key, getShowPosterVariant());
 
   const applied = loadApplied();
   if (getAppliedEntry(applied, key)?.url === url) return;
@@ -194,7 +199,7 @@ export async function seedPostersOnFirstRun(): Promise<void> {
   try {
     const targets = await listTargets();
     const applied = loadApplied();
-    for (const { key } of targets) applied[key] = { url: posterUrl(base, key) };
+    for (const { key } of targets) applied[key] = { url: posterUrl(base, key, getShowPosterVariant()) };
     saveApplied(applied);
     setKv(SEEDED_KEY, "1");
     logger.info("First run: seeded existing posters as applied (kept manual art)", {

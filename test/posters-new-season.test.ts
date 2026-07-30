@@ -17,10 +17,38 @@ const { getKv, setKv, getShowAndSeasonKeys, listPosterTargets, uploadPoster } = 
 vi.mock("../src/db", () => ({ getKv, setKv }));
 vi.mock("../src/settings", () => ({
   getSettingValue: () => "https://posters.test/One%20Pace",
+  getShowPosterVariant: () => 1,
 }));
 vi.mock("../src/plex", () => ({ getShowAndSeasonKeys, listPosterTargets, uploadPoster }));
 
-import { ensureSeasonPoster, syncPosters } from "../src/posters";
+import { ensureSeasonPoster, syncPosters, posterUrl } from "../src/posters";
+
+const BASE = "https://posters.test/One%20Pace";
+
+// The poster repo ships two designs for the *series* poster; seasons have one
+// each. The variant is a user preference, so it must only affect the show.
+describe("posterUrl show variant", () => {
+  it("defaults to poster.png", () => {
+    expect(posterUrl(BASE, "show")).toBe(`${BASE}/poster.png`);
+    expect(posterUrl(BASE, "show", 1)).toBe(`${BASE}/poster.png`);
+  });
+
+  it("uses poster-2.png for variant 2", () => {
+    expect(posterUrl(BASE, "show", 2)).toBe(`${BASE}/poster-2.png`);
+  });
+
+  it("never changes season posters", () => {
+    for (const v of [1, 2]) {
+      expect(posterUrl(BASE, "0", v)).toBe(`${BASE}/season-specials-poster.png`);
+      expect(posterUrl(BASE, "7", v)).toBe(`${BASE}/season07-poster.png`);
+      expect(posterUrl(BASE, "21", v)).toBe(`${BASE}/season21-poster.png`);
+    }
+  });
+
+  it("tolerates a trailing slash on the base", () => {
+    expect(posterUrl(`${BASE}/`, "show", 2)).toBe(`${BASE}/poster-2.png`);
+  });
+});
 
 const IMG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
 const fetched: string[] = [];
