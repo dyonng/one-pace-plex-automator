@@ -264,10 +264,13 @@ a manual **Full Plex sync**) — change detection is ETag-based, so unchanged
 images are skipped without re-downloading, and updated art flows in on its own.
 Point `POSTER_REPO_RAW_BASE` elsewhere to use a different source.
 
-The repo ships **two designs for the series poster**. Set `SHOW_POSTER_VARIANT`
-to `2` (Settings → Preferences) to use the alternate one; season posters have a
-single design each and aren't affected. After changing it, use **Re-apply
-posters** on the Library card to push it right away.
+**Poster sets** — five collections are available (Settings → Preferences, with
+previews): SpykerNZ and its alternate show design, plus piratezekk,
+mizzoufan523 and Official from
+[eltharynd/OnePacerr](https://github.com/eltharynd/OnePacerr). Every set is
+uploaded to Plex, so Plex's own poster picker lists them all and you can switch
+there too — the set you pick here is the one Plex selects. After changing it,
+use **Re-apply posters** on the Library card to push it right away.
 
 **Re-apply posters** also forgets which posters are recorded as applied and
 uploads them all again — useful if Plex is missing art the app believes it

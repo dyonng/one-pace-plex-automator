@@ -24,10 +24,15 @@ into a version heading when a GitHub release is cut.
   **Specials S00E98**, the slot where the catalog already stores its title and
   description, so it downloads and picks that metadata up automatically.
 
-- **Series poster design is selectable** (`SHOW_POSTER_VARIANT`, dashboard-editable
-  under Preferences). The poster repo ships two designs for the show poster —
-  set `2` to use `poster-2.png` instead of the default. Season posters have a
-  single design each and are unaffected. Change it, then hit **Re-apply posters**.
+- **Poster sets** (`POSTER_SET`, dashboard-editable under Preferences) — five
+  collections to choose from: SpykerNZ and its alternate show design, plus
+  piratezekk, mizzoufan523 and Official (via eltharynd/OnePacerr). The Settings
+  picker previews each set's art rather than asking for an id.
+  **Every set is uploaded to Plex**, so Plex's own poster picker lists them all
+  and you can switch there too; the set you choose is uploaded last, which is
+  what makes it the selected one. Sets with gaps (mizzoufan523 has no show
+  poster, Official is missing a few seasons) are skipped for those targets.
+  A legacy `SHOW_POSTER_VARIANT` of `1`/`2` migrates automatically.
 
 - **Re-apply posters** button (Library card) — forgets which posters are recorded
   as applied and uploads them all again. The escape hatch for when Plex is
@@ -38,6 +43,12 @@ into a version heading when a GitHub release is cut.
   episode the catalog doesn't list yet, so Plex gets a real date instead of a
   blank; once the dataset publishes the episode, reconcile replaces it with the
   dataset's own date. Existing databases get the column automatically.
+
+### Removed
+- **Reset cast** action and its button. Cast sync was removed in 1.1.9, so
+  nothing can create the bare actor tags it cleaned up; it was a one-time
+  migration tool for pre-1.1.9 installs. Stray tags can still be removed from
+  Plex's own Edit → Cast.
 
 ### Fixed
 - **A newer-than-the-catalog file was offered as an "upgrade" — which would have

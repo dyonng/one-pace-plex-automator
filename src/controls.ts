@@ -1,7 +1,6 @@
 import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters, resyncPosters } from "./posters";
-import { resetCast } from "./casting";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
 import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
 import { getQbitClient } from "./qbittorrent";
@@ -62,7 +61,6 @@ export type ActionId =
   | "metadata-sync"
   | "retry-thumbs"
   | "resync-posters"
-  | "reset-cast"
   | "retry-failed"
   | "clear-done";
 
@@ -179,19 +177,6 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
                 `${r.thumbsGenerated ? `, generated ${r.thumbsGenerated} custom` : ""}` +
                 `${r.reset ? ` (reset ${r.reset} attempt counter(s))` : ""}. ` +
                 "Plex generates them in the background — re-scan in a few minutes.",
-        };
-      });
-
-    case "reset-cast":
-      return withLock("Reset cast", async () => {
-        const r = await resetCast();
-        return {
-          ok: r.remaining === 0,
-          message:
-            r.remaining > 0
-              ? `Tried to clear One Pace cast but ${r.remaining} still remain — the removal didn't take (check logs).`
-              : `Removed ${r.cleared} cast member(s) from One Pace. ` +
-                `To fully recover the original series, run Fix Match + Clean Bundles + Optimize Database in Plex.`,
         };
       });
 

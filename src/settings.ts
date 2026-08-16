@@ -2,6 +2,7 @@ import { EventEmitter } from "events";
 import cron from "node-cron";
 import { getConfig } from "./config";
 import { getSettingOverride, setSettingOverride, deleteSettingOverride } from "./db";
+import { POSTER_SETS, normalizePosterSetId } from "./poster-sets";
 
 export type SettingKey =
   | "POLL_CRON"
@@ -12,7 +13,7 @@ export type SettingKey =
   | "AUTO_RECONCILE"
   | "PREFER_EXTENDED"
   | "PREFER_ARABASTA"
-  | "SHOW_POSTER_VARIANT"
+  | "POSTER_SET"
   | "DISCORD_WEBHOOK_URL"
   | "NOTIFY_NEW_EPISODE"
   | "NOTIFY_DOWNLOAD_COMPLETE"
@@ -52,7 +53,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   AUTO_RECONCILE: "preference",
   PREFER_EXTENDED: "preference",
   PREFER_ARABASTA: "preference",
-  SHOW_POSTER_VARIANT: "preference",
+  POSTER_SET: "preference",
 };
 
 type ValidateResult = { ok: true; value: string } | { ok: false; error: string };
@@ -104,6 +105,15 @@ function validateDiscordWebhook(raw: string): ValidateResult {
     return { ok: false, error: "Not a Discord webhook URL (expected .../webhooks/{id}/{token})" };
   }
   return { ok: true, value: base.value };
+}
+
+function validatePosterSet(raw: string): ValidateResult {
+  const v = raw.trim();
+  if (POSTER_SETS.some((s) => s.id === v)) return { ok: true, value: v };
+  // Accept the legacy 1/2 show-design values so an old override keeps working.
+  const migrated = normalizePosterSetId(v);
+  if (v === "1" || v === "2") return { ok: true, value: migrated };
+  return { ok: false, error: `Unknown poster set. Options: ${POSTER_SETS.map((s) => s.id).join(", ")}` };
 }
 
 function validateText(raw: string): ValidateResult {
@@ -173,12 +183,12 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().PREFER_ARABASTA),
     validate: validateBool,
   },
-  SHOW_POSTER_VARIANT: {
-    key: "SHOW_POSTER_VARIANT",
-    label: "Series poster design",
-    type: "int",
-    envValue: () => String(getConfig().SHOW_POSTER_VARIANT),
-    validate: validateInt(1, 2),
+  POSTER_SET: {
+    key: "POSTER_SET",
+    label: "Poster set",
+    type: "text",
+    envValue: () => normalizePosterSetId(getConfig().POSTER_SET),
+    validate: validatePosterSet,
   },
   DISCORD_WEBHOOK_URL: {
     key: "DISCORD_WEBHOOK_URL",
@@ -304,8 +314,8 @@ export function getGoogleSheetsApiKey(): string {
   return getSettingValue("GOOGLE_SHEETS_API_KEY");
 }
 
-export function getShowPosterVariant(): number {
-  return Number(getSettingValue("SHOW_POSTER_VARIANT"));
+export function getPosterSetId(): string {
+  return normalizePosterSetId(getSettingValue("POSTER_SET"));
 }
 
 export interface SettingView {

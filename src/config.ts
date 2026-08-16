@@ -46,9 +46,9 @@ const ConfigSchema = z.object({
     .default(
       "https://raw.githubusercontent.com/SpykerNZ/one-pace-for-plex/main/One%20Pace"
     ),
-  // Which of the fan-made show posters to use. The poster repo ships two designs
-  // for the series poster (poster.png and poster-2.png); seasons have only one.
-  SHOW_POSTER_VARIANT: z.coerce.number().int().min(1).max(2).default(1),
+  // Which fan-made poster set to select in Plex. Every known set is uploaded so
+  // Plex's poster picker lists them all; this one ends up selected.
+  POSTER_SET: z.string().default("spykernz"),
   // Auto-apply a season's poster when a brand-new season first appears.
   AUTO_POSTERS: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   // Auto-sync Plex metadata + thumbnails when source data changes (reconcile).
