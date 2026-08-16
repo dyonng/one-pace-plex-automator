@@ -1,6 +1,6 @@
 <script lang="ts">
   import { settings, loadSettings, toast, refreshStatus, settingsOpen } from "./stores";
-  import { saveSetting, resetSettingReq, testDiscordReq, type SettingView } from "./api";
+  import { saveSetting, resetSettingReq, testDiscordReq, fetchPosterSets, type SettingView, type PosterSetView } from "./api";
   import { humanCron } from "./util";
   import Auth from "./Auth.svelte";
   import { themePref, customTheme, DAISYUI_THEMES } from "./theme";
@@ -18,13 +18,13 @@
   let saving = $state<string | null>(null);
   let testing = $state(false);
 
-  // The poster repo ships two series-poster designs; preview them straight from
-  // the configured repo so the choice is visual rather than "1 or 2".
-  const posterBase = $derived(
-    ($settings.find((s) => s.key === "POSTER_REPO_RAW_BASE")?.value ?? "").replace(/\/+$/, "")
-  );
-  const posterVariantUrl = (v: number) => `${posterBase}/${v === 2 ? "poster-2.png" : "poster.png"}`;
-  let posterFailed = $state<Record<number, boolean>>({});
+  // Poster sets come from the backend registry so the picker previews real art
+  // rather than asking the user to pick an opaque id.
+  let posterSets = $state<PosterSetView[]>([]);
+  let posterFailed = $state<Record<string, boolean>>({});
+  $effect(() => {
+    if ($settingsOpen && posterSets.length === 0) fetchPosterSets().then((s) => (posterSets = s));
+  });
 
   const serviceSettings = $derived($settings.filter((s) => s.category === "service"));
   const notificationSettings = $derived($settings.filter((s) => s.category === "notification"));
@@ -208,42 +208,39 @@
       {/if}
     </div>
 
-    {#if s.key === "SHOW_POSTER_VARIANT"}
-      <div class="flex items-end gap-3">
-        {#each [1, 2] as v (v)}
+    {#if s.key === "POSTER_SET"}
+      <div class="flex flex-wrap items-start gap-3">
+        {#each posterSets as set (set.id)}
           <button
             class="relative block rounded-lg overflow-hidden border-2 transition disabled:opacity-50
-                   {Number(s.value) === v
+                   {s.value === set.id
                      ? 'border-primary ring-2 ring-primary/40'
                      : 'border-base-content/15 hover:border-base-content/40'}"
             disabled={saving === s.key}
-            title={`Use series poster design ${v}`}
-            onclick={() => persist(s.key, String(v))}
+            title={set.credit}
+            onclick={() => persist(s.key, set.id)}
           >
-            {#if posterFailed[v]}
-              <!-- Configured repo has no such file — show a plain numbered tile
-                   instead of a broken-image icon. -->
-              <span class="w-28 h-[10.5rem] grid place-items-center bg-base-300 text-sm opacity-60">
-                Design {v}
-              </span>
-            {:else}
+            {#if set.previewUrl && !posterFailed[set.id]}
               <img
-                src={posterVariantUrl(v)}
-                alt={`Series poster design ${v}`}
-                class="w-28 h-[10.5rem] object-cover block bg-base-300"
+                src={set.previewUrl}
+                alt={`${set.label} poster`}
+                class="w-24 h-36 object-cover block bg-base-300"
                 loading="lazy"
-                onerror={() => (posterFailed[v] = true)}
+                onerror={() => (posterFailed[set.id] = true)}
               />
+            {:else}
+              <span class="w-24 h-36 grid place-items-center bg-base-300 text-xs opacity-60 px-1 text-center">
+                {set.label}
+              </span>
             {/if}
-            {#if Number(s.value) === v}
-              <span
-                class="absolute inset-x-0 bottom-0 bg-primary text-primary-content text-[10px] leading-tight text-center py-0.5"
-              >selected</span>
-            {/if}
+            <span
+              class="absolute inset-x-0 bottom-0 text-[10px] leading-tight text-center py-0.5 truncate
+                     {s.value === set.id ? 'bg-primary text-primary-content' : 'bg-base-300/90'}"
+            >{set.label}</span>
           </button>
         {/each}
         {#if s.overridden}
-          <button class="btn btn-ghost btn-xs" onclick={() => reset(s.key)}>reset</button>
+          <button class="btn btn-ghost btn-xs self-center" onclick={() => reset(s.key)}>reset</button>
         {/if}
       </div>
     {:else if s.type === "bool"}

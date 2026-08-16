@@ -10,6 +10,7 @@ import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, runNormalizeNa
 import { scanNamingCandidates } from "../naming";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
+import { describePosterSets } from "../poster-sets";
 import { scanCoverage, getStoredCoverage, getCoverageScannedAt } from "../coverage";
 import { scanMetadataAudit, getStoredAudit, getAuditScannedAt } from "../metadata-audit";
 import { getUpdateAvailable } from "../update-check";
@@ -40,7 +41,6 @@ const ACTION_IDS: ActionId[] = [
   "metadata-sync",
   "retry-thumbs",
   "resync-posters",
-  "reset-cast",
   "retry-failed",
   "clear-done",
 ];
@@ -270,6 +270,9 @@ function buildRouter(): Router {
   });
 
   r.get("/api/settings", (c) => c.json(200, describeSettings()));
+  r.get("/api/poster-sets", (c) =>
+    c.json(200, describePosterSets(getSettingValue("POSTER_REPO_RAW_BASE")))
+  );
   r.post("/api/settings", async (c) => {
     const body = await c.body();
     if (!body || typeof body.key !== "string") return c.json(400, { ok: false, message: "Missing key" });

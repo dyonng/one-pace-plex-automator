@@ -128,6 +128,19 @@ export interface SettingView {
   overridden: boolean;
 }
 
+export interface PosterSetView {
+  id: string;
+  label: string;
+  credit: string;
+  previewUrl: string | null;
+}
+
+export async function fetchPosterSets(): Promise<PosterSetView[]> {
+  const r = await fetch("/api/poster-sets");
+  if (!r.ok) return [];
+  return r.json();
+}
+
 export async function fetchSettings(): Promise<SettingView[]> {
   const r = await fetch("/api/settings");
   if (!r.ok) throw new Error("settings " + r.status);
