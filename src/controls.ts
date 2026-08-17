@@ -11,6 +11,7 @@ import { refreshCoverageIfPresent } from "./coverage";
 import { applyNamingRenames } from "./naming";
 import { clearSheetCache, prefetchSheet } from "./onepace-sheet";
 import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descriptions";
+import { clearOnepacerrCache, prefetchOnepacerr } from "./onepacerr";
 import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource, retryThumbnails, markPostersChecked } from "./metadata-audit";
 import { getAutoReconcile } from "./settings";
 import { logger } from "./logger";
@@ -76,9 +77,10 @@ export async function runAction(id: ActionId): Promise<ActionResult> {
         clearMetadataCache();
         clearSheetCache();
         clearDescriptionsCache();
+        clearOnepacerrCache();
         await refreshMetadata();
         // Eagerly warm both sheet caches so success/failure is logged now.
-        await Promise.all([prefetchSheet(), prefetchDescriptions()]);
+        await Promise.all([prefetchSheet(), prefetchDescriptions(), prefetchOnepacerr()]);
         await runCycle();
         runtime.lastPollAt = Date.now();
 

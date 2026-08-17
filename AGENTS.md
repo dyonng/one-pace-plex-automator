@@ -91,6 +91,17 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
    and are cleared + eagerly re-fetched by "Refresh Sources". Arc-title matching across sources goes
    through `canonicalizeArcTitle()` (`src/arc-titles.ts`), which folds spelling variants
    (Arabasta/Alabasta, Whiskey/Whisky Peak).
+   **OnePacerr API supplement** (`src/onepacerr.ts`, gated on `USE_ONEPACERR`): the community API
+   behind eltharynd/OnePacerr scrapes the *same* RSS feed + Google Sheets, but server-side and
+   continuously, so it frequently has a release before the dataset regenerates (it resolves Fan
+   Letter's `59510B34`, which neither of our own sources lists) and needs no Google key. `GET
+   /metadata` is fetched once and indexed by CRC32 across every file variant, cached 6h, cleared +
+   prefetched by Refresh Sources. It is the **last** link in `resolveEpisodeByCrc32`'s chain
+   (dataset → guide → API) and fails soft: unreachable or disabled simply yields null, and a stale
+   index is kept rather than dropped. Its numbering can disagree with the catalog (Fan Letter is
+   S00E01 there, S00E98 here), so `resolveFromOnepacerr` remaps aliased releases through
+   `SPECIAL_RELEASE_ALIASES` and prefers our own `descriptions.en` text for the slot — the API only
+   fills gaps. Also exposes `lookupOnepacerrMagnet()` for releases the feed no longer carries.
 3. **qBittorrent dispatch** (`src/qbittorrent.ts`) — cookie-auth Web API. `addMagnet` sets a
    category but **no savepath** (qBit writes to its own configured dir; we read that same host dir).
    **Download sources come from the RSS feed.** `extractMagnet` prefers a `magnet:` URI
@@ -518,6 +529,7 @@ Zod-validated env (`src/config.ts`):
 | `src/rss.ts` | RSS poll, CRC32 resolution, changelog extraction, cached feed + `getRssMagnetMap`/`findMagnetByCrc32` |
 | `src/metadata.ts` | richer `metadata/data.min.json` fetch/cache, indexes, extended-aware lookups, filename build |
 | `src/arc-titles.ts` | `canonicalizeArcTitle()` — folds arc-title spelling variants for cross-source matching |
+| `src/onepacerr.ts` | OnePacerr community API client — third metadata source, CRC32-indexed, fail-soft |
 | `src/onepace-sheet.ts` | official One Pace episode-guide Google Sheet (early CRC32 source; 6h cache) |
 | `src/onepace-descriptions.ts` | maintainer's metadata Google Sheet (early titles/descriptions; 6h cache) |
 | `src/torrent-search.ts` | AnimeTosho + Nyaa search for manual source selection |

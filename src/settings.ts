@@ -25,7 +25,8 @@ export type SettingKey =
   | "ANIMETOSHO_API_KEY"
   | "ANIMETOSHO_BASE_URL"
   | "NYAA_BASE_URL"
-  | "GOOGLE_SHEETS_API_KEY";
+  | "GOOGLE_SHEETS_API_KEY"
+  | "USE_ONEPACERR";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
 export type SettingCategory = "service" | "preference" | "notification";
 
@@ -42,6 +43,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   ANIMETOSHO_BASE_URL: "service",
   NYAA_BASE_URL: "service",
   GOOGLE_SHEETS_API_KEY: "service",
+  USE_ONEPACERR: "service",
   DISCORD_WEBHOOK_URL: "notification",
   NOTIFY_NEW_EPISODE: "notification",
   NOTIFY_DOWNLOAD_COMPLETE: "notification",
@@ -267,6 +269,13 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => getConfig().NYAA_BASE_URL,
     validate: validateUrl,
   },
+  USE_ONEPACERR: {
+    key: "USE_ONEPACERR",
+    label: "Use the OnePacerr community API as an extra metadata source",
+    type: "bool",
+    envValue: () => String(getConfig().USE_ONEPACERR),
+    validate: validateBool,
+  },
   GOOGLE_SHEETS_API_KEY: {
     key: "GOOGLE_SHEETS_API_KEY",
     label: "Google Sheets API key (optional — reads the One Pace episode guide)",
@@ -312,6 +321,10 @@ export function getPreferArabasta(): boolean {
 
 export function getGoogleSheetsApiKey(): string {
   return getSettingValue("GOOGLE_SHEETS_API_KEY");
+}
+
+export function getUseOnepacerr(): boolean {
+  return getSettingValue("USE_ONEPACERR") === "true";
 }
 
 export function getPosterSetId(): string {
