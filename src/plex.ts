@@ -66,13 +66,19 @@ async function resolveSectionId(): Promise<string> {
 async function resolveShowRatingKey(sectionId: string): Promise<string> {
   if (_showRatingKey) return _showRatingKey;
 
+  const wanted = getConfig().PLEX_SHOW_TITLE;
   const result = await plexGet<PlexContainer>(`/library/sections/${sectionId}/all`, { type: "2" });
   const show = result.MediaContainer.Metadata?.find(
-    (m) => m.title.toLowerCase() === "one pace"
+    (m) => m.title.toLowerCase() === wanted.toLowerCase()
   );
-  if (!show) throw new Error(`Show "One Pace" not found in Plex library`);
+  if (!show) {
+    throw new Error(
+      `Show "${wanted}" not found in Plex library "${getConfig().PLEX_LIBRARY_NAME}". ` +
+      `Set PLEX_SHOW_TITLE if your show is named differently.`
+    );
+  }
   _showRatingKey = show.ratingKey;
-  logger.info("Resolved Plex show", { name: "One Pace", ratingKey: _showRatingKey });
+  logger.info("Resolved Plex show", { name: wanted, ratingKey: _showRatingKey });
   return _showRatingKey;
 }
 
@@ -80,7 +86,7 @@ export async function resolvePlexConnection(): Promise<{ plexUrl: string; librar
   const sectionId = await resolveSectionId();
   await resolveShowRatingKey(sectionId);
   const { PLEX_URL, PLEX_LIBRARY_NAME } = getConfig();
-  return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: "One Pace" };
+  return { plexUrl: PLEX_URL, libraryName: PLEX_LIBRARY_NAME, showTitle: getConfig().PLEX_SHOW_TITLE };
 }
 
 /** Resolves the show ratingKey plus a season-index → ratingKey map (index 0 = Specials). */
