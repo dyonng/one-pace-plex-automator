@@ -83,12 +83,20 @@ const BLANK_TRANSPARENT_FRACTION = 0.85;
 // frame carries no usable image. This catches the mid-transition frames a plain
 // stddev test misses: a fade-to-white flash with a silhouette in it has plenty of
 // per-channel spread, but almost every pixel is pinned to an extreme.
-const BLANK_EXTREME_FRACTION = 0.92;
+// Two ways a clipped frame is unusable, measured against real library data:
+//   - almost entirely clipped, whatever the spread (a pure fade frame);
+//   - mostly clipped AND without much colour spread — washed out with no detail.
+// Clipping alone is not enough: a genuinely detailed bright frame can be 80%+
+// clipped while carrying a huge spread (observed: 81% clipped at stddev 94, 71%
+// at stddev 114), and those are real images that must not be regenerated.
+const BLANK_EXTREME_FRACTION = 0.95;
+const WASHED_EXTREME_FRACTION = 0.8;
+const WASHED_STDDEV_CEILING = 60;
 const EXTREME_DARK = 16;
 const EXTREME_BRIGHT = 239;
 // Bump when the detection logic changes so cached verdicts (thumb_checked_path)
 // are recomputed even for thumbnails whose version hasn't changed.
-const THUMB_DETECTOR_VERSION = "v5";
+const THUMB_DETECTOR_VERSION = "v6";
 
 const thumbCacheKey = (thumbPath: string): string => `${THUMB_DETECTOR_VERSION}:${thumbPath}`;
 
@@ -205,7 +213,8 @@ async function analyzeThumb(thumbPath: string): Promise<ThumbAnalysis> {
 export const isBlankStats = (s: ThumbStats): boolean =>
   s.transparentFrac >= BLANK_TRANSPARENT_FRACTION ||
   s.rgbStddev < BLANK_STDDEV_THRESHOLD ||
-  s.extremeFrac >= BLANK_EXTREME_FRACTION;
+  s.extremeFrac >= BLANK_EXTREME_FRACTION ||
+  (s.extremeFrac >= WASHED_EXTREME_FRACTION && s.rgbStddev < WASHED_STDDEV_CEILING);
 
 /**
  * Determines which episode thumbnails are blank single-color frames. Verdicts

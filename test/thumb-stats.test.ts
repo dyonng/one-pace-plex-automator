@@ -96,3 +96,36 @@ describe("blown-out / clipped frames", () => {
     expect(isBlankStats(s)).toBe(false);
   });
 });
+
+// Thresholds tuned against real measurements from a full library scan, so these
+// cases use the actual (stddev, clipped-fraction) pairs observed there.
+describe("washed-out vs genuinely bright frames", () => {
+  const stats = (rgbStddev: number, extremeFrac: number) => ({
+    rgbStddev, extremeFrac, transparentFrac: 0,
+  });
+
+  it("flags the Fan Letter frame that started this (89% clipped, stddev 39)", () => {
+    expect(isBlankStats(stats(39.0, 0.89))).toBe(true);
+  });
+
+  it("flags a mostly-clipped frame with little spread", () => {
+    expect(isBlankStats(stats(52.4, 0.86))).toBe(true); // s17e00
+    expect(isBlankStats(stats(13.4, 0.84))).toBe(true); // s36e10 — nearly flat too
+  });
+
+  it("spares bright frames that still carry real detail", () => {
+    // Heavily clipped but a huge colour spread: a real image, not a fade.
+    expect(isBlankStats(stats(94.0, 0.81))).toBe(false);  // s21e21
+    expect(isBlankStats(stats(113.7, 0.71))).toBe(false); // s36e06
+    expect(isBlankStats(stats(75.4, 0.68))).toBe(false);  // s05e07
+  });
+
+  it("still flags an almost totally clipped frame whatever its spread", () => {
+    expect(isBlankStats(stats(120.0, 0.97))).toBe(true);
+  });
+
+  it("leaves ordinary frames alone", () => {
+    expect(isBlankStats(stats(23.9, 0.58))).toBe(false); // s03e02
+    expect(isBlankStats(stats(76.3, 0.57))).toBe(false); // s16e03
+  });
+});
