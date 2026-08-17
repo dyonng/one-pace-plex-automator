@@ -54,6 +54,11 @@ into a version heading when a GitHub release is cut.
   files Fan Letter as S00E01 where the catalog uses S00E98), so aliased releases
   are remapped onto the catalog's slot to avoid the same episode landing twice.
 
+- **`PLEX_SHOW_TITLE`** — the Plex show title was hardcoded to "One Pace", so
+  anyone who named the show differently hit a hard failure on startup. It's now
+  configurable, and the error names the library and the setting when the show
+  isn't found.
+
 ### Removed
 - **Reset cast** action and its button. Cast sync was removed in 1.1.9, so
   nothing can create the bare actor tags it cleaned up; it was a one-time
@@ -61,6 +66,13 @@ into a version heading when a GitHub release is cut.
   Plex's own Edit → Cast.
 
 ### Fixed
+- **The thumbnail diagnostic was unreachable.** Blank-frame verdicts are cached
+  per detector version, so once a scan had run nothing was re-measured and the
+  analysis log reported no numbers — while the one control that clears that
+  cache, **Retry thumbnails**, was hidden unless something was already flagged.
+  The button is now always shown, and the detector version was bumped so the next
+  scan re-measures every thumbnail.
+
 - **A newer-than-the-catalog file was offered as an "upgrade" — which would have
   downgraded it.** Any CRC32 mismatch between disk and the dataset's canonical
   release was treated as upgradeable. But the dataset retains historical CRC32s,

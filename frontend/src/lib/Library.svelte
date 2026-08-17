@@ -321,7 +321,6 @@
         </p>
       </div>
       <div class="flex gap-2">
-        {#if $metadataAudit && ($metadataAudit.totals.needsThumb > 0 || $metadataAudit.totals.thumbUnavailable > 0)}
           <div
             class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
             data-tip="Asks Plex to generate a thumbnail again for every episode missing one — including those previous attempts gave up on. Generation runs in Plex's background queue, so results show up on a later scan."
@@ -335,7 +334,7 @@
               {retryingThumbs ? "Requesting…" : "Retry thumbnails"}
             </button>
           </div>
-        {/if}
+        
         <div
           class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
           data-tip="Forgets which posters are already applied and uploads them all again. Use when Plex is missing season art the app believes it already set (e.g. a newly created Specials season)."

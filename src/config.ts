@@ -9,6 +9,9 @@ const ConfigSchema = z.object({
   PLEX_URL: z.string().url().default("http://plex:32400"),
   PLEX_TOKEN: z.string(),
   PLEX_LIBRARY_NAME: z.string().default("TV Shows"),
+  // Title of the show inside that library. Only needs changing if you named the
+  // show something other than "One Pace" in Plex.
+  PLEX_SHOW_TITLE: z.string().default("One Pace"),
   DISCORD_WEBHOOK_URL: z.string().url().optional(),
   // Per-type Discord notification toggles (all default on). No-op unless a
   // webhook is configured. Editable live from the dashboard.

@@ -88,7 +88,7 @@ const EXTREME_DARK = 16;
 const EXTREME_BRIGHT = 239;
 // Bump when the detection logic changes so cached verdicts (thumb_checked_path)
 // are recomputed even for thumbnails whose version hasn't changed.
-const THUMB_DETECTOR_VERSION = "v4";
+const THUMB_DETECTOR_VERSION = "v5";
 
 const thumbCacheKey = (thumbPath: string): string => `${THUMB_DETECTOR_VERSION}:${thumbPath}`;
 
