@@ -1,7 +1,8 @@
 import { getConfig } from "./config";
 import { logger } from "./logger";
 import { lookupOnepacerrByCrc32 } from "./onepacerr";
-import { getPreferExtended, getPreferArabasta } from "./settings";
+import { getPreferExtended, getPreferArabasta, getArcFilter } from "./settings";
+import { isArcIncluded, isArcFilterEmpty } from "./arc-filter";
 import { canonicalizeArcTitle } from "./arc-titles";
 import { lookupSheetEpisode, lookupSheetEpisodeByCrc32, listSheetEpisodes, getArcResolution } from "./onepace-sheet";
 import { lookupEpisodeText } from "./onepace-descriptions";
@@ -536,11 +537,15 @@ export interface EpisodeSummary extends ResolvedEpisode {
 
 export async function getAllArcs(): Promise<ArcSummary[]> {
   const data = await _getData();
+  const filter = getArcFilter();
   return data.arcs.en
     .map((a, index) => ({ a, index }))
     // Part 0 is the "Specials" arc — kept, since Plex models season 0 as
     // Specials natively (poster included). Negative parts are sentinels.
     .filter(({ a }) => a.part >= 0)
+    // User-scoped arcs: an excluded arc is not tracked anywhere (coverage,
+    // audit, reconcile), so it must be dropped at the catalog source.
+    .filter(({ a }) => isArcIncluded(filter, a.part, a.title))
     .map(({ a, index }) => ({
       arcIndex: index,
       arcPart: a.part,
@@ -554,7 +559,9 @@ export async function getAllArcs(): Promise<ArcSummary[]> {
 export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
   const data = await _getData();
   const preferExtended = getPreferExtended();
-  const cacheKey = `${preferExtended}|${getPreferArabasta()}`;
+  const filter = getArcFilter();
+  // The filter changes the output, so it has to key the cache too.
+  const cacheKey = `${preferExtended}|${getPreferArabasta()}|${[...filter.include].sort()}|${[...filter.exclude].sort()}`;
 
   if (!_episodesCache || _episodesCache.pref !== cacheKey) {
     // The arc episode list gives the current canonical standard + extended CRC32
@@ -563,6 +570,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
     const list: EpisodeSummary[] = [];
     for (const { arc, index } of _arcByPart!.values()) {
       if (arc.part < 0) continue; // sentinel arcs only; part 0 = Specials, kept
+      if (!isArcIncluded(filter, arc.part, arc.title)) continue;
       for (const ve of arc.episodes) {
         const epNum = Number(ve.episode);
         const isExtended = Boolean(preferExtended && ve.extended);
@@ -603,6 +611,7 @@ export async function getAllEpisodes(): Promise<EpisodeSummary[]> {
   for (const sheetEp of await listSheetEpisodes()) {
     const arcEntry = findArcByTitle(sheetEp.arcTitle);
     if (!arcEntry || arcEntry.arc.part < 0) continue;
+    if (!isArcIncluded(filter, arcEntry.arc.part, arcEntry.arc.title)) continue;
     if (_variantByKey!.has(epKey(arcEntry.arc.part, sheetEp.episodeNum))) continue; // dataset wins
 
     const isExtended = Boolean(preferExtended && sheetEp.extendedCrc32);

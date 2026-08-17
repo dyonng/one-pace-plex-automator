@@ -81,6 +81,14 @@ available — click to compare old vs new and queue the upgrade, individually or
 a batch) and **Cannot Upgrade Automatically** (no link in the feed yet). The
 coverage report refreshes itself when an episode finishes or a pipeline action runs.
 
+### Scoping to specific arcs
+
+`ARC_INCLUDE` / `ARC_EXCLUDE` (Settings → Preferences) limit which arcs the tool
+tracks — comma-separated arc parts (`0,24`) or titles (`Specials, Wano`). A
+filtered-out arc is ignored everywhere: no coverage rows, no metadata audit, no
+reconcile, and its releases aren't downloaded. Leave both blank to track
+everything. Exclude wins over include.
+
 ### Extended cuts
 
 Some episodes have both a **standard** and an **extended** cut. By default the

@@ -11,6 +11,7 @@ vi.mock("../src/settings", () => ({
   getPreferExtended: () => true,
   getPreferArabasta: () => true,
   getGoogleSheetsApiKey: () => "",
+  getArcFilter: () => ({ include: new Set<string>(), exclude: new Set<string>() }),
 }));
 vi.mock("../src/onepace-sheet", () => ({
   listSheetEpisodes: async () => [],
