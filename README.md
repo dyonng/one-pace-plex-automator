@@ -30,6 +30,8 @@ theme, and a choice of logo).
 | **Refresh Sources** | Clears all metadata caches, re-fetches the metadata dataset and episode-guide sheets, then polls RSS — the same cycle the cron runs. Use it to pick up a release the schedule hasn't seen yet. With auto-reconcile on, it also pushes any changed metadata and generates missing thumbnails. |
 | **Library → Scan / Reconcile** | Scan checks your media folder for coverage (present/missing/upgradeable) and diffs Plex against the dataset, flagging episodes with missing/drifted metadata or no thumbnail. Reconcile fixes only the flagged ones — pushing metadata and triggering thumbnail generation. See [below](#metadata--thumbnails). |
 | **Full Plex sync** | Re-pushes titles/descriptions/air dates for **every** season and episode to Plex, applies the show's genres/rating/studio, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
+| **Retry thumbnails** | Resets attempt counters (including episodes previously written off) and re-requests generation for everything still missing a thumbnail. Only shown when something needs one. |
+| **Re-apply posters** | Forgets which posters are recorded as applied and uploads every set again. Use when Plex is missing art the app believes it already set, or right after changing the poster set. |
 | **Retry failed** | Re-queues episodes whose download or processing failed. |
 | **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
 | **Clear done** | Removes completed rows from the pipeline table (files are kept). |
