@@ -10,6 +10,8 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.27] — 2026-08-16
+
 ### Added
 - **Specials support.** The One Pace **Specials** arc (dataset arc part 0 — the
   animated specials, including *One Piece Fan Letter*) is no longer skipped. It
