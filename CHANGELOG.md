@@ -44,12 +44,6 @@ into a version heading when a GitHub release is cut.
   blank; once the dataset publishes the episode, reconcile replaces it with the
   dataset's own date. Existing databases get the column automatically.
 
-### Removed
-- **Reset cast** action and its button. Cast sync was removed in 1.1.9, so
-  nothing can create the bare actor tags it cleaned up; it was a one-time
-  migration tool for pre-1.1.9 installs. Stray tags can still be removed from
-  Plex's own Edit → Cast.
-
 - **OnePacerr API as a third metadata source** (`USE_ONEPACERR`, on by default,
   dashboard-editable). It scrapes the same RSS feed and Google Sheets we do, but
   server-side and continuously, so it often knows a release before the ladyisatis
@@ -59,6 +53,12 @@ into a version heading when a GitHub release is cut.
   own sources lists. Its episode numbering can disagree with the catalog (it
   files Fan Letter as S00E01 where the catalog uses S00E98), so aliased releases
   are remapped onto the catalog's slot to avoid the same episode landing twice.
+
+### Removed
+- **Reset cast** action and its button. Cast sync was removed in 1.1.9, so
+  nothing can create the bare actor tags it cleaned up; it was a one-time
+  migration tool for pre-1.1.9 installs. Stray tags can still be removed from
+  Plex's own Edit → Cast.
 
 ### Fixed
 - **A newer-than-the-catalog file was offered as an "upgrade" — which would have
