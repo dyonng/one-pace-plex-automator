@@ -67,6 +67,13 @@ into a version heading when a GitHub release is cut.
   canonicalizer as everywhere else, so Arabasta/Alabasta both work, and exclude
   always wins over include.
 
+- **Show genres and summary now come from the dataset.** They were hardcoded
+  constants; the One Pace dataset publishes a `tvshow` block with the canonical
+  genre list and a full show description, so those are used when present and the
+  constants remain as a fallback. The show also gets a **summary** for the first
+  time — previously nothing set one. Studio stays hardcoded (no source carries
+  it) and the content rating stays pinned rather than tracking upstream edits.
+
 ### Removed
 - **Reset cast** action and its button. Cast sync was removed in 1.1.9, so
   nothing can create the bare actor tags it cleaned up; it was a one-time

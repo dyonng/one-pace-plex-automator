@@ -236,8 +236,9 @@ dirty set is derived from the data change itself.
   data, using ratingKeys straight from the scan (`updateEpisodeInPlex`/`updateSeasonInPlex`), then
   `setAppliedMeta`. Seasons also get `originallyAvailableAt` = the arc's earliest episode release
   (`ArcSummary.arcReleased`).
-- **Show-level metadata** (`applyShowMetadata`): the show's genres, content rating, and studio are
-  static + locked (`SHOW_GENRES`/`SHOW_CONTENT_RATING`/`SHOW_STUDIO` in `plex.ts`, params built by the
+- **Show-level metadata** (`applyShowMetadata`): genres and the show summary come from the dataset's
+  `tvshow.en` block via `getShowMetadata()` when present, falling back to the constants; content
+  rating and studio stay (`SHOW_GENRES`/`SHOW_CONTENT_RATING`/`SHOW_STUDIO` in `plex.ts`, params built by the
   unit-tested `buildShowMetaParams`). Read-compare-push, re-asserted once a day here (and on every Full
   Plex sync). Agent-less shows have none of these on their own.
 - **Thumbnails (tiered):** episodes with no real `thumb` get generation attempts, spaced by

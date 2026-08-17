@@ -70,7 +70,18 @@ interface DataJsonDescription {
   description: string;
 }
 
+interface DataJsonTvShow {
+  title?: string;
+  sorttitle?: string;
+  originaltitle?: string;
+  genre?: string[];
+  plot?: string;
+  premiered?: string;
+  customrating?: string;
+}
+
 interface DataJson {
+  tvshow?: { en?: DataJsonTvShow };
   arcs: { en: DataJsonArc[] };
   descriptions: { en: DataJsonDescription[] };
   episodes: Record<string, DataJsonEpisode>; // key = CRC32 uppercase hex
@@ -533,6 +544,31 @@ function earliestArcRelease(arc: DataJsonArc, data: DataJson): string {
 
 export interface EpisodeSummary extends ResolvedEpisode {
   seasonEpisodeId: string; // e.g. "s01e03"
+}
+
+export interface ShowMetadata {
+  genres: string[];
+  plot: string;
+  sortTitle: string;
+  originalTitle: string;
+  premiered: string;
+}
+
+/**
+ * Show-level fields the dataset carries in `tvshow.en`. Used so genres and the
+ * show summary track upstream instead of living as constants; anything absent is
+ * returned empty and the caller keeps its own default.
+ */
+export async function getShowMetadata(): Promise<ShowMetadata> {
+  const d = await _getData();
+  const t = d.tvshow?.en ?? {};
+  return {
+    genres: (t.genre ?? []).filter(Boolean),
+    plot: t.plot ?? "",
+    sortTitle: t.sorttitle ?? "",
+    originalTitle: t.originaltitle ?? "",
+    premiered: t.premiered ?? "",
+  };
 }
 
 export async function getAllArcs(): Promise<ArcSummary[]> {
