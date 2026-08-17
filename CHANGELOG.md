@@ -59,6 +59,14 @@ into a version heading when a GitHub release is cut.
   configurable, and the error names the library and the setting when the show
   isn't found.
 
+- **Per-arc filtering** (`ARC_INCLUDE` / `ARC_EXCLUDE`, dashboard-editable).
+  Comma-separated arc parts or titles. An excluded arc isn't tracked at all — it
+  disappears from coverage and the metadata audit, isn't reconciled, and its
+  releases aren't downloaded. Set `ARC_EXCLUDE=Specials` if you don't want the
+  specials counted as missing. Titles match through the same spelling
+  canonicalizer as everywhere else, so Arabasta/Alabasta both work, and exclude
+  always wins over include.
+
 ### Removed
 - **Reset cast** action and its button. Cast sync was removed in 1.1.9, so
   nothing can create the bare actor tags it cleaned up; it was a one-time

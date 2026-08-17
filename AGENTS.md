@@ -354,7 +354,8 @@ Settings editable live from the dashboard without a redeploy, each tagged with a
   **NOTIFY_DOWNLOAD_COMPLETE** (bool), **NOTIFY_EPISODE_UPDATED** (bool),
   **NOTIFY_ERROR** (bool), **NOTIFY_HEALTH** (bool).
 - **preference:** **AUTO_DOWNLOAD** (bool), **AUTO_POSTERS** (bool), **AUTO_RECONCILE** (bool),
-  **PREFER_EXTENDED** (bool), **PREFER_ARABASTA** (bool), **POSTER_SET** (set id).
+  **PREFER_EXTENDED** (bool), **PREFER_ARABASTA** (bool), **POSTER_SET** (set id),
+  **ARC_INCLUDE** / **ARC_EXCLUDE** (comma-separated arc parts or titles).
 
 (Secrets and volume paths stay env-only by design.)
 
@@ -528,6 +529,7 @@ Zod-validated env (`src/config.ts`):
 | `src/db.ts` | SQLite state + migrations; episode/log/count queries |
 | `src/rss.ts` | RSS poll, CRC32 resolution, changelog extraction, cached feed + `getRssMagnetMap`/`findMagnetByCrc32` |
 | `src/metadata.ts` | richer `metadata/data.min.json` fetch/cache, indexes, extended-aware lookups, filename build |
+| `src/arc-filter.ts` | Per-arc include/exclude scoping (pure); applied at the catalog source so every consumer inherits it |
 | `src/arc-titles.ts` | `canonicalizeArcTitle()` — folds arc-title spelling variants for cross-source matching |
 | `src/onepacerr.ts` | OnePacerr community API client — third metadata source, CRC32-indexed, fail-soft |
 | `src/onepace-sheet.ts` | official One Pace episode-guide Google Sheet (early CRC32 source; 6h cache) |

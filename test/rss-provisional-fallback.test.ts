@@ -60,6 +60,7 @@ vi.mock("../src/discord", () => ({ sendDiscordNotification: vi.fn(async () => {}
 vi.mock("../src/settings", () => ({
   getAutoDownload: () => true,
   getPreferExtended: () => true,
+  getArcFilter: () => ({ include: new Set<string>(), exclude: new Set<string>() }),
 }));
 vi.mock("../src/coverage", () => ({
   getStoredCoverage: () => null,

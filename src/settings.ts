@@ -3,6 +3,7 @@ import cron from "node-cron";
 import { getConfig } from "./config";
 import { getSettingOverride, setSettingOverride, deleteSettingOverride } from "./db";
 import { POSTER_SETS, normalizePosterSetId } from "./poster-sets";
+import { parseArcFilter, type ArcFilter } from "./arc-filter";
 
 export type SettingKey =
   | "POLL_CRON"
@@ -26,7 +27,9 @@ export type SettingKey =
   | "ANIMETOSHO_BASE_URL"
   | "NYAA_BASE_URL"
   | "GOOGLE_SHEETS_API_KEY"
-  | "USE_ONEPACERR";
+  | "USE_ONEPACERR"
+  | "ARC_INCLUDE"
+  | "ARC_EXCLUDE";
 export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
 export type SettingCategory = "service" | "preference" | "notification";
 
@@ -44,6 +47,8 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   NYAA_BASE_URL: "service",
   GOOGLE_SHEETS_API_KEY: "service",
   USE_ONEPACERR: "service",
+  ARC_INCLUDE: "preference",
+  ARC_EXCLUDE: "preference",
   DISCORD_WEBHOOK_URL: "notification",
   NOTIFY_NEW_EPISODE: "notification",
   NOTIFY_DOWNLOAD_COMPLETE: "notification",
@@ -185,6 +190,20 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().PREFER_ARABASTA),
     validate: validateBool,
   },
+  ARC_INCLUDE: {
+    key: "ARC_INCLUDE",
+    label: "Only track these arcs (blank = all; parts or titles, comma separated)",
+    type: "text",
+    envValue: () => getConfig().ARC_INCLUDE,
+    validate: validateText,
+  },
+  ARC_EXCLUDE: {
+    key: "ARC_EXCLUDE",
+    label: "Never track these arcs (e.g. Specials)",
+    type: "text",
+    envValue: () => getConfig().ARC_EXCLUDE,
+    validate: validateText,
+  },
   POSTER_SET: {
     key: "POSTER_SET",
     label: "Poster set",
@@ -321,6 +340,10 @@ export function getPreferArabasta(): boolean {
 
 export function getGoogleSheetsApiKey(): string {
   return getSettingValue("GOOGLE_SHEETS_API_KEY");
+}
+
+export function getArcFilter(): ArcFilter {
+  return parseArcFilter(getSettingValue("ARC_INCLUDE"), getSettingValue("ARC_EXCLUDE"));
 }
 
 export function getUseOnepacerr(): boolean {

@@ -16,7 +16,8 @@ import { getArcResolution } from "./onepace-sheet";
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading } from "./processor";
 import { sendDiscordNotification } from "./discord";
-import { getAutoDownload, getPreferExtended } from "./settings";
+import { getAutoDownload, getPreferExtended, getArcFilter } from "./settings";
+import { isArcIncluded } from "./arc-filter";
 import { getStoredCoverage, scanCoverage } from "./coverage";
 
 export async function pollRss(): Promise<number> {
@@ -69,6 +70,15 @@ export async function pollRss(): Promise<number> {
           reason: (err as Error).message,
         });
         provisional.push(rssEp);
+        continue;
+      }
+
+      // A filtered-out arc isn't tracked, so don't queue its releases either.
+      if (!isArcIncluded(getArcFilter(), ep.arcPart, ep.arcTitle)) {
+        logger.info("Skipping release from a filtered-out arc", {
+          crc32: rssEp.crc32, arc: ep.arcTitle, part: ep.arcPart,
+        });
+        markGuidSeen(rssEp.guid);
         continue;
       }
 

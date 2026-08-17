@@ -69,6 +69,10 @@ const ConfigSchema = z.object({
   // it often knows a release before the dataset regenerates. Gap-filler only.
   USE_ONEPACERR: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
   ONEPACERR_BASE_URL: z.string().url().default("https://onepacerr.com/api/v1"),
+  // Optional per-arc scoping. Comma-separated arc parts or titles. Empty include
+  // means every arc; exclude always wins. An excluded arc is not tracked at all.
+  ARC_INCLUDE: z.string().default(""),
+  ARC_EXCLUDE: z.string().default(""),
   ANIMETOSHO_API_KEY: z.string().default(""),
   ANIMETOSHO_BASE_URL: z.string().url().default("https://feed.animetosho.xyz"),
   NYAA_BASE_URL: z.string().url().default("https://nyaa.si"),
