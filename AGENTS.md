@@ -190,11 +190,11 @@ which fan-edit shows don't have. Worse, those bare tags **collide with the sourc
 tags**, and a force-refresh used during cleanup flooded Plex's cloud metadata service into `504`s,
 breaking matching/ratings on the original One Piece show. Net: no upside, real damage.
 
-What remains is cleanup only. `src/casting.ts` `resetCast()` calls `clearShowCast()` to remove any
-bare actor tags left on the One Pace show (`actor[].tag.tag-=` removal form + `actor.locked=0`) and
-reports how many were cleared/remain. It's exposed as the **Reset cast** control (`reset-cast`
-action) and only ever touches the One Pace show. To recover the original series in Plex after damage,
-use Fix Match + Clean Bundles + Optimize Database.
+`src/casting.ts` and the **Reset cast** control were removed too (1.1.23): they only cleaned up bare
+tags left by pre-1.1.9 runs, which nothing can create any more. `clearShowCast()` survives in
+`plex.ts` as the one cast-touching helper, unused. If stray actors ever appear, remove them from
+Plex's own Edit → Cast; to recover a damaged source series use Fix Match + Clean Bundles + Optimize
+Database.
 
 ## Metadata & Thumbnail Reconciliation (key feature)
 
@@ -322,8 +322,8 @@ stages without touching the deployment stack manager.
   `AUTO_RECONCILE`; also what the cron runs), `sync` ("Full Plex sync": `runMetadataSync` +
   ETag-aware `syncPosters`; heavy, confirmation modal in the UI), `metadata-scan` (read-only audit →
   report), `metadata-sync` ("Reconcile": `reconcilePlexMetadata` — push flagged metadata + trigger
-  thumbnails), `reset-cast` ("Reset cast": `resetCast` — remove bare actor tags from the One Pace
-  show; see Casting), `retry-failed`, `clear-done` (remove all `done` rows; files kept). All serialized
+  thumbnails), `resync-posters` ("Re-apply posters": clears poster bookkeeping and re-uploads every
+  set), `retry-failed`, `clear-done` (remove all `done` rows; files kept). All serialized
   behind one lock (`isBusy`/`withLock`) so manual triggers never overlap the cron cycle. Tracks last-run
   timestamps in `runtime`. `runNormalizeNaming(crc32s)` (also lock-held) renames files to the
   canonical scheme (see Coverage & Naming).
@@ -526,8 +526,8 @@ Zod-validated env (`src/config.ts`):
 | `src/coverage.ts` | Library coverage scan/diff, magnet caching, stored report + scanned-at |
 | `src/metadata-audit.ts` | Metadata/thumbnail reconciliation engine (desired/applied state, dirty-marking, push + thumbnail generation) |
 | `src/naming.ts` | Normalize-naming candidate scan + batch rename |
+| `src/poster-sets.ts` | Registry of poster collections + URL/naming per set (see Posters) |
 | `src/posters.ts` | Fan-made season/show poster sync (auto on new seasons; ETag-aware re-check daily via reconcile + Full Plex sync) |
-| `src/casting.ts` | Cleanup only: `resetCast()` removes bare actor tags from the One Pace show (see Casting) |
 | `src/update-check.ts` | Update notifier — compares running version against main's package.json (6h cache) |
 | `src/backup.ts` | Nightly SQLite backups to DATA_DIR/backups (04:00 + boot catch-up, keep 7) |
 | `src/health.ts` | Health monitor (Plex/qBit/disk checks) for the System panel; fires Discord alerts on overall status transitions — debounced (`nextAlertState`, confirm ×2), boot-grace, change-only, no lone recoveries, gated on `NOTIFY_HEALTH` |
