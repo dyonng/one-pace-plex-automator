@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { buildShowMetaParams } from "../src/plex";
 
 describe("buildShowMetaParams", () => {
-  const meta = { genres: ["Anime", "Action", "Adventure"], contentRating: "TV-14", studio: "Toei Animation" };
+  const meta = { genres: ["Anime", "Action", "Adventure"], contentRating: "TV-14", studio: "Toei Animation", summary: "" };
 
   it("targets the show (type=2) and locks every field it sets", () => {
     const p = buildShowMetaParams(meta);
@@ -28,9 +28,21 @@ describe("buildShowMetaParams", () => {
   });
 
   it("handles an empty genre list without emitting tag params", () => {
-    const p = buildShowMetaParams({ genres: [], contentRating: "TV-14", studio: "One Pace" });
+    const p = buildShowMetaParams({ genres: [], contentRating: "TV-14", studio: "One Pace", summary: "" });
     expect(p["genre[0].tag.tag"]).toBeUndefined();
     expect(p["genre.locked"]).toBe(1);
     expect(p["studio.value"]).toBe("One Pace");
+  });
+
+  it("writes a locked summary when the dataset supplies one", () => {
+    const p = buildShowMetaParams({ ...meta, summary: "One Pace recuts the anime." });
+    expect(p["summary.value"]).toBe("One Pace recuts the anime.");
+    expect(p["summary.locked"]).toBe(1);
+  });
+
+  it("omits summary entirely when there is none, rather than blanking Plex's", () => {
+    const p = buildShowMetaParams(meta);
+    expect(p["summary.value"]).toBeUndefined();
+    expect(p["summary.locked"]).toBeUndefined();
   });
 });

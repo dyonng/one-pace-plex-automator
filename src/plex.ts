@@ -3,6 +3,7 @@ import { getConfig } from "./config";
 import { logger } from "./logger";
 
 import type { ArcSummary, EpisodeSummary } from "./metadata";
+import { getShowMetadata } from "./metadata";
 
 interface PlexMetadata {
   ratingKey: string;
@@ -143,13 +144,14 @@ export interface ShowMeta {
   genres: string[];
   contentRating: string;
   studio: string;
+  summary: string;
 }
 
 /** Reads the show's current genres, content rating, and studio. */
 export async function getShowMeta(ratingKey: string): Promise<ShowMeta> {
   const result = await plexGet<{
     MediaContainer: {
-      Metadata?: Array<{ Genre?: Array<{ tag?: string }>; contentRating?: string; studio?: string }>;
+      Metadata?: Array<{ Genre?: Array<{ tag?: string }>; contentRating?: string; studio?: string; summary?: string }>;
     };
   }>(`/library/metadata/${ratingKey}`);
   const m = result.MediaContainer.Metadata?.[0];
@@ -157,6 +159,7 @@ export async function getShowMeta(ratingKey: string): Promise<ShowMeta> {
     genres: (m?.Genre ?? []).map((g) => g.tag ?? "").filter(Boolean),
     contentRating: m?.contentRating ?? "",
     studio: m?.studio ?? "",
+    summary: m?.summary ?? "",
   };
 }
 
@@ -170,6 +173,10 @@ export function buildShowMetaParams(meta: ShowMeta): Record<string, string | num
     "studio.locked": 1,
     "genre.locked": 1,
   };
+  if (meta.summary) {
+    params["summary.value"] = meta.summary;
+    params["summary.locked"] = 1;
+  }
   meta.genres.forEach((g, i) => {
     params[`genre[${i}].tag.tag`] = g;
   });
@@ -183,6 +190,7 @@ function showMetaSatisfied(current: ShowMeta, desired: ShowMeta): boolean {
   return (
     current.contentRating === desired.contentRating &&
     current.studio === desired.studio &&
+    (!desired.summary || current.summary.trim() === desired.summary.trim()) &&
     desired.genres.every(has)
   );
 }
@@ -195,10 +203,22 @@ function showMetaSatisfied(current: ShowMeta, desired: ShowMeta): boolean {
 export async function applyShowMetadata(): Promise<{ changed: boolean }> {
   const sectionId = await resolveSectionId();
   const showKey = await resolveShowRatingKey(sectionId);
+  // Prefer what the dataset publishes so genres/summary track upstream; fall
+  // back to our constants for anything it doesn't carry (studio is never in it).
+  let fromData = { genres: [] as string[], plot: "" };
+  try {
+    const meta = await getShowMetadata();
+    fromData = { genres: meta.genres, plot: meta.plot };
+  } catch (err) {
+    logger.debug("Show metadata unavailable from the dataset — using defaults", {
+      error: (err as Error).message,
+    });
+  }
   const desired: ShowMeta = {
-    genres: SHOW_GENRES,
+    genres: fromData.genres.length > 0 ? fromData.genres : SHOW_GENRES,
     contentRating: SHOW_CONTENT_RATING,
     studio: SHOW_STUDIO,
+    summary: fromData.plot,
   };
   const current = await getShowMeta(showKey);
   if (showMetaSatisfied(current, desired)) return { changed: false };
@@ -207,6 +227,8 @@ export async function applyShowMetadata(): Promise<{ changed: boolean }> {
     genres: desired.genres.length,
     contentRating: desired.contentRating,
     studio: desired.studio,
+    summary: desired.summary ? `${desired.summary.length} chars` : "(none)",
+    source: fromData.genres.length > 0 ? "dataset" : "defaults",
   });
   return { changed: true };
 }
