@@ -50,6 +50,16 @@ into a version heading when a GitHub release is cut.
   migration tool for pre-1.1.9 installs. Stray tags can still be removed from
   Plex's own Edit → Cast.
 
+- **OnePacerr API as a third metadata source** (`USE_ONEPACERR`, on by default,
+  dashboard-editable). It scrapes the same RSS feed and Google Sheets we do, but
+  server-side and continuously, so it often knows a release before the ladyisatis
+  dataset regenerates. It's consulted **only after** the dataset and the episode
+  guide come up empty, and every failure is swallowed — a gap-filler, never a
+  dependency. It resolves *One Piece Fan Letter*'s CRC32, which neither of our
+  own sources lists. Its episode numbering can disagree with the catalog (it
+  files Fan Letter as S00E01 where the catalog uses S00E98), so aliased releases
+  are remapped onto the catalog's slot to avoid the same episode landing twice.
+
 ### Fixed
 - **A newer-than-the-catalog file was offered as an "upgrade" — which would have
   downgraded it.** Any CRC32 mismatch between disk and the dataset's canonical

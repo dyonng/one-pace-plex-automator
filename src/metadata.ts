@@ -1,5 +1,6 @@
 import { getConfig } from "./config";
 import { logger } from "./logger";
+import { lookupOnepacerrByCrc32 } from "./onepacerr";
 import { getPreferExtended, getPreferArabasta } from "./settings";
 import { canonicalizeArcTitle } from "./arc-titles";
 import { lookupSheetEpisode, lookupSheetEpisodeByCrc32, listSheetEpisodes, getArcResolution } from "./onepace-sheet";
@@ -221,10 +222,55 @@ export async function resolveEpisodeByCrc32(
  * when present, else ladyisatis' metadata sheet. Throws when the hash is unknown
  * to both sources, preserving the original error contract.
  */
+/**
+ * Last resort: the OnePacerr community API. It tracks the same feed we do but
+ * continuously, so it often knows a release the dataset hasn't published yet.
+ *
+ * Its episode numbering can disagree with the dataset (it files One Piece Fan
+ * Letter as S00E01 where the catalog uses S00E98), so any aliased release is
+ * remapped onto the catalog's slot — otherwise the same episode would land in
+ * two places depending on which source answered.
+ */
+async function resolveFromOnepacerr(key: string, resolution: string): Promise<ResolvedEpisode | null> {
+  const rel = await lookupOnepacerrByCrc32(key);
+  if (!rel) return null;
+
+  const alias = await resolveAliasedRelease(rel.episodeTitle);
+  const arcPart = alias?.arcPart ?? rel.arcPart;
+  const episodeNum = alias?.epNum ?? rel.episodeNum;
+  const arcEntry = _arcByPart!.get(arcPart);
+  // Prefer our own catalog text for the slot when we have it; the API only fills gaps.
+  const desc = _descByKey!.get(epKey(arcPart, episodeNum));
+
+  logger.info("Resolved release via the OnePacerr API", {
+    crc32: key, arc: arcPart, episode: episodeNum, remapped: Boolean(alias),
+  });
+  return {
+    crc32: key,
+    arcIndex: arcEntry?.index ?? rel.arcPart,
+    arcTitle: displayArcTitle(arcEntry?.arc.title ?? rel.arcTitle),
+    arcSaga: arcEntry?.arc.saga ?? rel.arcSaga,
+    arcPart,
+    arcDescription: arcEntry?.arc.description ?? rel.arcDescription,
+    episodeNum,
+    episodeTitle: desc?.title ?? rel.episodeTitle,
+    episodeDescription: desc?.description ?? rel.episodeDescription,
+    chapters: rel.chapters,
+    originalEpisodes: rel.originalEpisodes,
+    released: rel.released,
+    resolution,
+    extended: rel.extended,
+  };
+}
+
 async function resolveFromSheet(key: string, resolution: string): Promise<ResolvedEpisode> {
   const sheetEp = await lookupSheetEpisodeByCrc32(key);
   const arcEntry = sheetEp ? findArcByTitle(sheetEp.arcTitle) : null;
-  if (!sheetEp || !arcEntry) throw new Error(`CRC32 ${key} not found in metadata dataset`);
+  if (!sheetEp || !arcEntry) {
+    const viaApi = await resolveFromOnepacerr(key, resolution);
+    if (viaApi) return viaApi;
+    throw new Error(`CRC32 ${key} not found in metadata dataset`);
+  }
 
   const epNum = sheetEp.episodeNum;
   const desc = _descByKey!.get(epKey(arcEntry.arc.part, epNum));

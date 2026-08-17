@@ -61,6 +61,11 @@ const ConfigSchema = z.object({
   // (coverage, filenames, Plex). The metadata uses "Alabasta"; this is a spelling
   // preference.
   PREFER_ARABASTA: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  // Optional third metadata source (eltharynd/OnePacerr's public API). It scrapes
+  // the same RSS feed + Google Sheets we do, but server-side and continuously, so
+  // it often knows a release before the dataset regenerates. Gap-filler only.
+  USE_ONEPACERR: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  ONEPACERR_BASE_URL: z.string().url().default("https://onepacerr.com/api/v1"),
   ANIMETOSHO_API_KEY: z.string().default(""),
   ANIMETOSHO_BASE_URL: z.string().url().default("https://feed.animetosho.xyz"),
   NYAA_BASE_URL: z.string().url().default("https://nyaa.si"),
