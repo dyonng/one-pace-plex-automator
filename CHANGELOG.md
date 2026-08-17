@@ -10,6 +10,16 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Washed-out thumbnails are now actually caught.** The clipped-pixel test added
+  in 1.1.27 used a single 92% cutoff, and the real offender measured 89% — just
+  under. Measuring a whole library showed a single cutoff is the wrong tool:
+  genuinely detailed bright frames can be 80%+ clipped while carrying a very wide
+  colour spread. Detection now combines both signals — almost fully clipped (95%)
+  regardless of spread, **or** mostly clipped (80%) *without* much spread — so
+  washed-out frames are regenerated while real high-contrast stills are left
+  alone. Thresholds are tuned against measurements from an actual scan.
+
 ## [1.1.27] — 2026-08-16
 
 ### Added
