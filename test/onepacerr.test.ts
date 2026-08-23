@@ -107,3 +107,43 @@ describe("OnePacerr metadata source", () => {
     expect(await lookupOnepacerrByCrc32("59510B34")).toBeNull();
   });
 });
+
+// The real payload shape: "archived" is an ARRAY of superseded releases while
+// standard/extended/alternate are single objects. Treating every value as one
+// object silently drops every historical CRC32, so an older file on disk could
+// never be resolved through this source.
+describe("archived releases (array-valued variant)", () => {
+  const WITH_ARCHIVED = {
+    arcs: [{
+      arc: 1, saga: "East Blue", title: "Romance Dawn", description: "",
+      episodes: [{
+        arc: 1, episode: 1, title: "Romance Dawn 1", description: "",
+        mangaChapters: "1-7", animeEpisodes: "1-4", released: "2026-08-17T00:00:00.000Z",
+        files: {
+          standard: { CRC32: "NEW00001", magnetURI: "magnet:new" },
+          archived: [
+            { CRC32: "OLD00001", magnetURI: "magnet:old1", outdated: true },
+            { CRC32: "OLD00002", magnetURI: "magnet:old2", outdated: true },
+          ],
+        },
+      }],
+    }],
+  };
+
+  it("indexes every archived release, not just the current one", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => WITH_ARCHIVED })));
+    clearOnepacerrCache();
+    expect(await lookupOnepacerrByCrc32("NEW00001")).not.toBeNull();
+    expect(await lookupOnepacerrByCrc32("OLD00001")).not.toBeNull();
+    expect(await lookupOnepacerrByCrc32("OLD00002")).not.toBeNull();
+  });
+
+  it("keeps an archived release's episode identity", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, status: 200, json: async () => WITH_ARCHIVED })));
+    clearOnepacerrCache();
+    const old = await lookupOnepacerrByCrc32("OLD00002");
+    expect(old!.arcPart).toBe(1);
+    expect(old!.episodeNum).toBe(1);
+    expect(old!.extended).toBe(false); // archived is not an extended cut
+  });
+});

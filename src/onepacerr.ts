@@ -28,7 +28,9 @@ interface OnepacerrEpisode {
   mangaChapters?: string;
   animeEpisodes?: string;
   released?: string;
-  files?: Record<string, OnepacerrFile>;
+  // Most variants are a single object, but "archived" is an ARRAY of superseded
+  // releases — indexing it as one object silently loses every historical CRC32.
+  files?: Record<string, OnepacerrFile | OnepacerrFile[]>;
 }
 
 interface OnepacerrArc {
@@ -77,7 +79,8 @@ function buildIndex(data: OnepacerrMetadata): Map<string, OnepacerrRelease> {
   const map = new Map<string, OnepacerrRelease>();
   for (const arc of data.arcs ?? []) {
     for (const ep of arc.episodes ?? []) {
-      for (const [variant, file] of Object.entries(ep.files ?? {})) {
+      for (const [variant, entry] of Object.entries(ep.files ?? {})) {
+        for (const file of Array.isArray(entry) ? entry : [entry]) {
         const crc = (file?.CRC32 ?? "").toUpperCase();
         if (!crc) continue;
         // "archived" entries are superseded releases; still worth indexing so an
@@ -97,6 +100,7 @@ function buildIndex(data: OnepacerrMetadata): Map<string, OnepacerrRelease> {
           extended: variant === "extended" || file?.variant === "extended",
           magnetURI: file?.magnetURI ?? "",
         });
+        }
       }
     }
   }

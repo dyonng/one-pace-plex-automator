@@ -20,6 +20,11 @@ import { getAutoDownload, getPreferExtended, getArcFilter } from "./settings";
 import { isArcIncluded } from "./arc-filter";
 import { getStoredCoverage, scanCoverage } from "./coverage";
 
+// Sentinel episode number for a whole-arc batch download. Real episodes start at
+// 1, so this can't collide; the actual episodes are identified from the files in
+// the downloaded folder once it completes.
+const BATCH_EPISODE = 0;
+
 export async function pollRss(): Promise<number> {
   logger.info("Starting RSS poll cycle");
 
@@ -187,24 +192,37 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
     } else {
       const parsed = parseReleaseTitle(rssEp.title);
       if (!parsed) {
-        logger.warn("Provisional download skipped — can't parse arc/episode from title", {
-          title: rssEp.title,
-          willRetry: retriesLater(rssEp),
-        });
-        if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
-        continue;
+        // No trailing episode number — but One Pace distributes most arcs as a
+        // single whole-arc torrent ("[One Pace][1-7] Romance Dawn [1080p]", a
+        // folder with no CRC32 anywhere). Those titles are just the arc name, so
+        // resolve them as a batch instead of dropping the release.
+        const batchArc = await resolveArcByTitle(rssEp.title);
+        if (batchArc) {
+          logger.info("Recognized whole-arc batch release", {
+            title: rssEp.title, arc: batchArc.arcTitle, part: batchArc.arcPart,
+          });
+          placement = { ...batchArc, epNum: BATCH_EPISODE, extended: false };
+        } else {
+          logger.warn("Provisional download skipped — can't parse arc/episode from title", {
+            title: rssEp.title,
+            willRetry: retriesLater(rssEp),
+          });
+          if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
+          continue;
+        }
+      } else {
+        const arc = await resolveArcByTitle(parsed.arcTitle);
+        if (!arc) {
+          logger.warn("Provisional download skipped — arc not in dataset", {
+            title: rssEp.title,
+            arcTitle: parsed.arcTitle,
+            willRetry: retriesLater(rssEp),
+          });
+          if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
+          continue;
+        }
+        placement = { ...arc, epNum: parsed.epNum, extended: parsed.extended };
       }
-      const arc = await resolveArcByTitle(parsed.arcTitle);
-      if (!arc) {
-        logger.warn("Provisional download skipped — arc not in dataset", {
-          title: rssEp.title,
-          arcTitle: parsed.arcTitle,
-          willRetry: retriesLater(rssEp),
-        });
-        if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
-        continue;
-      }
-      placement = { ...arc, epNum: parsed.epNum, extended: parsed.extended };
     }
 
     const key = `${placement.arcPart}-${placement.epNum}`;

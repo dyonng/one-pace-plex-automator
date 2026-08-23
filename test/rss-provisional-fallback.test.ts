@@ -150,4 +150,40 @@ describe("unresolvable CRC32 falls back to the provisional path", () => {
     expect(upsertEpisode).toHaveBeenCalledWith(expect.objectContaining({ crc32: "ABCD1234" }));
     expect(resolveArcByTitle).not.toHaveBeenCalled();
   });
+
+  it("queues a whole-arc batch release instead of dropping it", async () => {
+    // The real failure: One Pace ships most arcs as one folder torrent named
+    // "[One Pace][1-7] Romance Dawn [1080p]" — no CRC32 anywhere and an RSS title
+    // with no episode number, so parseReleaseTitle returns null. That used to be
+    // logged and the GUID marked seen, losing the entire arc permanently.
+    resolveArcByTitle.mockResolvedValue({
+      arcIndex: 0, arcPart: 1, arcTitle: "Romance Dawn",
+      arcSaga: "East Blue", arcDescription: "", arcReleased: "",
+    });
+    fetchNewEpisodes.mockResolvedValue([
+      entry({ crc32: null, guid: "guid-batch", title: "Romance Dawn",
+              filename: "[One Pace][1-7] Romance Dawn [1080p]" }),
+    ]);
+
+    await pollRss();
+
+    // Queued against the arc, with the batch sentinel episode number.
+    expect(upsertEpisode).toHaveBeenCalledWith(
+      expect.objectContaining({ crc32: "PROV-1-0", arc_part: 1, arc_title: "Romance Dawn" })
+    );
+    expect(addMagnet).toHaveBeenCalled();
+    expect(markGuidSeen).toHaveBeenCalledWith("guid-batch");
+  });
+
+  it("still drops a title that is neither an episode nor a known arc", async () => {
+    resolveArcByTitle.mockResolvedValue(null);
+    fetchNewEpisodes.mockResolvedValue([
+      entry({ crc32: null, guid: "guid-junk", title: "Some Unrelated Thing" }),
+    ]);
+
+    await pollRss();
+
+    expect(upsertEpisode).not.toHaveBeenCalled();
+    expect(markGuidSeen).toHaveBeenCalledWith("guid-junk");
+  });
 });
