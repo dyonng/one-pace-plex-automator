@@ -25,7 +25,6 @@ into a version heading when a GitHub release is cut.
   every superseded release was skipped and an older file on disk couldn't be
   resolved through that source. Both shapes are now indexed.
 
-### Fixed
 - **Washed-out thumbnails are now actually caught.** The clipped-pixel test added
   in 1.1.27 used a single 92% cutoff, and the real offender measured 89% — just
   under. Measuring a whole library showed a single cutoff is the wrong tool:
