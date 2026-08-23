@@ -11,6 +11,21 @@ into a version heading when a GitHub release is cut.
 ## [Unreleased]
 
 ### Fixed
+- **Whole-arc batch releases were silently dropped.** One Pace distributes most
+  arcs as a *single folder torrent* — `[One Pace][1-7] Romance Dawn [1080p]` —
+  with no CRC32 anywhere and an RSS title that is just the arc name. With no
+  episode number to parse and no hash to resolve, those entries fell through to
+  "can't parse arc/episode from title", were marked seen, and were **never
+  retried**, so the whole arc was lost. That's 21 of the 37 arcs, including
+  Marineford, Dressrosa and Whole Cake Island. Such a title is now resolved as an
+  arc and queued as one batch download; the existing batch machinery already
+  imports every episode in the folder by its own CRC32.
+- **The OnePacerr source ignored archived releases.** Its `files` map holds a
+  single object for `standard`/`extended`, but an **array** for `archived`, so
+  every superseded release was skipped and an older file on disk couldn't be
+  resolved through that source. Both shapes are now indexed.
+
+### Fixed
 - **Washed-out thumbnails are now actually caught.** The clipped-pixel test added
   in 1.1.27 used a single 92% cutoff, and the real offender measured 89% — just
   under. Measuring a whole library showed a single cutoff is the wrong tool:

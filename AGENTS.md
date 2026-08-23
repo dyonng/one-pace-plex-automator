@@ -54,6 +54,15 @@ metadata sync on boot — sync is download-driven (see Pipeline step 4).
    the same provisional path used for entries with no CRC32 at all. If the provisional path also
    can't place it, the GUID is deliberately left **unseen** so a later poll re-resolves it once the
    sources catch up. Entries that never had a CRC32 keep the old mark-seen-and-move-on behavior.
+   **Whole-arc batch releases:** One Pace ships most arcs as one folder torrent
+   (`[One Pace][1-7] Romance Dawn [1080p]`) — no CRC32 anywhere, and the feed title is just the arc
+   name, so `parseReleaseTitle` returns null. `processProvisional` therefore falls back to
+   `resolveArcByTitle(title)` and, on a hit, queues a single provisional download keyed
+   `provisionalKey(arcPart, BATCH_EPISODE=0)`. On completion `locateTorrentVideos` → `scanBatchFiles`
+   finds every `[CRC32].mkv` in the folder, the largest becomes the primary, and
+   `processBatchSiblings` imports the rest — each resolved by its own CRC32. 21 of 37 arcs are
+   distributed this way (Marineford, Dressrosa, Whole Cake Island, …), so this path is the norm, not
+   an edge case.
    **Special-release aliases** (`SPECIAL_RELEASE_ALIASES` + `resolveAliasedRelease` in `metadata.ts`):
    a few releases have feed titles that are not arc names, so neither `parseReleaseTitle` nor the
    dataset can place them. `processProvisional` checks the alias table **first** and pins such a
