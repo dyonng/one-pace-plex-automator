@@ -11,6 +11,13 @@ into a version heading when a GitHub release is cut.
 ## [Unreleased]
 
 ### Fixed
+- **"Downloaded file not found in /downloads" after a successful download.** The
+  completed-file lookup searched only the top level of the download directory and
+  one folder below it. qBittorrent's actual layout is deeper whenever a category
+  folder is involved — `<downloads>/<category>/<arc folder>/<episode>.mkv` for a
+  whole-arc batch — so the file was invisible and the import failed even though
+  the download had finished. Both the lookup and the batch-sibling scan now walk
+  the tree to a bounded depth, so any of qBittorrent's layouts work.
 - **Whole-arc batch releases were silently dropped.** One Pace distributes most
   arcs as a *single folder torrent* — `[One Pace][1-7] Romance Dawn [1080p]` —
   with no CRC32 anywhere and an RSS title that is just the arc name. With no

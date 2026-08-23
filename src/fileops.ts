@@ -171,46 +171,61 @@ const BATCH_VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
  * Returns all video files in `dir` whose filename contains a bracketed 8-hex
  * CRC32. Used by the processor to pick up sibling episodes from a batch torrent.
  */
+/**
+ * Every CRC32-tagged video under `dir`, at any depth — a batch torrent may put
+ * episodes straight in the folder or inside per-season subfolders.
+ */
 export function scanBatchFiles(dir: string): BatchFile[] {
   if (!fs.existsSync(dir)) return [];
   const results: BatchFile[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile()) continue;
-    if (!BATCH_VIDEO_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
-    const m = entry.name.match(/\[([0-9A-Fa-f]{8})\]/);
-    if (!m) continue;
-    results.push({
-      filePath: path.join(dir, entry.name),
-      filename: entry.name,
-      crc32: m[1].toUpperCase(),
-    });
-  }
+  walkFiles(dir, 0, (dirPath, name) => {
+    if (!BATCH_VIDEO_EXTS.has(path.extname(name).toLowerCase())) return false;
+    const m = name.match(/\[([0-9A-Fa-f]{8})\]/);
+    if (m) {
+      results.push({ filePath: path.join(dirPath, name), filename: name, crc32: m[1].toUpperCase() });
+    }
+    return false; // keep walking — we want them all
+  });
   return results;
 }
 
+// qBittorrent's layout under the download dir varies: a loose file, a folder per
+// torrent, a category folder, or a combination. Walk the tree instead of assuming
+// a depth — bounded so a deep or looping mount can't spin.
+const MAX_SCAN_DEPTH = 5;
+
+function walkFiles(dir: string, depth: number, visit: (dirPath: string, name: string) => boolean): boolean {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return false; // unreadable (permissions, vanished mid-scan) — skip, don't throw
+  }
+  for (const entry of entries) {
+    if (entry.isFile() && visit(dir, entry.name)) return true;
+  }
+  if (depth >= MAX_SCAN_DEPTH) return false;
+  for (const entry of entries) {
+    // isDirectory() is false for symlinks, so loops can't be followed.
+    if (entry.isDirectory() && walkFiles(path.join(dir, entry.name), depth + 1, visit)) return true;
+  }
+  return false;
+}
+
+/**
+ * Locates a completed download by the CRC32 in its filename, at any depth under
+ * `downloadDir`. Depth matters: a whole-arc batch lands as
+ * `<downloads>/<category>/<arc folder>/<episode>.mkv`, which a shallow search
+ * misses entirely ("Downloaded file not found in /downloads for CRC32 …").
+ */
 export function findDownloadedFile(downloadDir: string, crc32: string): string | null {
   if (!fs.existsSync(downloadDir)) return null;
-
-  const entries = fs.readdirSync(downloadDir, { withFileTypes: true });
-  for (const entry of entries) {
-    if (!entry.isFile()) continue;
-    const name = entry.name;
-    if (name.toUpperCase().includes(`[${crc32.toUpperCase()}]`)) {
-      return path.join(downloadDir, name);
-    }
-  }
-
-  // Also check one level deep (torrent may create a subfolder)
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    const subDir = path.join(downloadDir, entry.name);
-    const subEntries = fs.readdirSync(subDir, { withFileTypes: true });
-    for (const sub of subEntries) {
-      if (sub.isFile() && sub.name.toUpperCase().includes(`[${crc32.toUpperCase()}]`)) {
-        return path.join(subDir, sub.name);
-      }
-    }
-  }
-
-  return null;
+  const needle = `[${crc32.toUpperCase()}]`;
+  let found: string | null = null;
+  walkFiles(downloadDir, 0, (dirPath, name) => {
+    if (!name.toUpperCase().includes(needle)) return false;
+    found = path.join(dirPath, name);
+    return true;
+  });
+  return found;
 }
