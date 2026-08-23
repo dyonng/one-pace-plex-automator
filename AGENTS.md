@@ -546,7 +546,7 @@ Zod-validated env (`src/config.ts`):
 | `src/onepace-descriptions.ts` | maintainer's metadata Google Sheet (early titles/descriptions; 6h cache) |
 | `src/torrent-search.ts` | AnimeTosho + Nyaa search for manual source selection |
 | `src/qbittorrent.ts` | qBittorrent Web API client (progress: `dlspeed`/`eta`/`size`) |
-| `src/fileops.ts` | Season-format detection, move/rename, re-release file swap, on-disk size (cached) |
+| `src/fileops.ts` | Season-format detection, move/rename, re-release file swap, on-disk size (cached). `findDownloadedFile`/`scanBatchFiles` walk the download tree to a bounded depth — qBittorrent nests by category and per-torrent folder, so a shallow search misses batch episodes |
 | `src/coverage.ts` | Library coverage scan/diff, magnet caching, stored report + scanned-at |
 | `src/metadata-audit.ts` | Metadata/thumbnail reconciliation engine (desired/applied state, dirty-marking, push + thumbnail generation) |
 | `src/naming.ts` | Normalize-naming candidate scan + batch rename |
