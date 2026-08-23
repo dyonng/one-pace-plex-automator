@@ -10,6 +10,8 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.30] — 2026-08-23
+
 ### Fixed
 - **"Downloaded file not found in /downloads" after a successful download.** The
   completed-file lookup searched only the top level of the download directory and
