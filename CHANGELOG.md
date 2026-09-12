@@ -10,6 +10,25 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Stalled-download detection.** A new `Downloads` health check warns when
+  anything hasn't advanced in 3 hours. Previously a torrent with no seeds — or one
+  orphaned when a VPN restart took the port-forward with it — sat in `downloading`
+  indefinitely with nothing anywhere reporting it.
+- **Automatic retry with backoff.** Failed episodes are re-queued on their own, up
+  to 3 attempts spaced 5m/20m/60m apart, so an environmental failure recovers
+  without anyone pressing **Retry failed**. A manual retry resets the budget.
+
+### Fixed
+- **A torrent removed from qBittorrent no longer strands its episode forever.**
+  Completion was checked by asking whether the torrent had finished; a torrent that
+  had vanished simply answered "not yet", every 30 seconds, indefinitely. Three
+  consecutive misses now fail the episode with a clear reason (and a plain restart
+  can't trip it — the count is re-confirmed from scratch).
+- **Connection blips are retried.** qBittorrent requests retry twice on
+  connection-level faults, dropping the session cookie first in case the client
+  restarted. HTTP responses are never retried — an error response is an answer.
+
 ### Fixed
 - **"Downloaded file not found" when the torrent carried a different CRC32.** A
   feed entry can advertise a hash the torrent doesn't actually contain — One Pace

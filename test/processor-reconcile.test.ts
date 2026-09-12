@@ -8,14 +8,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // download loop.
 
 const isComplete = vi.fn(async () => true);
+// The sweep fetches the torrent and judges completion itself.
+const getTorrent = vi.fn(async () => ({ hash: "h", state: "stalledUP", progress: 1 }));
 const deleteTorrent = vi.fn(async () => {});
 const getEpisodesByStatus = vi.fn();
 const updateEpisodeStatus = vi.fn();
 const sendDiscordNotification = vi.fn(async () => {});
 const reconcilePlexMetadata = vi.fn();
 
-vi.mock("../src/qbittorrent", () => ({
-  getQbitClient: () => ({ isComplete, deleteTorrent }),
+vi.mock("../src/qbittorrent", async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
+  getQbitClient: () => ({ isComplete, getTorrent, deleteTorrent }),
 }));
 vi.mock("../src/db", () => ({
   getEpisodesByStatus,
@@ -23,6 +26,10 @@ vi.mock("../src/db", () => ({
   getEpisodeByCrc32: vi.fn(),
   upsertEpisode: vi.fn(),
   deleteEpisode: vi.fn(),
+  recordDownloadProgress: vi.fn(),
+  getRetryableFailed: vi.fn(() => []),
+  scheduleRetry: vi.fn(),
+  clearRetryState: vi.fn(),
 }));
 vi.mock("../src/metadata", () => ({
   resolveEpisodeByCrc32: vi.fn(async () => ({

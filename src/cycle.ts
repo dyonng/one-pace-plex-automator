@@ -14,7 +14,7 @@ import {
 } from "./metadata";
 import { getArcResolution } from "./onepace-sheet";
 import { getQbitClient } from "./qbittorrent";
-import { processDownloading } from "./processor";
+import { processDownloading, requeueRetryableFailures } from "./processor";
 import { sendDiscordNotification } from "./discord";
 import { getAutoDownload, getPreferExtended, getArcFilter } from "./settings";
 import { isArcIncluded } from "./arc-filter";
@@ -357,6 +357,9 @@ export async function dispatchPending(): Promise<void> {
 
 export async function runCycle(): Promise<void> {
   const newCount = await pollRss();
+  // Give environmental failures a chance to recover on their own before the
+  // dispatch pass, so a recovered episode is re-queued in the same cycle.
+  await requeueRetryableFailures();
   await dispatchPending();
   await processDownloading();
 
