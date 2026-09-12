@@ -5,9 +5,9 @@ import { DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode, deleteEpisode, type EpisodeRecord } from "./db";
 import { getQbitClient, type TorrentInfo } from "./qbittorrent";
-import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, parseResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, type ResolvedEpisode } from "./metadata";
+import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, parseResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, getCatalogedCrc32s, parseReleaseFilename, resolveArcByTitle, type ResolvedEpisode } from "./metadata";
 import { getArcResolution } from "./onepace-sheet";
-import { buildSeasonFolder, findDownloadedFile, moveAndRename, scanBatchFiles, type BatchFile } from "./fileops";
+import { buildSeasonFolder, findDownloadedFile, findExistingEpisodeFile, moveAndRename, scanBatchFiles, type BatchFile } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
 import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
@@ -15,6 +15,44 @@ import { getAutoPosters, getAutoReconcile } from "./settings";
 import { scanCoverage, getStoredCoverage } from "./coverage";
 import { reconcilePlexMetadata } from "./metadata-audit";
 import { lookupEpisodeText, lookupArcText } from "./onepace-descriptions";
+
+/**
+ * qBittorrent (or the VPN container in front of it) being unreachable says
+ * nothing about the episode — it's infrastructure, and the very next poll may
+ * well succeed. Errors matching this stay retryable instead of burning the
+ * episode to "failed".
+ */
+const TRANSIENT_INFRA = /ECONNREFUSED|ECONNRESET|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|EAI_AGAIN|EPIPE|socket hang up/i;
+
+function isTransientInfraError(message: string): boolean {
+  return TRANSIENT_INFRA.test(message);
+}
+
+/**
+ * Guards against importing a release that is OLDER than the file already in the
+ * library. One Pace's feed carries both the current release and its
+ * predecessor, so the same episode can be queued twice with different CRC32s;
+ * whichever finished last used to win, silently overwriting the newer file.
+ *
+ * The test mirrors the coverage report's: a CRC32 the dataset has never listed
+ * came from a release that landed after the dataset was last generated, so it is
+ * newer than anything the catalog knows — including the catalog's own canonical.
+ * Returns the on-disk filename when the incoming file would be a downgrade.
+ */
+async function newerFileAlreadyOnDisk(
+  arcTitle: string,
+  arcPart: number,
+  episodeNum: number,
+  incomingCrc32: string
+): Promise<string | null> {
+  const existing = findExistingEpisodeFile(arcTitle, arcPart, episodeNum);
+  if (!existing?.crc32) return null;
+  const incoming = incomingCrc32.toUpperCase();
+  if (existing.crc32 === incoming) return null;
+  const cataloged = await getCatalogedCrc32s();
+  if (!cataloged.has(existing.crc32) && cataloged.has(incoming)) return existing.filename;
+  return null;
+}
 
 interface BatchResult {
   crc32: string;
@@ -24,9 +62,56 @@ interface BatchResult {
 }
 
 /**
+ * Metadata for a batch file, resolved by CRC32 where the catalog knows it and
+ * otherwise derived from the filename. The derived path matters for a release
+ * that landed before the dataset regenerated: the CRC32 lookup fails, but
+ * `[One Pace][252-254] Skypiea 08 [1080p][A1DFB514].mkv` still names its arc and
+ * episode, and it is the NEWER file. Skipping it left the stale catalogued
+ * release in the library.
+ */
+async function resolveBatchFileMeta(
+  crc32: string,
+  filename: string,
+  resolution: string
+): Promise<ResolvedEpisode> {
+  try {
+    return await resolveEpisodeByCrc32(crc32, resolution);
+  } catch (err) {
+    const parsed = parseReleaseFilename(filename);
+    const arc = parsed ? await resolveArcByTitle(parsed.arcTitle) : null;
+    if (!parsed || !arc) throw err; // genuinely unplaceable — keep the original error
+
+    const [epText, arcText] = await Promise.all([
+      lookupEpisodeText(arc.arcTitle, parsed.epNum),
+      lookupArcText(arc.arcTitle),
+    ]);
+    logger.info("Batch file not in dataset — placing from filename", {
+      crc32, file: filename, arc: arc.arcTitle, episode: parsed.epNum, sheetHit: Boolean(epText),
+    });
+    return {
+      crc32,
+      arcIndex: arc.arcIndex,
+      arcTitle: arc.arcTitle,
+      arcSaga: arc.arcSaga ?? arcText?.saga ?? "",
+      arcPart: arc.arcPart,
+      arcDescription: arc.arcDescription ?? arcText?.description ?? "",
+      episodeNum: parsed.epNum,
+      episodeTitle: epText?.title ?? "",
+      episodeDescription: epText?.description ?? "",
+      chapters: "",
+      originalEpisodes: "",
+      released: "",
+      resolution,
+      extended: parsed.extended,
+    };
+  }
+}
+
+/**
  * After the primary episode file has been moved, scan the same torrent subfolder
- * for sibling files. Each file whose CRC32 matches the dataset is moved to the
- * Plex library and marked done. Unresolvable files are skipped with a warning.
+ * for sibling files. Each one is placed by CRC32 where the dataset knows it and
+ * by filename otherwise, moved to the Plex library and marked done. Files that
+ * can be placed neither way are skipped with a warning.
  */
 async function processBatchSiblings(
   batchDir: string,
@@ -41,7 +126,16 @@ async function processBatchSiblings(
     if (existing?.status === "downloading" || existing?.status === "processing") continue;
     try {
       const resolution = extractResolutionFromFilename(sibling.filename);
-      const meta = await resolveEpisodeByCrc32(sibling.crc32, resolution);
+      const meta = await resolveBatchFileMeta(sibling.crc32, sibling.filename, resolution);
+
+      const newer = await newerFileAlreadyOnDisk(meta.arcTitle, meta.arcPart, meta.episodeNum, sibling.crc32);
+      if (newer) {
+        logger.info("Skipping batch file — a newer release is already in the library", {
+          crc32: sibling.crc32, file: sibling.filename, keeping: newer,
+        });
+        continue;
+      }
+
       const ext = path.extname(sibling.filePath);
       const finalFilename = buildPlexFilename(
         meta.arcTitle, meta.arcPart, meta.episodeNum, meta.resolution, sibling.crc32, ext
@@ -200,6 +294,16 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
     };
   }
 
+  const newer = await newerFileAlreadyOnDisk(meta.arcTitle, meta.arcPart, meta.episodeNum, realCrc32);
+  if (newer) {
+    logger.info("Skipping older release — a newer file is already in the library", {
+      crc32: realCrc32, arc: meta.arcTitle, episode: meta.episodeNum, keeping: newer,
+    });
+    deleteEpisode(ep.crc32);
+    await safeDeleteTorrent(torrentHash);
+    return false;
+  }
+
   const finalFilename = buildPlexFilename(
     meta.arcTitle, meta.arcPart, meta.episodeNum, resolution, realCrc32, ext, meta.extended
   );
@@ -271,8 +375,23 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
     changelog: ep.changelog,
   });
 
-  await getQbitClient().deleteTorrent(torrentHash, false);
+  await safeDeleteTorrent(torrentHash);
   return true;
+}
+
+/**
+ * Torrent cleanup is housekeeping: the file is already in the library by the
+ * time this runs, so a qBittorrent hiccup here must not flip a successful
+ * import to "failed".
+ */
+async function safeDeleteTorrent(hash: string): Promise<void> {
+  try {
+    await getQbitClient().deleteTorrent(hash, false);
+  } catch (err) {
+    logger.warn("Could not remove torrent from qBittorrent — file is already imported", {
+      hash, error: (err as Error).message,
+    });
+  }
 }
 
 function fileSize(p: string): number {
@@ -349,6 +468,18 @@ async function _processDownloading(): Promise<boolean> {
       }
 
       const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);
+
+      // One Pace's feed lists a re-release alongside the release it replaces, so
+      // both can be queued for the same slot. Never let the older one land on top.
+      const newer = await newerFileAlreadyOnDisk(epMeta.arcTitle, ep.arc_part, ep.episode_num, ep.crc32);
+      if (newer) {
+        logger.info("Skipping older release — a newer file is already in the library", {
+          crc32: ep.crc32, arc: ep.arc_title, episode: ep.episode_num, keeping: newer,
+        });
+        updateEpisodeStatus(ep.crc32, "done", { final_filename: newer, error_message: null });
+        await safeDeleteTorrent(ep.torrent_hash);
+        continue;
+      }
 
       const ext = path.extname(sourcePath);
       const finalFilename = buildPlexFilename(
@@ -436,9 +567,23 @@ async function _processDownloading(): Promise<boolean> {
       }
 
       // Remove torrent from qBit (keep file)
-      await qbit.deleteTorrent(ep.torrent_hash, false);
+      await safeDeleteTorrent(ep.torrent_hash);
     } catch (err) {
       const msg = (err as Error).message;
+
+      // qBittorrent unreachable (its container restarting, the VPN sidecar
+      // reconnecting) tells us nothing about this episode. Put it back to
+      // "downloading" so the next poll picks it up, and stop the sweep — every
+      // remaining episode would fail the same way and clear the pipeline into
+      // "failed" for what is a passing outage.
+      if (isTransientInfraError(msg) && getEpisodeByCrc32(ep.crc32)?.status === "processing") {
+        updateEpisodeStatus(ep.crc32, "downloading", { error_message: null });
+        logger.warn("qBittorrent unreachable — leaving episode queued for the next poll", {
+          crc32: ep.crc32, error: msg,
+        });
+        break;
+      }
+
       logger.error("Failed to process completed download", { crc32: ep.crc32, error: msg });
       updateEpisodeStatus(ep.crc32, "failed", { error_message: msg });
       await sendDiscordNotification({
