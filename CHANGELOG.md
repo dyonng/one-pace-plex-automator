@@ -10,6 +10,19 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **Retrying an episode no longer fails with "status code 409".** After an import
+  errors partway through, the torrent stays in qBittorrent because cleanup never
+  ran — so retrying tried to add a torrent it already held, which qBittorrent 5.x
+  refuses. Every retried episode failed to dispatch and sat in `pending`
+  indefinitely, even though its download was already sitting there complete.
+  Dispatch now reattaches to the existing torrent instead of re-adding it, and
+  an add that is refused because the torrent is already present is treated as
+  success rather than an error.
+- **qBittorrent errors now say what qBittorrent said.** Axios reports only
+  "Request failed with status code N", hiding the one-line reason in the response
+  body; that reason is now included in the logged message.
+
 ## [1.1.31] — 2026-09-12
 
 ### Fixed

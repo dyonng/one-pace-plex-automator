@@ -328,11 +328,24 @@ export async function dispatchPending(): Promise<void> {
   logger.info(`Dispatching ${pending.length} pending episode(s) to qBittorrent`);
 
   for (const ep of pending) {
-    if (!ep.magnet_uri) {
-      logger.warn("Pending episode has no stored magnet URI, skipping", { crc32: ep.crc32 });
-      continue;
-    }
     try {
+      // A retried episode usually still has its torrent in qBittorrent — the
+      // previous attempt downloaded it and failed somewhere after, so cleanup
+      // never ran. Re-adding it is both wasteful and refused (409 on qBit 5.x),
+      // which used to leave the episode stuck in "pending" forever. Reattach to
+      // the existing torrent instead; it may already be complete, in which case
+      // the next sweep imports it without downloading a byte.
+      if (ep.torrent_hash && (await qbit.getTorrent(ep.torrent_hash))) {
+        updateEpisodeStatus(ep.crc32, "downloading");
+        logger.info("Reattached to existing torrent", { crc32: ep.crc32, torrentHash: ep.torrent_hash });
+        continue;
+      }
+
+      if (!ep.magnet_uri) {
+        logger.warn("Pending episode has no stored magnet URI, skipping", { crc32: ep.crc32 });
+        continue;
+      }
+
       const torrentHash = await qbit.addMagnet(ep.magnet_uri);
       updateEpisodeStatus(ep.crc32, "downloading", { torrent_hash: torrentHash });
       logger.info("Dispatched pending episode", { crc32: ep.crc32, torrentHash });
