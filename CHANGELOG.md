@@ -10,6 +10,30 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **A re-release could be overwritten by the older release it replaced.** One
+  Pace's feed lists a new release alongside its predecessor, so the same
+  season/episode gets queued twice with different CRC32s — and whichever download
+  finished last won. An import is now refused when the file already in the library
+  is newer, using the same test the coverage report uses: a CRC32 the dataset has
+  never listed came from a release that landed after the dataset was generated, so
+  it is newer than anything the catalog knows. The stale row is marked done against
+  the file that's already there instead of failing, so **Retry failed** can no
+  longer downgrade a good episode.
+- **A qBittorrent outage no longer fails every queued download.** When the
+  qBittorrent container (or the VPN sidecar in front of it) restarts, connection
+  errors say nothing about the episodes themselves. `ECONNREFUSED` and friends now
+  leave the episode queued for the next poll and stop the sweep, instead of
+  marking the whole pipeline `failed` and firing a Discord alert per episode.
+  Torrent cleanup after a successful import is likewise best-effort — a hiccup
+  there can no longer flip an imported episode to `failed`.
+- **Batch files whose CRC32 isn't in the dataset yet are placed by filename.**
+  `[One Pace][252-254] Skypiea 08 [1080p][A1DFB514].mkv` was skipped as
+  "unresolvable" because the catalog hadn't listed that hash — yet it is precisely
+  the *newer* file, so the library kept the stale catalogued release. The arc and
+  episode are now recovered from the filename and the file is imported, with
+  episode text pulled from the metadata sheet.
+
 ## [1.1.30] — 2026-08-23
 
 ### Fixed

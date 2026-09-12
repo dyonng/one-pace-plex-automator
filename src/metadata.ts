@@ -411,6 +411,24 @@ export function parseReleaseTitle(
 }
 
 /**
+ * Recovers "<Arc> <NN>" from a One Pace release filename like
+ * `[One Pace][252-254] Skypiea 08 [1080p][A1DFB514].mkv` by dropping every
+ * bracketed group (source tag, chapter range, resolution, CRC32) and parsing
+ * what's left as a release title. Lets a file whose CRC32 the catalog hasn't
+ * listed yet still be placed at the right season/episode.
+ */
+export function parseReleaseFilename(
+  filename: string
+): { arcTitle: string; epNum: number; extended: boolean } | null {
+  const stripped = filename
+    .replace(/\.[A-Za-z0-9]{2,4}$/, "")   // extension
+    .replace(/\[[^\]]*\]/g, " ")           // every bracketed group
+    .replace(/\s+/g, " ")
+    .trim();
+  return parseReleaseTitle(stripped);
+}
+
+/**
  * Every CRC32 the dataset lists, uppercase — current canonical releases *and*
  * historical ones (it retains release history). Used to tell a genuinely
  * out-of-date file (a catalogued older release) apart from one the catalog has

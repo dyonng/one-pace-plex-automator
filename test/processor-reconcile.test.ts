@@ -42,9 +42,13 @@ vi.mock("../src/metadata", () => ({
   extractCrc32FromFilename: vi.fn(() => "ABCD1234"),
   getAllArcs: vi.fn(async () => []),
   getAllEpisodes: vi.fn(async () => []),
+  getCatalogedCrc32s: vi.fn(async () => new Set<string>()),
+  parseReleaseFilename: vi.fn(() => null),
+  resolveArcByTitle: vi.fn(async () => null),
 }));
 vi.mock("../src/fileops", () => ({
   findDownloadedFile: vi.fn(() => "/downloads/file.mkv"), // dirname === DOWNLOAD_PATH → no batch siblings
+  findExistingEpisodeFile: vi.fn(() => null),
   moveAndRename: vi.fn(() => ({ replaced: [] })),
   buildSeasonFolder: vi.fn(),
   scanBatchFiles: vi.fn(() => []),

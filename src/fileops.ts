@@ -3,6 +3,8 @@ import path from "path";
 import { MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 
+const BATCH_VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
+
 let _zeroPadSeasons = false;
 const _seasonFolderCache = new Map<number, string>();
 
@@ -73,6 +75,29 @@ export function removeExistingEpisodeFiles(
   }
 
   return removed;
+}
+
+/**
+ * The video file already sitting in the library for a season/episode slot, if
+ * any. Used to check whether an incoming release would actually replace
+ * something newer.
+ */
+export function findExistingEpisodeFile(
+  arcTitle: string,
+  arcPart: number,
+  episodeNum: number
+): { filename: string; crc32: string | null } | null {
+  const destDir = path.join(MEDIA_PATH, buildSeasonFolder(arcTitle, arcPart));
+  if (!fs.existsSync(destDir)) return null;
+  const sePattern = new RegExp(`S0*${arcPart}(?!\\d)E0*${episodeNum}(?!\\d)`, "i");
+  for (const entry of fs.readdirSync(destDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    if (!BATCH_VIDEO_EXTS.has(path.extname(entry.name).toLowerCase())) continue;
+    if (!sePattern.test(entry.name)) continue;
+    const m = entry.name.match(/\[([0-9A-Fa-f]{8})\]/);
+    return { filename: entry.name, crc32: m ? m[1].toUpperCase() : null };
+  }
+  return null;
 }
 
 export interface MoveResult {
@@ -165,7 +190,6 @@ export interface BatchFile {
   crc32: string;
 }
 
-const BATCH_VIDEO_EXTS = new Set([".mkv", ".mp4", ".avi", ".m4v", ".mov"]);
 
 /**
  * Returns all video files in `dir` whose filename contains a bracketed 8-hex
