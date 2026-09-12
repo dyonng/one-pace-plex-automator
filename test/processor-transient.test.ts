@@ -6,9 +6,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // re-downloads episodes that were fine. Infrastructure errors must stay
 // retryable, and the sweep must stop rather than burn through the whole queue.
 
-const { isComplete, updateEpisodeStatus, getEpisodesByStatus, getEpisodeByCrc32, sendDiscordNotification } =
+const { isComplete, getTorrent, updateEpisodeStatus, getEpisodesByStatus, getEpisodeByCrc32, sendDiscordNotification } =
   vi.hoisted(() => ({
     isComplete: vi.fn(),
+    getTorrent: vi.fn(async () => null),
     updateEpisodeStatus: vi.fn(),
     getEpisodesByStatus: vi.fn(),
     getEpisodeByCrc32: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock("../src/db", () => ({
   upsertEpisode: vi.fn(), deleteEpisode: vi.fn(),
 }));
 vi.mock("../src/qbittorrent", () => ({
-  getQbitClient: () => ({ isComplete, deleteTorrent: vi.fn(async () => {}), getTorrent: vi.fn(async () => null) }),
+  getQbitClient: () => ({ isComplete, deleteTorrent: vi.fn(async () => {}), getTorrent }),
 }));
 vi.mock("../src/metadata", () => ({
   resolveEpisodeByCrc32: vi.fn(), buildPlexFilename: vi.fn(() => "x.mkv"),
@@ -55,6 +56,7 @@ const ep = (crc32: string) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  getTorrent.mockResolvedValue(null);
   // The status the processor set just before the throw.
   getEpisodeByCrc32.mockReturnValue({ status: "processing" });
 });
@@ -91,5 +93,27 @@ describe("qBittorrent outage during a completion sweep", () => {
     expect(updateEpisodeStatus).toHaveBeenCalledWith("236CCF51", "failed", expect.objectContaining({
       error_message: expect.stringContaining("not found"),
     }));
+  });
+});
+
+// A feed entry can advertise a CRC32 the torrent doesn't actually carry: One Pace
+// re-uploads an episode and the entry still names the superseded release. The
+// download succeeds, but the CRC-keyed lookup finds nothing and the episode
+// failed as "Downloaded file not found" with the file sitting right there.
+describe("torrent delivers a different CRC32 than the feed advertised", () => {
+  it("imports the torrent's actual contents instead of failing", async () => {
+    getTorrent.mockResolvedValue({
+      hash: "hash-236CCF51", name: "Skypiea 08", content_path: "/dl/x.mkv",
+    } as never);
+    getEpisodesByStatus.mockImplementation((s: string) => (s === "downloading" ? [ep("236CCF51")] : []));
+    isComplete.mockResolvedValue(true);
+
+    await processDownloading();
+
+    // It reached the contents-based import (which then finds no video in this
+    // mocked filesystem) rather than throwing the CRC-not-found error.
+    const failure = updateEpisodeStatus.mock.calls.find((c) => c[1] === "failed");
+    expect(failure?.[2].error_message).not.toContain("Downloaded file not found");
+    expect(failure?.[2].error_message).toContain("No CRC32-tagged video found");
   });
 });
