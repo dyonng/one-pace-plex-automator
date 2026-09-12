@@ -63,11 +63,18 @@ class QBittorrentClient {
     if (this.cookieJar) return;
     const { QBIT_USERNAME, QBIT_PASSWORD } = getConfig();
 
-    const resp = await this.client.post(
-      "/auth/login",
-      new URLSearchParams({ username: QBIT_USERNAME, password: QBIT_PASSWORD }),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
-    );
+    let resp;
+    try {
+      resp = await this.client.post(
+        "/auth/login",
+        new URLSearchParams({ username: QBIT_USERNAME, password: QBIT_PASSWORD }),
+        { headers: { "Content-Type": "application/x-www-form-urlencoded" } }
+      );
+    } catch (err) {
+      // Login is reached outside request()'s try, so enrich it here too —
+      // otherwise a rejected login is indistinguishable from a rejected call.
+      throw enrichQbitError(err, "/auth/login");
+    }
 
     if (resp.data === "Fails.") {
       throw new Error("qBittorrent authentication failed — check credentials");
