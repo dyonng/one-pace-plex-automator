@@ -42,6 +42,27 @@ function enrichQbitError(err: unknown, path: string): Error {
   );
 }
 
+const DONE_STATES: TorrentState[] = ["uploading", "stalledUP", "pausedUP", "forcedUP", "checkingUP"];
+
+/** Whether a torrent has finished downloading, from an already-fetched record. */
+export function isTorrentComplete(t: Pick<TorrentInfo, "state" | "progress">): boolean {
+  return DONE_STATES.includes(t.state) || t.progress >= 1;
+}
+
+// A momentary blip — the client restarting, a VPN sidecar reconnecting — should
+// not fail an operation a second's wait would have survived. Retries are for
+// connection-level faults only: an HTTP response, even an error one, is an answer
+// and gets passed straight through.
+const RETRY_DELAYS_MS = [500, 2000];
+const RETRYABLE_CODES = new Set([
+  "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "EHOSTUNREACH", "ENETUNREACH", "EAI_AGAIN", "EPIPE",
+]);
+
+function isRetryableTransport(err: unknown): boolean {
+  if (!axios.isAxiosError(err) || err.response) return false;
+  return RETRYABLE_CODES.has(err.code ?? "") || err.code === "ECONNABORTED";
+}
+
 /** The SHA-1 infohash carried inline by a v1 magnet, or null. */
 function magnetInfoHash(source: string): string | null {
   return source.match(/urn:btih:([a-fA-F0-9]{40})/i)?.[1].toLowerCase() ?? null;
@@ -87,6 +108,23 @@ class QBittorrentClient {
   }
 
   private async request<T>(method: "get" | "post", path: string, data?: URLSearchParams): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.requestOnce<T>(method, path, data);
+      } catch (err) {
+        if (attempt >= RETRY_DELAYS_MS.length || !isRetryableTransport(err)) throw err;
+        logger.debug("Retrying qBittorrent request after a transport error", {
+          path, attempt: attempt + 1, code: axios.isAxiosError(err) ? err.code : undefined,
+        });
+        // A dropped connection can also mean the client restarted and forgot our
+        // session, so re-authenticate rather than replaying a dead cookie.
+        this.cookieJar = null;
+        await new Promise((r) => setTimeout(r, RETRY_DELAYS_MS[attempt]));
+      }
+    }
+  }
+
+  private async requestOnce<T>(method: "get" | "post", path: string, data?: URLSearchParams): Promise<T> {
     await this.ensureAuthenticated();
     try {
       const resp = await this.client.request<T>({
@@ -206,9 +244,7 @@ class QBittorrentClient {
 
   async isComplete(hash: string): Promise<boolean> {
     const torrent = await this.getTorrent(hash);
-    if (!torrent) return false;
-    const doneStates: TorrentState[] = ["uploading", "stalledUP", "pausedUP", "forcedUP", "checkingUP"];
-    return doneStates.includes(torrent.state) || torrent.progress >= 1;
+    return torrent ? isTorrentComplete(torrent) : false;
   }
 
   async deleteTorrent(hash: string, deleteFiles = false): Promise<void> {

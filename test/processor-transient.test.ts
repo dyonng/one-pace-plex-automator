@@ -21,8 +21,11 @@ vi.mock("../src/config", () => ({ getConfig: () => ({}) }));
 vi.mock("../src/db", () => ({
   getEpisodesByStatus, updateEpisodeStatus, getEpisodeByCrc32,
   upsertEpisode: vi.fn(), deleteEpisode: vi.fn(),
+  recordDownloadProgress: vi.fn(), getRetryableFailed: vi.fn(() => []),
+  scheduleRetry: vi.fn(), clearRetryState: vi.fn(),
 }));
-vi.mock("../src/qbittorrent", () => ({
+vi.mock("../src/qbittorrent", async (orig) => ({
+  ...(await orig<Record<string, unknown>>()),
   getQbitClient: () => ({ isComplete, deleteTorrent: vi.fn(async () => {}), getTorrent }),
 }));
 vi.mock("../src/metadata", () => ({
@@ -64,7 +67,7 @@ beforeEach(() => {
 describe("qBittorrent outage during a completion sweep", () => {
   it("keeps the episode retryable instead of failing it", async () => {
     getEpisodesByStatus.mockImplementation((s: string) => (s === "downloading" ? [ep("602704E6")] : []));
-    isComplete.mockRejectedValue(new Error("connect ECONNREFUSED 172.18.0.6:8080"));
+    getTorrent.mockRejectedValue(new Error("connect ECONNREFUSED 172.18.0.6:8080"));
 
     await processDownloading();
 
@@ -77,21 +80,21 @@ describe("qBittorrent outage during a completion sweep", () => {
   it("stops the sweep rather than churning through every queued episode", async () => {
     getEpisodesByStatus.mockImplementation((s: string) =>
       s === "downloading" ? [ep("602704E6"), ep("BF59EB14"), ep("0B51015F")] : []);
-    isComplete.mockRejectedValue(new Error("connect ECONNREFUSED 172.18.0.6:8080"));
+    getTorrent.mockRejectedValue(new Error("connect ECONNREFUSED 172.18.0.6:8080"));
 
     await processDownloading();
 
-    expect(isComplete).toHaveBeenCalledTimes(1);
+    expect(getTorrent).toHaveBeenCalledTimes(1);
   });
 
   it("still fails an episode for a real, non-infrastructure error", async () => {
     getEpisodesByStatus.mockImplementation((s: string) => (s === "downloading" ? [ep("236CCF51")] : []));
-    isComplete.mockResolvedValue(true); // completed, but the file isn't there
+    getTorrent.mockResolvedValue({ hash: "h", state: "stalledUP", progress: 1 } as never); // done, file missing
 
     await processDownloading();
 
     expect(updateEpisodeStatus).toHaveBeenCalledWith("236CCF51", "failed", expect.objectContaining({
-      error_message: expect.stringContaining("not found"),
+      error_message: expect.stringContaining("No CRC32-tagged video found"),
     }));
   });
 });
@@ -104,9 +107,9 @@ describe("torrent delivers a different CRC32 than the feed advertised", () => {
   it("imports the torrent's actual contents instead of failing", async () => {
     getTorrent.mockResolvedValue({
       hash: "hash-236CCF51", name: "Skypiea 08", content_path: "/dl/x.mkv",
+      state: "stalledUP", progress: 1,
     } as never);
     getEpisodesByStatus.mockImplementation((s: string) => (s === "downloading" ? [ep("236CCF51")] : []));
-    isComplete.mockResolvedValue(true);
 
     await processDownloading();
 

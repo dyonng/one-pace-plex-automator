@@ -1,7 +1,7 @@
 import fs from "fs";
 import { MEDIA_PATH, DOWNLOAD_PATH } from "./constants";
 import { logger } from "./logger";
-import { getKv, setKv, countByStatus } from "./db";
+import { getKv, setKv, countByStatus, getStalledDownloads } from "./db";
 import { getSettingValue } from "./settings";
 import { pingPlex } from "./plex";
 import { getQbitClient } from "./qbittorrent";
@@ -80,6 +80,31 @@ function checkMetadata(): HealthCheck {
   return isMetadataLoaded()
     ? { name: "Metadata", status: "ok", detail: "dataset loaded", latencyMs: null }
     : { name: "Metadata", status: "warn", detail: "dataset not loaded yet", latencyMs: null };
+}
+
+// How long a download may sit without advancing before it's called stalled.
+// Generous: a large batch on a slow swarm can legitimately crawl, and a false
+// alarm here is worse than a late one.
+const STALL_AFTER_MS = 3 * 60 * 60 * 1000;
+
+/**
+ * Surfaces downloads that have stopped advancing. Without this a torrent with no
+ * seeds — or one orphaned by a VPN outage taking the port-forward with it — sits
+ * in "downloading" indefinitely and nothing anywhere says so.
+ */
+function checkDownloads(): HealthCheck {
+  const stalled = getStalledDownloads(Date.now() - STALL_AFTER_MS);
+  if (stalled.length === 0) {
+    return { name: "Downloads", status: "ok", detail: "none stalled", latencyMs: null };
+  }
+  const hours = Math.round(STALL_AFTER_MS / 3_600_000);
+  const names = stalled.slice(0, 3).map((e) => `S${e.arc_part}E${e.episode_num}`).join(", ");
+  return {
+    name: "Downloads",
+    status: "warn",
+    detail: `${stalled.length} stalled >${hours}h (${names}${stalled.length > 3 ? ", …" : ""})`,
+    latencyMs: null,
+  };
 }
 
 function checkDisk(name: string, path: string): DiskInfo {
@@ -178,6 +203,7 @@ export async function runHealthCheck(): Promise<HealthReport> {
     checkRss(),
   ]);
   const metadata = checkMetadata();
+  const downloads = checkDownloads();
 
   const disks = [
     checkDisk("Media", MEDIA_PATH),
@@ -188,7 +214,7 @@ export async function runHealthCheck(): Promise<HealthReport> {
 
   // Failures aren't shown as a separate check (the pipeline counts already
   // surface them) but still drag the overall status to "warn".
-  const checks = [plex, qbit, rss, metadata];
+  const checks = [plex, qbit, rss, metadata, downloads];
   const overall = worst([
     ...checks.map((c) => c.status),
     ...disks.map((d) => d.status),

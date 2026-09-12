@@ -36,6 +36,29 @@ Both reschedule live via `settingsBus` when changed from the dashboard. On start
 once, the dashboard + scheduler start, then one immediate `runCycle()`. There is **no** full
 metadata sync on boot — sync is download-driven (see Pipeline step 4).
 
+### Resilience
+
+The pipeline assumes its dependencies are unreliable — qBittorrent lives behind a VPN sidecar that
+restarts on its own schedule:
+
+- **Transient vs real errors.** `TRANSIENT_INFRA` (ECONNREFUSED/ETIMEDOUT/socket hang up/…) leaves
+  the episode `downloading` and *breaks* the sweep instead of marking it `failed`; every remaining
+  episode would fail identically and clear the pipeline to red for a passing outage.
+- **Transport retry.** `qbittorrent.ts` retries connection-level faults twice (500ms, 2s), dropping
+  the session cookie first in case the client restarted. An HTTP response — even an error — is an
+  answer and is never retried.
+- **Stall watchdog.** The sweep fetches each torrent once and records its progress; `dl_progress_at`
+  only moves when the fraction changes. The `Downloads` health check warns on anything that hasn't
+  advanced in 3h, which is otherwise invisible (a dead port-forward leaves torrents at `stalledDL`
+  indefinitely).
+- **Orphan detection.** A torrent missing from qBittorrent for `MISSING_CONFIRM_COUNT` (3)
+  consecutive sweeps fails the episode with a clear reason rather than waiting on it forever. The
+  count is in-memory on purpose — re-confirming after a restart is the conservative choice.
+- **Duplicate adds.** Dispatch reattaches to an existing torrent instead of re-adding it, and
+  `addMagnet` treats a refused add as success once it confirms the torrent is present.
+- **Never downgrade.** `newerFileAlreadyOnDisk` refuses an import that would replace a newer file,
+  using the coverage rule: an uncatalogued CRC32 postdates the dataset.
+
 ### Pipeline
 
 1. **RSS poll** (`src/rss.ts` + `src/cycle.ts`) — native `fetch` with `If-Modified-Since`/`304` (last
@@ -145,7 +168,11 @@ SQLite at `DATA_DIR/state.db` via `better-sqlite3` (WAL). Six tables:
   `published_at` (the feed's pubDate normalized to `YYYY-MM-DD` by `toIsoDate`, used as the air date
   for episodes the catalog doesn't list yet; reconcile supersedes it once the dataset has one) —
   both added via `addColumnIfMissing` migrations. `upsertEpisode` takes `published_at` as optional
-  and `COALESCE`s it, so mid-ingest re-upserts don't wipe the stored date.
+  and `COALESCE`s it, so mid-ingest re-upserts don't wipe the stored date. Also carries the
+  download watchdog (`dl_progress`, `dl_progress_at` — only moved when the fraction actually
+  changes, so it reads as "when this last advanced") and auto-retry bookkeeping (`attempts`,
+  `next_retry_at`). `upsertEpisode` omits all four from its input type, so they are managed
+  exclusively by the processor and survive re-upserts.
 - `rss_seen` — seen RSS GUIDs
 - `kv` — small key/value (e.g. `rss_last_modified`, `rss_seeded`, `coverage_report`,
   `coverage_scanned_at`, `metadata_audit_report`, `metadata_audit_scanned_at`,
@@ -586,8 +613,10 @@ Filename-less items (no `dn`, no `torrent:fileName`) resolve CRC32 via title →
   torrent URLs / base32 magnets it diffs the category's torrent list after adding. If that diff finds
   nothing within ~5s the hash is `""` and completion detection for that item won't fire.
 - **Fixed 5s wait** after Plex scan before `syncSingleEpisode` — may race on slow scans.
-- **`retryFailed()` / `runMetadataSync()`** are manual-only (dashboard buttons), not scheduled — by
-  design, but there's no automatic retry/backoff for failed episodes.
+- **`runMetadataSync()`** is manual-only (dashboard button), not scheduled. `retryFailed()` is also
+  manual, but failures no longer *need* a human: `requeueRetryableFailures()` runs at the top of
+  every cycle and re-queues failed episodes up to `MAX_AUTO_RETRIES` (3) with a 5m/20m/60m backoff.
+  Manual retry clears the counter, so an episode that exhausted its budget becomes eligible again.
 - **No BEP 9** — filename-less magnets aren't probed for their file list pre-download; they rely on
   the title→metadata lookup instead.
 

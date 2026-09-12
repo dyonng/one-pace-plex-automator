@@ -3,8 +3,8 @@ import path from "path";
 import { getConfig } from "./config";
 import { DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
-import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode, deleteEpisode, type EpisodeRecord } from "./db";
-import { getQbitClient, type TorrentInfo } from "./qbittorrent";
+import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode, deleteEpisode, recordDownloadProgress, getRetryableFailed, scheduleRetry, clearRetryState, type EpisodeRecord } from "./db";
+import { getQbitClient, isTorrentComplete, type TorrentInfo } from "./qbittorrent";
 import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, parseResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, getCatalogedCrc32s, parseReleaseFilename, resolveArcByTitle, type ResolvedEpisode } from "./metadata";
 import { getArcResolution } from "./onepace-sheet";
 import { buildSeasonFolder, findDownloadedFile, findExistingEpisodeFile, moveAndRename, scanBatchFiles, type BatchFile } from "./fileops";
@@ -52,6 +52,23 @@ async function newerFileAlreadyOnDisk(
   const cataloged = await getCatalogedCrc32s();
   if (!cataloged.has(existing.crc32) && cataloged.has(incoming)) return existing.filename;
   return null;
+}
+
+// A torrent absent from qBittorrent is usually gone for good, but a client that
+// is still starting up can briefly return nothing. Require several consecutive
+// misses before writing the episode off. In-memory on purpose: after a restart
+// it is right to re-confirm rather than trust a stale count.
+const MISSING_CONFIRM_COUNT = 3;
+const _missingCounts = new Map<string, number>();
+
+function countMissing(hash: string): number {
+  const n = (_missingCounts.get(hash) ?? 0) + 1;
+  _missingCounts.set(hash, n);
+  return n;
+}
+
+function clearMissing(hash: string): void {
+  _missingCounts.delete(hash);
 }
 
 interface BatchResult {
@@ -442,6 +459,32 @@ export async function processDownloading(): Promise<void> {
   }
 }
 
+// Automatic recovery for episodes that failed. Most failures this system sees
+// are environmental — the client restarted, the VPN dropped, a source was briefly
+// unreachable — and used to need a human to press "Retry failed". Attempts are
+// capped and spaced out so a genuinely broken episode settles into "failed"
+// rather than re-downloading forever; a manual retry resets the count.
+const MAX_AUTO_RETRIES = 3;
+const RETRY_BACKOFF_MS = [5 * 60_000, 20 * 60_000, 60 * 60_000];
+
+export async function requeueRetryableFailures(): Promise<number> {
+  const due = getRetryableFailed(MAX_AUTO_RETRIES);
+  let requeued = 0;
+  for (const ep of due) {
+    const attempts = ep.attempts + 1;
+    // attempts is 1-based here, so the first retry takes the first delay.
+    const backoff = RETRY_BACKOFF_MS[Math.min(attempts - 1, RETRY_BACKOFF_MS.length - 1)];
+    scheduleRetry(ep.crc32, attempts, Date.now() + backoff);
+    updateEpisodeStatus(ep.crc32, "pending", { error_message: null });
+    logger.info("Auto-retrying failed episode", {
+      crc32: ep.crc32, attempt: attempts, of: MAX_AUTO_RETRIES,
+      previousError: ep.error_message ?? "(none)",
+    });
+    requeued++;
+  }
+  return requeued;
+}
+
 async function _processDownloading(): Promise<boolean> {
   const downloading = getEpisodesByStatus("downloading");
   if (downloading.length === 0) return false;
@@ -453,9 +496,33 @@ async function _processDownloading(): Promise<boolean> {
     if (!ep.torrent_hash) continue;
 
     try {
-      const done = await qbit.isComplete(ep.torrent_hash);
+      // One fetch drives all three questions: is it done, is it advancing, and is
+      // it still there at all. isComplete() would re-fetch for the first alone.
+      const torrent = await qbit.getTorrent(ep.torrent_hash);
+
+      if (!torrent) {
+        // Gone from qBittorrent — removed by hand, lost with the client's state,
+        // or moved out of our category. Waiting for it to complete is futile, but
+        // one missing reading could just be a client still warming up, so require
+        // a few consecutive misses before calling it.
+        if (countMissing(ep.torrent_hash) < MISSING_CONFIRM_COUNT) {
+          logger.debug("Torrent not found this pass", { crc32: ep.crc32, hash: ep.torrent_hash });
+          continue;
+        }
+        clearMissing(ep.torrent_hash);
+        const msg = "Torrent is no longer in qBittorrent — it was removed, lost, or re-categorised";
+        logger.warn("Download abandoned", { crc32: ep.crc32, hash: ep.torrent_hash });
+        updateEpisodeStatus(ep.crc32, "failed", { error_message: msg });
+        continue;
+      }
+      clearMissing(ep.torrent_hash);
+
+      const done = isTorrentComplete(torrent);
       if (!done) {
-        logger.debug("Still downloading", { crc32: ep.crc32, hash: ep.torrent_hash });
+        recordDownloadProgress(ep.crc32, torrent.progress);
+        logger.debug("Still downloading", {
+          crc32: ep.crc32, hash: ep.torrent_hash, progress: torrent.progress, state: torrent.state,
+        });
         continue;
       }
 
@@ -526,6 +593,7 @@ async function _processDownloading(): Promise<boolean> {
       // Mark done now — the file is safely on disk. Plex scan/sync is best-effort;
       // a transient Plex error must not flip a successfully-moved episode to "failed".
       updateEpisodeStatus(ep.crc32, "done", { final_filename: finalFilename });
+      clearRetryState(ep.crc32);
       completed++;
 
       try {
@@ -642,6 +710,9 @@ export async function retryFailed(): Promise<void> {
   const failed = getEpisodesByStatus("failed");
   for (const ep of failed) {
     logger.info("Retrying failed episode", { crc32: ep.crc32 });
+    // A human asking is a fresh start: clear the automatic attempt budget so an
+    // episode that exhausted it becomes eligible again.
+    clearRetryState(ep.crc32);
     updateEpisodeStatus(ep.crc32, "pending", { error_message: null });
   }
 }

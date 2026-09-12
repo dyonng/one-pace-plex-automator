@@ -33,6 +33,16 @@ export interface EpisodeRecord {
   // Used as the air date for episodes the catalog doesn't list yet, so Plex gets
   // a real date instead of a blank until the dataset catches up.
   published_at: string | null;
+  // Download-progress watchdog. dl_progress is the fraction (0..1) last observed
+  // in qBittorrent and dl_progress_at when it last *changed*, so a torrent that
+  // stops making progress can be detected instead of sitting in "downloading"
+  // forever with nobody looking.
+  dl_progress: number;
+  dl_progress_at: number | null;
+  // Automatic-retry bookkeeping: how many times this episode has been retried
+  // without a human asking, and the earliest time the next one may run.
+  attempts: number;
+  next_retry_at: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -141,6 +151,10 @@ function migrate(db: Database.Database) {
   addColumnIfMissing(db, "episodes", "changelog", "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, "episodes", "extended", "INTEGER NOT NULL DEFAULT 0");
   addColumnIfMissing(db, "episodes", "published_at", "TEXT");
+  addColumnIfMissing(db, "episodes", "dl_progress", "REAL NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "episodes", "dl_progress_at", "INTEGER");
+  addColumnIfMissing(db, "episodes", "attempts", "INTEGER NOT NULL DEFAULT 0");
+  addColumnIfMissing(db, "episodes", "next_retry_at", "INTEGER");
   addColumnIfMissing(db, "plex_meta_state", "thumb_last_attempt_at", "INTEGER");
   // Blank-thumbnail detection cache: which thumb version was pixel-analyzed and
   // whether it turned out to be a single-color (fade) frame.
@@ -176,7 +190,9 @@ export function markGuidSeen(guid: string): void {
 // published_at is optional on input: most call sites (re-upserts during ingest)
 // don't know it, and the COALESCE below keeps whatever the row already holds.
 export function upsertEpisode(
-  ep: Omit<EpisodeRecord, "created_at" | "updated_at" | "published_at"> & { published_at?: string | null }
+  ep: Omit<EpisodeRecord,
+    "created_at" | "updated_at" | "published_at" | "dl_progress" | "dl_progress_at" | "attempts" | "next_retry_at"
+  > & { published_at?: string | null }
 ): void {
   const db = getDb();
   const now = Date.now();
@@ -231,6 +247,58 @@ export function getEpisodesByStatus(status: EpisodeStatus): EpisodeRecord[] {
   return (getDb()
     .prepare("SELECT * FROM episodes WHERE status = ?")
     .all(status) as EpisodeRow[]).map(rowToRecord);
+}
+
+/**
+ * Records the download progress observed for an episode. `dl_progress_at` is
+ * only moved forward when the fraction actually changes, so it reads as "when
+ * this download last advanced" — the basis for detecting a stalled torrent.
+ */
+export function recordDownloadProgress(crc32: string, progress: number): void {
+  getDb().prepare(`
+    UPDATE episodes
+       SET dl_progress = ?,
+           dl_progress_at = CASE WHEN dl_progress = ? THEN COALESCE(dl_progress_at, ?) ELSE ? END
+     WHERE crc32 = ?
+  `).run(progress, progress, Date.now(), Date.now(), crc32);
+}
+
+/**
+ * Downloading episodes that haven't advanced since `since`. A torrent with no
+ * seeds, a broken VPN port-forward, or one silently removed from the client all
+ * land here — previously they simply sat in "downloading" indefinitely.
+ */
+export function getStalledDownloads(since: number): EpisodeRecord[] {
+  return (getDb().prepare(`
+    SELECT * FROM episodes
+     WHERE status = 'downloading'
+       AND dl_progress < 1
+       AND COALESCE(dl_progress_at, updated_at) < ?
+  `).all(since) as EpisodeRow[]).map(rowToRecord);
+}
+
+/** Failed episodes whose backoff has elapsed and which have retries left. */
+export function getRetryableFailed(maxAttempts: number): EpisodeRecord[] {
+  return (getDb().prepare(`
+    SELECT * FROM episodes
+     WHERE status = 'failed'
+       AND attempts < ?
+       AND COALESCE(next_retry_at, 0) <= ?
+  `).all(maxAttempts, Date.now()) as EpisodeRow[]).map(rowToRecord);
+}
+
+/** Bumps the automatic-retry counter and schedules the next eligible time. */
+export function scheduleRetry(crc32: string, attempts: number, nextRetryAt: number | null): void {
+  getDb()
+    .prepare("UPDATE episodes SET attempts = ?, next_retry_at = ?, updated_at = ? WHERE crc32 = ?")
+    .run(attempts, nextRetryAt, Date.now(), crc32);
+}
+
+/** Clears retry bookkeeping — used when a human retries, and on success. */
+export function clearRetryState(crc32: string): void {
+  getDb()
+    .prepare("UPDATE episodes SET attempts = 0, next_retry_at = NULL WHERE crc32 = ?")
+    .run(crc32);
 }
 
 export function getEpisodeByCrc32(crc32: string): EpisodeRecord | null {
