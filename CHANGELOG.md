@@ -10,6 +10,8 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.33] — 2026-09-12
+
 ### Fixed
 - **Retrying an episode no longer fails with "status code 409".** After an import
   errors partway through, the torrent stays in qBittorrent because cleanup never
