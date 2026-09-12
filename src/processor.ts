@@ -226,19 +226,26 @@ function locateTorrentVideos(torrent: TorrentInfo): BatchFile[] {
 }
 
 /**
- * Processes a completed provisional download: finds the real video file, recovers
- * its CRC32 + resolution, resolves metadata (falling back to the arc/episode
- * parsed at queue time when the catalog still lacks it), moves the file, and
- * re-keys the DB record from its synthetic PROV key to the real CRC32.
+ * Imports whatever a completed torrent actually delivered, rather than what we
+ * expected it to. Finds the video file, recovers its CRC32 + resolution, resolves
+ * metadata (falling back to the arc/episode known at queue time when the catalog
+ * still lacks it), moves it, and re-keys the DB record onto the real CRC32.
+ *
+ * Two callers need this. A provisional download has no real CRC32 yet, by
+ * definition. And a normal download can deliver a *different* CRC32 than the feed
+ * advertised — One Pace re-uploads an episode and the feed entry still carries the
+ * superseded hash — which used to fail as "Downloaded file not found" even though
+ * the episode was sitting there, correctly downloaded.
+ *
  * Returns true if a file was successfully imported.
  */
-async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string): Promise<boolean> {
+async function importTorrentContents(ep: EpisodeRecord, torrentHash: string): Promise<boolean> {
   const torrent = await getQbitClient().getTorrent(torrentHash);
   if (!torrent) throw new Error(`Torrent ${torrentHash} not found in qBittorrent`);
 
   const videos = locateTorrentVideos(torrent);
   if (videos.length === 0) {
-    throw new Error(`No CRC32-tagged video found for provisional download of S${ep.arc_part}E${ep.episode_num}`);
+    throw new Error(`No CRC32-tagged video found in the torrent for S${ep.arc_part}E${ep.episode_num}`);
   }
 
   // Single-episode releases are the norm; if a folder holds several, take the
@@ -269,7 +276,7 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
       lookupEpisodeText(ep.arc_title, ep.episode_num),
       lookupArcText(ep.arc_title),
     ]);
-    logger.info("Provisional episode still not in dataset — using sheet/parsed metadata", {
+    logger.info("Episode not in dataset — using sheet/parsed metadata", {
       crc32: realCrc32, arc: ep.arc_title, episode: ep.episode_num, sheetHit: Boolean(epText),
       published: ep.published_at ?? "(none)",
     });
@@ -330,7 +337,7 @@ async function processProvisionalDownload(ep: EpisodeRecord, torrentHash: string
     changelog: ep.changelog,
     extended: meta.extended,
   });
-  logger.info("Provisional download imported", { provisionalKey: ep.crc32, crc32: realCrc32, filename: finalFilename });
+  logger.info("Imported from torrent contents", { queuedAs: ep.crc32, crc32: realCrc32, filename: finalFilename });
 
   // The torrent may actually be a batch — pick up any other episodes in it.
   const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32);
@@ -457,14 +464,23 @@ async function _processDownloading(): Promise<boolean> {
 
       // Provisional downloads have no real CRC32 yet — recover it from the file.
       if (isProvisionalKey(ep.crc32)) {
-        const ok = await processProvisionalDownload(ep, ep.torrent_hash);
+        const ok = await importTorrentContents(ep, ep.torrent_hash);
         if (ok) completed++;
         continue;
       }
 
       const sourcePath = findDownloadedFile(DOWNLOAD_PATH, ep.crc32);
       if (!sourcePath) {
-        throw new Error(`Downloaded file not found in ${DOWNLOAD_PATH} for CRC32 ${ep.crc32}`);
+        // The torrent completed but holds no file with the CRC32 we queued under.
+        // That means the feed advertised a hash the torrent doesn't carry — a
+        // re-upload where the entry still names the superseded release. Import
+        // what the torrent actually contains instead of failing.
+        logger.info("Queued CRC32 not present in the download — importing the torrent's actual contents", {
+          crc32: ep.crc32, arc: ep.arc_title, episode: ep.episode_num,
+        });
+        const ok = await importTorrentContents(ep, ep.torrent_hash);
+        if (ok) completed++;
+        continue;
       }
 
       const epMeta = await resolveEpisodeByCrc32(ep.crc32, ep.resolution);

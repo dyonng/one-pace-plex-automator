@@ -10,6 +10,15 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **"Downloaded file not found" when the torrent carried a different CRC32.** A
+  feed entry can advertise a hash the torrent doesn't actually contain — One Pace
+  re-uploads an episode and the entry still names the superseded release. The
+  download succeeded, but the CRC-keyed lookup found nothing and the episode
+  failed with the file sitting right there in `/downloads`. The importer now falls
+  back to the torrent's actual contents, placing the file by its real CRC32 (or by
+  filename when the catalog doesn't list it yet) and re-keying the record.
+
 ## [1.1.33] — 2026-09-12
 
 ### Fixed
