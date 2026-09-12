@@ -10,6 +10,8 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.31] — 2026-09-12
+
 ### Fixed
 - **A re-release could be overwritten by the older release it replaced.** One
   Pace's feed lists a new release alongside its predecessor, so the same
