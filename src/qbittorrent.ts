@@ -33,6 +33,20 @@ export interface TorrentInfo {
   eta: number;     // seconds remaining, -1 if unknown
 }
 
+/** Axios hides qBittorrent's response body, which is where it explains itself. */
+function enrichQbitError(err: unknown, path: string): Error {
+  if (!axios.isAxiosError(err) || !err.response) return err as Error;
+  const body = typeof err.response.data === "string" ? err.response.data.trim().slice(0, 200) : "";
+  return new Error(
+    `qBittorrent ${path} failed with ${err.response.status}${body ? `: ${body}` : ""}`
+  );
+}
+
+/** The SHA-1 infohash carried inline by a v1 magnet, or null. */
+function magnetInfoHash(source: string): string | null {
+  return source.match(/urn:btih:([a-fA-F0-9]{40})/i)?.[1].toLowerCase() ?? null;
+}
+
 class QBittorrentClient {
   private client: AxiosInstance;
   private cookieJar: string | null = null;
@@ -91,7 +105,9 @@ class QBittorrentClient {
         });
         return resp.data;
       }
-      throw err;
+      // Axios reports only "Request failed with status code N", which hides the
+      // one-line reason qBittorrent puts in the body.
+      throw enrichQbitError(err, path);
     }
   }
 
@@ -107,10 +123,10 @@ class QBittorrentClient {
     const { QBIT_CATEGORY } = getConfig();
 
     // Fast path: a v1 magnet carries its SHA-1 infohash inline.
-    const hashMatch = source.match(/urn:btih:([a-fA-F0-9]{40})/i);
+    const inlineHash = magnetInfoHash(source);
 
     // Otherwise snapshot the current hashes so we can spot the new torrent.
-    const before = hashMatch
+    const before = inlineHash
       ? null
       : new Set((await this.getTorrents()).map((t) => t.hash.toLowerCase()));
 
@@ -121,12 +137,26 @@ class QBittorrentClient {
       category: QBIT_CATEGORY,
       paused: "false",
     });
-    await this.request<string>("post", "/torrents/add", params);
+    try {
+      await this.request<string>("post", "/torrents/add", params);
+    } catch (err) {
+      // A rejected add is not necessarily a failed add: qBittorrent refuses a
+      // torrent it already holds (409 on 5.x). That happens whenever a previous
+      // run downloaded the torrent but never got to remove it — an import that
+      // errored, or the client going away mid-cycle. The torrent is present and
+      // very possibly already complete, so adopt it rather than giving up.
+      if (inlineHash && (await this.getTorrent(inlineHash))) {
+        logger.info("Torrent already in qBittorrent — adopting the existing one", {
+          hash: inlineHash, reason: (err as Error).message,
+        });
+        return inlineHash;
+      }
+      throw err;
+    }
 
-    if (hashMatch) {
-      const hash = hashMatch[1].toLowerCase();
-      logger.info("Added magnet to qBittorrent", { hash, category: QBIT_CATEGORY });
-      return hash;
+    if (inlineHash) {
+      logger.info("Added magnet to qBittorrent", { hash: inlineHash, category: QBIT_CATEGORY });
+      return inlineHash;
     }
 
     const hash = await this.resolveNewHash(before!);
