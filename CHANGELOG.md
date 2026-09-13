@@ -11,6 +11,24 @@ into a version heading when a GitHub release is cut.
 ## [Unreleased]
 
 ### Added
+- **Direct HTTPS downloads via Pixeldrain.** One Pace publishes most recent
+  releases three ways — magnet, `.torrent`, and a Pixeldrain direct link — and
+  only the first two were ever used. The direct link is now preferred when
+  offered (`DOWNLOAD_SOURCE`, default `pixeldrain`), which matters because it
+  fails for entirely different reasons than BitTorrent: a dead VPN port-forward
+  leaves torrents stalled with no peers, while an HTTPS GET is unaffected.
+  Measured throughput was 37–62 MB/s.
+  - Every transfer is gated on Pixeldrain's live rate-limit API rather than an
+    assumption. One Pace's own paid bandwidth currently covers downloads of their
+    files, but if that changes the pipeline defers to the torrent automatically.
+  - Transfers resume: bytes land in `<name>.part` and are renamed on completion,
+    so a restart mid-download continues via HTTP Range instead of starting over.
+  - Falls back to the torrent when the release has no direct link, the limits say
+    no, or three transfer attempts fail.
+  - The Pixeldrain filename carries the CRC32, so identification, naming, the
+    downgrade guard and the stall watchdog all work unchanged.
+
+### Added
 - **Stalled-download detection.** A new `Downloads` health check warns when
   anything hasn't advanced in 3 hours. Previously a torrent with no seeds — or one
   orphaned when a VPN restart took the port-forward with it — sat in `downloading`

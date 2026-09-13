@@ -4,6 +4,7 @@ import { boot } from "./boot";
 import { startDashboard } from "./web/server";
 import { startScheduler, stopScheduler } from "./scheduler";
 import { startHealthMonitor, stopHealthMonitor } from "./health";
+import { abortAllTransfers } from "./pixeldrain-downloads";
 import { closeDb } from "./db";
 
 async function bootstrap(): Promise<void> {
@@ -22,6 +23,9 @@ async function bootstrap(): Promise<void> {
     logger.info("Shutting down", { signal });
     stopScheduler();
     stopHealthMonitor();
+    // Cancel in-flight HTTP downloads so they stop cleanly; the .part files stay
+    // on disk and the next run resumes from where each left off.
+    abortAllTransfers();
     try { dashboard?.close(); } catch { /* ignore */ }
     try { closeDb(); } catch { /* ignore */ }
     process.exit(0);

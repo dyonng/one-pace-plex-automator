@@ -16,6 +16,13 @@ const { getTorrent, addMagnet, updateEpisodeStatus, getEpisodesByStatus } = vi.h
 vi.mock("../src/db", () => ({
   getEpisodesByStatus, updateEpisodeStatus,
   isGuidSeen: vi.fn(() => false), markGuidSeen: vi.fn(), upsertEpisode: vi.fn(),
+  setDownloadVia: vi.fn(), setEpisodeOriginalFilename: vi.fn(),
+}));
+// These tests are about the torrent path; keep Pixeldrain out of the way.
+vi.mock("../src/pixeldrain-downloads", () => ({
+  checkEligible: vi.fn(async () => ({ ok: false, reason: "disabled in test" })),
+  clearTransferFailures: vi.fn(), isComplete: vi.fn(() => false),
+  isTransferActive: vi.fn(() => false), startTransfer: vi.fn(), destinationFor: (f: string) => f,
 }));
 vi.mock("../src/qbittorrent", () => ({ getQbitClient: () => ({ getTorrent, addMagnet }) }));
 vi.mock("../src/rss", () => ({ fetchNewEpisodes: vi.fn(async () => []), toIsoDate: () => null }));
@@ -31,6 +38,7 @@ vi.mock("../src/discord", () => ({ sendDiscordNotification: vi.fn() }));
 vi.mock("../src/settings", () => ({
   getAutoDownload: () => true, getPreferExtended: () => true,
   getArcFilter: () => ({ include: new Set(), exclude: new Set() }),
+  getDownloadSource: () => "torrent",
 }));
 vi.mock("../src/coverage", () => ({ getStoredCoverage: () => null, scanCoverage: vi.fn() }));
 
@@ -42,7 +50,9 @@ const pending = (over: Record<string, unknown> = {}) => ({
   torrent_hash: "68f3c17f1e97622d939f76ef5ff6039f7d770f73",
   magnet_uri: "magnet:?xt=urn:btih:68f3c17f1e97622d939f76ef5ff6039f7d770f73",
   error_message: null, rss_guid: "", changelog: [], extended: false,
-  published_at: null, created_at: 0, updated_at: 0, ...over,
+  published_at: null, pixeldrain_id: null, download_via: "torrent",
+  dl_progress: 0, dl_progress_at: null, attempts: 0, next_retry_at: null,
+  created_at: 0, updated_at: 0, ...over,
 });
 
 beforeEach(() => vi.clearAllMocks());

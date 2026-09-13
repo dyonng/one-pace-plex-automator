@@ -68,6 +68,10 @@ const ConfigSchema = z.object({
   // the same RSS feed + Google Sheets we do, but server-side and continuously, so
   // it often knows a release before the dataset regenerates. Gap-filler only.
   USE_ONEPACERR: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  // Direct HTTPS download when One Pace offers one, else the torrent. Default on:
+  // it is faster in practice and immune to the VPN/port-forward faults that
+  // strand torrents.
+  DOWNLOAD_SOURCE: z.enum(["pixeldrain", "torrent"]).default("pixeldrain"),
   ONEPACERR_BASE_URL: z.string().url().default("https://onepacerr.com/api/v1"),
   // Optional per-arc scoping. Comma-separated arc parts or titles. Empty include
   // means every arc; exclude always wins. An excluded arc is not tracked at all.

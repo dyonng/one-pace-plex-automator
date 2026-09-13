@@ -243,6 +243,19 @@
           <button class="btn btn-ghost btn-xs self-center" onclick={() => reset(s.key)}>reset</button>
         {/if}
       </div>
+    {:else if s.type === "choice"}
+      <div class="join">
+        {#each s.choices ?? [] as choice (choice.value)}
+          <button
+            class="btn btn-sm join-item {s.value === choice.value ? 'btn-primary' : 'btn-ghost border border-base-content/15'}"
+            disabled={saving === s.key}
+            onclick={() => persist(s.key, choice.value)}
+          >{choice.label}</button>
+        {/each}
+        {#if s.overridden}
+          <button class="btn btn-ghost btn-xs self-center ml-2" onclick={() => reset(s.key)}>reset</button>
+        {/if}
+      </div>
     {:else if s.type === "bool"}
       <input
         type="checkbox"

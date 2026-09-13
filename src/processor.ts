@@ -15,6 +15,7 @@ import { getAutoPosters, getAutoReconcile } from "./settings";
 import { scanCoverage, getStoredCoverage } from "./coverage";
 import { reconcilePlexMetadata } from "./metadata-audit";
 import { lookupEpisodeText, lookupArcText } from "./onepace-descriptions";
+import * as pixeldrainDownloads from "./pixeldrain-downloads";
 
 /**
  * qBittorrent (or the VPN container in front of it) being unreachable says
@@ -132,7 +133,7 @@ async function resolveBatchFileMeta(
  */
 async function processBatchSiblings(
   batchDir: string,
-  torrentHash: string,
+  torrentHash: string | null,
   primaryCrc32: string
 ): Promise<BatchResult[]> {
   const results: BatchResult[] = [];
@@ -264,6 +265,19 @@ async function importTorrentContents(ep: EpisodeRecord, torrentHash: string): Pr
   if (videos.length === 0) {
     throw new Error(`No CRC32-tagged video found in the torrent for S${ep.arc_part}E${ep.episode_num}`);
   }
+  return importVideos(ep, videos, torrentHash);
+}
+
+/**
+ * Imports already-downloaded video files for an episode, whatever fetched them.
+ * `torrentHash` is null for a direct HTTP download, in which case there is no
+ * torrent to clean up afterwards.
+ */
+async function importVideos(
+  ep: EpisodeRecord,
+  videos: BatchFile[],
+  torrentHash: string | null
+): Promise<boolean> {
 
   // Single-episode releases are the norm; if a folder holds several, take the
   // largest as the primary and let batch-sibling processing pick up the rest.
@@ -324,7 +338,7 @@ async function importTorrentContents(ep: EpisodeRecord, torrentHash: string): Pr
       crc32: realCrc32, arc: meta.arcTitle, episode: meta.episodeNum, keeping: newer,
     });
     deleteEpisode(ep.crc32);
-    await safeDeleteTorrent(torrentHash);
+    if (torrentHash) await safeDeleteTorrent(torrentHash);
     return false;
   }
 
@@ -348,7 +362,10 @@ async function importTorrentContents(ep: EpisodeRecord, torrentHash: string): Pr
     final_filename: finalFilename,
     status: "done",
     torrent_hash: torrentHash,
-    magnet_uri: null,
+    // Carry the sources across the re-key: a later coverage upgrade or manual
+    // re-download would otherwise find the row with no way to fetch it again.
+    magnet_uri: ep.magnet_uri,
+    pixeldrain_id: ep.pixeldrain_id,
     error_message: null,
     rss_guid: ep.rss_guid,
     changelog: ep.changelog,
@@ -399,7 +416,7 @@ async function importTorrentContents(ep: EpisodeRecord, torrentHash: string): Pr
     changelog: ep.changelog,
   });
 
-  await safeDeleteTorrent(torrentHash);
+  if (torrentHash) await safeDeleteTorrent(torrentHash);
   return true;
 }
 
@@ -485,6 +502,35 @@ export async function requeueRetryableFailures(): Promise<number> {
   return requeued;
 }
 
+/**
+ * One sweep's worth of work for an episode being fetched over HTTPS: import it
+ * if the file has landed, otherwise make sure a transfer is running. Returns
+ * true when an episode was imported.
+ *
+ * Completion is judged from the filesystem, so a restart mid-transfer picks up
+ * where it left off instead of re-downloading.
+ */
+async function advancePixeldrainDownload(ep: EpisodeRecord): Promise<boolean> {
+  if (!pixeldrainDownloads.isComplete(ep)) {
+    if (!pixeldrainDownloads.isTransferActive(ep.crc32)) pixeldrainDownloads.startTransfer(ep);
+    return false;
+  }
+
+  logger.info("Download complete, processing", { crc32: ep.crc32, via: "pixeldrain" });
+  updateEpisodeStatus(ep.crc32, "processing");
+
+  const filePath = pixeldrainDownloads.destinationFor(ep.original_filename);
+  const crc32 = extractCrc32FromFilename(ep.original_filename);
+  if (!crc32) {
+    throw new Error(`Pixeldrain file has no CRC32 in its name: ${ep.original_filename}`);
+  }
+
+  // Same importer as the torrent path — it resolves metadata by the real CRC32,
+  // refuses a downgrade, moves the file and re-keys the row. There is no torrent
+  // to clean up, hence the null.
+  return importVideos(ep, [{ filePath, filename: ep.original_filename, crc32 }], null);
+}
+
 async function _processDownloading(): Promise<boolean> {
   const downloading = getEpisodesByStatus("downloading");
   if (downloading.length === 0) return false;
@@ -493,6 +539,18 @@ async function _processDownloading(): Promise<boolean> {
   let completed = 0;
 
   for (const ep of downloading) {
+    if (ep.download_via === "pixeldrain") {
+      try {
+        if (await advancePixeldrainDownload(ep)) completed++;
+      } catch (err) {
+        const msg = (err as Error).message;
+        logger.error("Failed to import Pixeldrain download", { crc32: ep.crc32, error: msg });
+        updateEpisodeStatus(ep.crc32, "failed", { error_message: msg });
+        await sendDiscordNotification({ type: "error", crc32: ep.crc32, error: msg });
+      }
+      continue;
+    }
+
     if (!ep.torrent_hash) continue;
 
     try {
@@ -713,6 +771,7 @@ export async function retryFailed(): Promise<void> {
     // A human asking is a fresh start: clear the automatic attempt budget so an
     // episode that exhausted it becomes eligible again.
     clearRetryState(ep.crc32);
+    pixeldrainDownloads.clearTransferFailures(ep.crc32);
     updateEpisodeStatus(ep.crc32, "pending", { error_message: null });
   }
 }

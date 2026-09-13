@@ -28,9 +28,10 @@ export type SettingKey =
   | "NYAA_BASE_URL"
   | "GOOGLE_SHEETS_API_KEY"
   | "USE_ONEPACERR"
+  | "DOWNLOAD_SOURCE"
   | "ARC_INCLUDE"
   | "ARC_EXCLUDE";
-export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text";
+export type SettingType = "cron" | "int" | "bool" | "url" | "url_or_empty" | "text" | "choice";
 export type SettingCategory = "service" | "preference" | "notification";
 
 // Splits the settings UI: "service" = infrastructure/integration config,
@@ -47,6 +48,7 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   NYAA_BASE_URL: "service",
   GOOGLE_SHEETS_API_KEY: "service",
   USE_ONEPACERR: "service",
+  DOWNLOAD_SOURCE: "preference",
   ARC_INCLUDE: "preference",
   ARC_EXCLUDE: "preference",
   DISCORD_WEBHOOK_URL: "notification",
@@ -71,6 +73,8 @@ interface SettingDef {
   type: SettingType;
   envValue: () => string;
   validate: (raw: string) => ValidateResult;
+  // For type "choice": the allowed values, rendered as a button group.
+  choices?: ReadonlyArray<{ value: string; label: string }>;
 }
 
 // Settings changes are broadcast so live components (scheduler) can re-apply them.
@@ -125,6 +129,12 @@ function validatePosterSet(raw: string): ValidateResult {
 
 function validateText(raw: string): ValidateResult {
   return { ok: true, value: raw.trim() };
+}
+
+function validateDownloadSource(raw: string): ValidateResult {
+  const v = raw.trim().toLowerCase();
+  if (v === "pixeldrain" || v === "torrent") return { ok: true, value: v };
+  return { ok: false, error: "Must be pixeldrain or torrent" };
 }
 
 function validateBool(raw: string): ValidateResult {
@@ -295,6 +305,17 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => String(getConfig().USE_ONEPACERR),
     validate: validateBool,
   },
+  DOWNLOAD_SOURCE: {
+    key: "DOWNLOAD_SOURCE",
+    label: "Preferred download source",
+    type: "choice",
+    choices: [
+      { value: "pixeldrain", label: "Direct (Pixeldrain)" },
+      { value: "torrent", label: "Torrent" },
+    ],
+    envValue: () => getConfig().DOWNLOAD_SOURCE,
+    validate: validateDownloadSource,
+  },
   GOOGLE_SHEETS_API_KEY: {
     key: "GOOGLE_SHEETS_API_KEY",
     label: "Google Sheets API key (optional — reads the One Pace episode guide)",
@@ -346,6 +367,14 @@ export function getArcFilter(): ArcFilter {
   return parseArcFilter(getSettingValue("ARC_INCLUDE"), getSettingValue("ARC_EXCLUDE"));
 }
 
+/**
+ * Which transport to try first. "pixeldrain" still falls back to the torrent
+ * whenever the release has no direct link or Pixeldrain can't serve it.
+ */
+export function getDownloadSource(): "pixeldrain" | "torrent" {
+  return getSettingValue("DOWNLOAD_SOURCE") === "torrent" ? "torrent" : "pixeldrain";
+}
+
 export function getUseOnepacerr(): boolean {
   return getSettingValue("USE_ONEPACERR") === "true";
 }
@@ -362,6 +391,7 @@ export interface SettingView {
   value: string;
   envValue: string;
   overridden: boolean;
+  choices?: ReadonlyArray<{ value: string; label: string }>;
 }
 
 export function describeSettings(): SettingView[] {
@@ -376,6 +406,7 @@ export function describeSettings(): SettingView[] {
       value: override ?? envValue,
       envValue,
       overridden: override !== null,
+      choices: DEFS[key].choices,
     };
   });
 }
