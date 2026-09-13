@@ -10,19 +10,7 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
-### Fixed
-- **The same episode is no longer downloaded twice from one feed batch.** One
-  Pace lists a re-release alongside the release it supersedes, and the two took
-  different code paths — the new hash isn't catalogued yet so it went provisional,
-  the old one resolved cleanly — so both were queued and both were downloaded.
-  The import guard then discarded the loser: the right outcome, paid for at full
-  price (~780MB wasted in one observed batch). Placement now happens for every
-  item *before* anything is queued, and one release per episode wins, using the
-  same rule as the coverage report — a release the catalog can't place postdates
-  the dataset, so it is the newer of the two. Order-independent.
-- **Releases with nothing to download are skipped at queue time.** A release
-  already in the library, or one that would be a downgrade, was detected only
-  after the transfer finished. Both are now checked before the download starts.
+## [1.1.37] — 2026-09-13
 
 ### Added
 - **Direct HTTPS downloads via Pixeldrain.** One Pace publishes most recent
@@ -41,8 +29,6 @@ into a version heading when a GitHub release is cut.
     no, or three transfer attempts fail.
   - The Pixeldrain filename carries the CRC32, so identification, naming, the
     downgrade guard and the stall watchdog all work unchanged.
-
-### Added
 - **Stalled-download detection.** A new `Downloads` health check warns when
   anything hasn't advanced in 3 hours. Previously a torrent with no seeds — or one
   orphaned when a VPN restart took the port-forward with it — sat in `downloading`
@@ -52,6 +38,18 @@ into a version heading when a GitHub release is cut.
   without anyone pressing **Retry failed**. A manual retry resets the budget.
 
 ### Fixed
+- **The same episode is no longer downloaded twice from one feed batch.** One
+  Pace lists a re-release alongside the release it supersedes, and the two took
+  different code paths — the new hash isn't catalogued yet so it went provisional,
+  the old one resolved cleanly — so both were queued and both were downloaded.
+  The import guard then discarded the loser: the right outcome, paid for at full
+  price (~780MB wasted in one observed batch). Placement now happens for every
+  item *before* anything is queued, and one release per episode wins, using the
+  same rule as the coverage report — a release the catalog can't place postdates
+  the dataset, so it is the newer of the two. Order-independent.
+- **Releases with nothing to download are skipped at queue time.** A release
+  already in the library, or one that would be a downgrade, was detected only
+  after the transfer finished. Both are now checked before the download starts.
 - **A torrent removed from qBittorrent no longer strands its episode forever.**
   Completion was checked by asking whether the torrent had finished; a torrent that
   had vanished simply answered "not yet", every 30 seconds, indefinitely. Three
@@ -60,8 +58,6 @@ into a version heading when a GitHub release is cut.
 - **Connection blips are retried.** qBittorrent requests retry twice on
   connection-level faults, dropping the session cookie first in case the client
   restarted. HTTP responses are never retried — an error response is an answer.
-
-### Fixed
 - **"Downloaded file not found" when the torrent carried a different CRC32.** A
   feed entry can advertise a hash the torrent doesn't actually contain — One Pace
   re-uploads an episode and the entry still names the superseded release. The
