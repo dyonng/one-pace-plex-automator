@@ -10,6 +10,20 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Fixed
+- **The same episode is no longer downloaded twice from one feed batch.** One
+  Pace lists a re-release alongside the release it supersedes, and the two took
+  different code paths — the new hash isn't catalogued yet so it went provisional,
+  the old one resolved cleanly — so both were queued and both were downloaded.
+  The import guard then discarded the loser: the right outcome, paid for at full
+  price (~780MB wasted in one observed batch). Placement now happens for every
+  item *before* anything is queued, and one release per episode wins, using the
+  same rule as the coverage report — a release the catalog can't place postdates
+  the dataset, so it is the newer of the two. Order-independent.
+- **Releases with nothing to download are skipped at queue time.** A release
+  already in the library, or one that would be a downgrade, was detected only
+  after the transfer finished. Both are now checked before the download starts.
+
 ### Added
 - **Direct HTTPS downloads via Pixeldrain.** One Pace publishes most recent
   releases three ways — magnet, `.torrent`, and a Pixeldrain direct link — and

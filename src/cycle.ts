@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus, setDownloadVia, setEpisodeOriginalFilename, type EpisodeRecord } from "./db";
+import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus, getEpisodeByCrc32, setDownloadVia, setEpisodeOriginalFilename, type EpisodeRecord } from "./db";
 import { fetchNewEpisodes, toIsoDate, RssEpisode } from "./rss";
 import {
   resolveEpisodeByCrc32,
@@ -14,7 +14,8 @@ import {
 } from "./metadata";
 import { getArcResolution } from "./onepace-sheet";
 import { getQbitClient } from "./qbittorrent";
-import { processDownloading, requeueRetryableFailures } from "./processor";
+import { processDownloading, requeueRetryableFailures, newerFileAlreadyOnDisk } from "./processor";
+import { findExistingEpisodeFile } from "./fileops";
 import { sendDiscordNotification } from "./discord";
 import { getAutoDownload, getPreferExtended, getArcFilter, getDownloadSource } from "./settings";
 import * as pixeldrainDownloads from "./pixeldrain-downloads";
@@ -39,13 +40,19 @@ export async function pollRss(): Promise<number> {
 
   const autoDownload = getAutoDownload();
 
-  // Items whose CRC32 couldn't be determined are handled separately, after the
-  // resolved ones, so same-poll standard/extended variants can be de-duplicated.
-  const provisional: RssEpisode[] = [];
+  // Placement runs for every item before anything is queued. One episode can
+  // appear in a single batch more than once — One Pace lists a re-release
+  // alongside the release it supersedes — and the two take different branches
+  // (the new hash isn't catalogued yet, the old one is). Queueing as we went
+  // meant downloading both and letting the import guard throw one away, which is
+  // correct but pays full price for the loser.
+  const provisional: PlacedItem[] = [];
+  const resolved: Array<{ rssEp: RssEpisode; ep: ResolvedEpisode }> = [];
 
   for (const rssEp of newEpisodes) {
     if (rssEp.crc32 === null) {
-      provisional.push(rssEp);
+      const placement = await placeProvisional(rssEp);
+      if (placement) provisional.push({ rssEp, placement });
       continue;
     }
     try {
@@ -75,7 +82,8 @@ export async function pollRss(): Promise<number> {
           title: rssEp.title,
           reason: (err as Error).message,
         });
-        provisional.push(rssEp);
+        const placement = await placeProvisional(rssEp);
+        if (placement) provisional.push({ rssEp, placement });
         continue;
       }
 
@@ -88,8 +96,46 @@ export async function pollRss(): Promise<number> {
         continue;
       }
 
-      upsertEpisode({
+      resolved.push({ rssEp, ep });
+    } catch (err) {
+      logger.error("Failed to process RSS entry", {
         crc32: rssEp.crc32,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  // One release per episode wins. An entry the catalog can't place came from a
+  // release that landed after the dataset was generated, so it is the newer of
+  // the two — the same rule the coverage report and the import guard use.
+  const supersededBy = new Map<string, string>();
+  for (const { rssEp, placement } of provisional) {
+    supersededBy.set(`${placement.arcPart}-${placement.epNum}`, rssEp.title);
+  }
+
+  for (const { rssEp, ep } of resolved) {
+    try {
+      const slot = `${ep.arcPart}-${ep.episodeNum}`;
+      const newerInBatch = supersededBy.get(slot);
+      if (newerInBatch) {
+        logger.info("Skipping superseded release — a newer one for this episode is in the same batch", {
+          crc32: rssEp.crc32, arc: ep.arcTitle, episode: ep.episodeNum, supersededBy: newerInBatch,
+        });
+        markGuidSeen(rssEp.guid);
+        continue;
+      }
+
+      const skip = await reasonToSkipQueueing(rssEp.crc32!, ep.arcTitle, ep.arcPart, ep.episodeNum);
+      if (skip) {
+        logger.info("Skipping release — nothing to download", {
+          crc32: rssEp.crc32, arc: ep.arcTitle, episode: ep.episodeNum, reason: skip,
+        });
+        markGuidSeen(rssEp.guid);
+        continue;
+      }
+
+      upsertEpisode({
+        crc32: rssEp.crc32!,
         arc_num: ep.arcIndex,
         arc_title: ep.arcTitle,
         arc_part: ep.arcPart,
@@ -113,7 +159,7 @@ export async function pollRss(): Promise<number> {
       if (autoDownload) {
         const qbit = getQbitClient();
         const torrentHash = await qbit.addMagnet(rssEp.magnet);
-        updateEpisodeStatus(rssEp.crc32, "downloading", { torrent_hash: torrentHash });
+        updateEpisodeStatus(rssEp.crc32!, "downloading", { torrent_hash: torrentHash });
         logger.info("Episode queued for download", {
           crc32: rssEp.crc32,
           arc: ep.arcTitle,
@@ -130,7 +176,7 @@ export async function pollRss(): Promise<number> {
 
       await sendDiscordNotification({
         type: "new_episode",
-        crc32: rssEp.crc32,
+        crc32: rssEp.crc32!,
         arcTitle: ep.arcTitle,
         arcPart: ep.arcPart,
         episodeNum: ep.episodeNum,
@@ -158,10 +204,100 @@ export async function pollRss(): Promise<number> {
  * appear in one poll, only the preferred variant is downloaded so the second to
  * finish doesn't clobber the first.
  */
-async function processProvisional(items: RssEpisode[], autoDownload: boolean): Promise<void> {
+/**
+ * Why this release shouldn't be queued at all, or null to go ahead. Both checks
+ * used to happen only *after* a gigabyte had been transferred: the import guard
+ * would refuse the file and the work was wasted.
+ */
+async function reasonToSkipQueueing(
+  crc32: string,
+  arcTitle: string,
+  arcPart: number,
+  episodeNum: number
+): Promise<string | null> {
+  const existing = getEpisodeByCrc32(crc32.toUpperCase());
+  if (existing?.status === "done" && findExistingEpisodeFile(arcTitle, arcPart, episodeNum)) {
+    return "this exact release is already in the library";
+  }
+
+  const newer = await newerFileAlreadyOnDisk(arcTitle, arcPart, episodeNum, crc32);
+  if (newer) return `a newer file is already in the library (${newer})`;
+
+  return null;
+}
+
+export interface Placement {
+  arcIndex: number;
+  arcPart: number;
+  arcTitle: string;
+  epNum: number;
+  extended: boolean;
+}
+
+export interface PlacedItem {
+  rssEp: RssEpisode;
+  placement: Placement;
+}
+
+// An item with no resolvable CRC32 may still have a real one — it arrived via the
+// unresolvable-CRC fallback rather than having no hash at all. Giving up on those
+// must not mark the GUID seen: the dataset will very likely publish the hash
+// soon, so the entry has to stay eligible for a proper resolve on a later poll.
+const retriesLater = (rssEp: RssEpisode): boolean => rssEp.crc32 !== null;
+
+/**
+ * Works out which season/episode slot an item belongs to from its title alone,
+ * for releases the catalog can't place by CRC32. Returns null when it can't be
+ * placed (the reason is logged, and the GUID is marked seen only when there is
+ * no point retrying).
+ */
+async function placeProvisional(rssEp: RssEpisode): Promise<Placement | null> {
+  // Known specials whose title is not an arc name (e.g. "One Piece Fan Letter
+  // 01") are pinned straight to their catalogued slot; everything else goes
+  // through the normal title parse + arc lookup.
+  const alias = await resolveAliasedRelease(rssEp.title);
+  if (alias) {
+    logger.info("Recognized special release", {
+      title: rssEp.title,
+      as: `${alias.label} S${String(alias.arcPart).padStart(2, "0")}E${String(alias.epNum).padStart(2, "0")}`,
+    });
+    return alias;
+  }
+
+  const parsed = parseReleaseTitle(rssEp.title);
+  if (!parsed) {
+    // No trailing episode number — but One Pace distributes most arcs as a
+    // single whole-arc torrent ("[One Pace][1-7] Romance Dawn [1080p]", a folder
+    // with no CRC32 anywhere). Those titles are just the arc name, so resolve
+    // them as a batch instead of dropping the release.
+    const batchArc = await resolveArcByTitle(rssEp.title);
+    if (batchArc) {
+      logger.info("Recognized whole-arc batch release", {
+        title: rssEp.title, arc: batchArc.arcTitle, part: batchArc.arcPart,
+      });
+      return { ...batchArc, epNum: BATCH_EPISODE, extended: false };
+    }
+    logger.warn("Provisional download skipped — can't parse arc/episode from title", {
+      title: rssEp.title, willRetry: retriesLater(rssEp),
+    });
+    if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
+    return null;
+  }
+
+  const arc = await resolveArcByTitle(parsed.arcTitle);
+  if (!arc) {
+    logger.warn("Provisional download skipped — arc not in dataset", {
+      title: rssEp.title, arcTitle: parsed.arcTitle, willRetry: retriesLater(rssEp),
+    });
+    if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
+    return null;
+  }
+  return { ...arc, epNum: parsed.epNum, extended: parsed.extended };
+}
+
+async function processProvisional(items: PlacedItem[], autoDownload: boolean): Promise<void> {
   const preferExtended = getPreferExtended();
 
-  // Group parsable items by (arcPart, episode); unparsable arc/title are skipped.
   interface Candidate {
     rssEp: RssEpisode;
     arcIndex: number;
@@ -172,61 +308,7 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
   }
   const groups = new Map<string, Candidate[]>();
 
-  // An item that arrived here *with* a CRC32 came from the unresolvable-CRC
-  // fallback, not from a missing hash. Giving up on those must not mark the GUID
-  // seen: the CRC is real and the dataset/guide will very likely publish it soon,
-  // so the entry has to stay eligible for a proper resolve on a later poll.
-  const retriesLater = (rssEp: RssEpisode): boolean => rssEp.crc32 !== null;
-
-  for (const rssEp of items) {
-    // Known specials whose title is not an arc name (e.g. "One Piece Fan Letter
-    // 01") are pinned straight to their catalogued slot; everything else goes
-    // through the normal title parse + arc lookup.
-    const alias = await resolveAliasedRelease(rssEp.title);
-    let placement: { arcIndex: number; arcPart: number; arcTitle: string; epNum: number; extended: boolean };
-
-    if (alias) {
-      logger.info("Recognized special release", {
-        title: rssEp.title,
-        as: `${alias.label} S${String(alias.arcPart).padStart(2, "0")}E${String(alias.epNum).padStart(2, "0")}`,
-      });
-      placement = alias;
-    } else {
-      const parsed = parseReleaseTitle(rssEp.title);
-      if (!parsed) {
-        // No trailing episode number — but One Pace distributes most arcs as a
-        // single whole-arc torrent ("[One Pace][1-7] Romance Dawn [1080p]", a
-        // folder with no CRC32 anywhere). Those titles are just the arc name, so
-        // resolve them as a batch instead of dropping the release.
-        const batchArc = await resolveArcByTitle(rssEp.title);
-        if (batchArc) {
-          logger.info("Recognized whole-arc batch release", {
-            title: rssEp.title, arc: batchArc.arcTitle, part: batchArc.arcPart,
-          });
-          placement = { ...batchArc, epNum: BATCH_EPISODE, extended: false };
-        } else {
-          logger.warn("Provisional download skipped — can't parse arc/episode from title", {
-            title: rssEp.title,
-            willRetry: retriesLater(rssEp),
-          });
-          if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
-          continue;
-        }
-      } else {
-        const arc = await resolveArcByTitle(parsed.arcTitle);
-        if (!arc) {
-          logger.warn("Provisional download skipped — arc not in dataset", {
-            title: rssEp.title,
-            arcTitle: parsed.arcTitle,
-            willRetry: retriesLater(rssEp),
-          });
-          if (!retriesLater(rssEp)) markGuidSeen(rssEp.guid);
-          continue;
-        }
-        placement = { ...arc, epNum: parsed.epNum, extended: parsed.extended };
-      }
-    }
-
+  for (const { rssEp, placement } of items) {
     const key = `${placement.arcPart}-${placement.epNum}`;
     const candidate: Candidate = {
       rssEp,
