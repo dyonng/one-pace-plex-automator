@@ -1,5 +1,5 @@
 import { logger } from "./logger";
-import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus } from "./db";
+import { isGuidSeen, markGuidSeen, upsertEpisode, updateEpisodeStatus, getEpisodesByStatus, setDownloadVia, setEpisodeOriginalFilename, type EpisodeRecord } from "./db";
 import { fetchNewEpisodes, toIsoDate, RssEpisode } from "./rss";
 import {
   resolveEpisodeByCrc32,
@@ -16,7 +16,8 @@ import { getArcResolution } from "./onepace-sheet";
 import { getQbitClient } from "./qbittorrent";
 import { processDownloading, requeueRetryableFailures } from "./processor";
 import { sendDiscordNotification } from "./discord";
-import { getAutoDownload, getPreferExtended, getArcFilter } from "./settings";
+import { getAutoDownload, getPreferExtended, getArcFilter, getDownloadSource } from "./settings";
+import * as pixeldrainDownloads from "./pixeldrain-downloads";
 import { isArcIncluded } from "./arc-filter";
 import { getStoredCoverage, scanCoverage } from "./coverage";
 
@@ -104,6 +105,7 @@ export async function pollRss(): Promise<number> {
         changelog: rssEp.changelog,
         extended: ep.extended,
         published_at: toIsoDate(rssEp.pubDate),
+        pixeldrain_id: rssEp.pixeldrainId,
       });
 
       markGuidSeen(rssEp.guid);
@@ -281,6 +283,7 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
         changelog: rssEp.changelog,
         extended,
         published_at: toIsoDate(rssEp.pubDate),
+        pixeldrain_id: rssEp.pixeldrainId,
       });
 
       markGuidSeen(rssEp.guid);
@@ -320,6 +323,33 @@ async function processProvisional(items: RssEpisode[], autoDownload: boolean): P
   }
 }
 
+/**
+ * Routes one pending episode to Pixeldrain when that's both preferred and
+ * currently possible. Returns true when the episode was dispatched that way;
+ * false means "use the torrent", and the reason is logged.
+ */
+async function tryPixeldrainDispatch(ep: EpisodeRecord): Promise<boolean> {
+  if (getDownloadSource() !== "pixeldrain") return false;
+  if (!ep.pixeldrain_id) return false;
+
+  const eligible = await pixeldrainDownloads.checkEligible(ep);
+  if (!eligible.ok) {
+    logger.info("Using the torrent instead of Pixeldrain", { crc32: ep.crc32, reason: eligible.reason });
+    setDownloadVia(ep.crc32, "torrent");
+    return false;
+  }
+
+  // The Pixeldrain filename is authoritative and carries the CRC32, so the rest
+  // of the pipeline identifies the file exactly as it would a torrent's.
+  setDownloadVia(ep.crc32, "pixeldrain");
+  updateEpisodeStatus(ep.crc32, "downloading");
+  setEpisodeOriginalFilename(ep.crc32, eligible.filename);
+  logger.info("Dispatched to Pixeldrain", {
+    crc32: ep.crc32, file: eligible.filename, sizeMb: Math.round(eligible.size / 1024 ** 2),
+  });
+  return true;
+}
+
 export async function dispatchPending(): Promise<void> {
   const pending = getEpisodesByStatus("pending");
   if (pending.length === 0) return;
@@ -329,6 +359,12 @@ export async function dispatchPending(): Promise<void> {
 
   for (const ep of pending) {
     try {
+      // Prefer the direct download when the release offers one and Pixeldrain is
+      // actually able to serve it right now. It's a different failure domain
+      // from BitTorrent — no peers, no port-forward, no VPN dependency — so the
+      // two cover each other rather than sharing a single point of failure.
+      if (await tryPixeldrainDispatch(ep)) continue;
+
       // A retried episode usually still has its torrent in qBittorrent — the
       // previous attempt downloaded it and failed somewhere after, so cleanup
       // never ran. Re-adding it is both wasteful and refused (409 on qBit 5.x),

@@ -126,6 +126,7 @@ export interface SettingView {
   value: string;
   envValue: string;
   overridden: boolean;
+  choices?: { value: string; label: string }[];
 }
 
 export interface PosterSetView {

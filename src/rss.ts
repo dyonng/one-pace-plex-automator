@@ -15,6 +15,9 @@ export interface RssEpisode {
   crc32: string | null;
   pubDate: string;
   changelog: string[];
+  // Pixeldrain file id when the item offers a direct download alongside the
+  // torrent (One Pace publishes one for most recent releases). null otherwise.
+  pixeldrainId: string | null;
 }
 
 /**
@@ -175,6 +178,7 @@ export async function fetchNewEpisodes(
       crc32,
       pubDate: item.pubDate ?? new Date().toISOString(),
       changelog: extractChangelog(item.content),
+      pixeldrainId: extractPixeldrainId(item.content),
     });
   }
 
@@ -192,6 +196,7 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
   guid: string;
   filename: string;
   changelog: string[];
+  pixeldrainId: string | null;
 } | null> {
   const RSS_FEED_URL = getSettingValue("RSS_FEED_URL");
   let items = getCachedItems();
@@ -219,6 +224,7 @@ export async function findMagnetByCrc32(targetCrc32: string): Promise<{
         guid: item.guid ?? item.link ?? item.title ?? "",
         filename,
         changelog: extractChangelog(item.content),
+        pixeldrainId: extractPixeldrainId(item.content),
       };
     }
   }
@@ -235,6 +241,7 @@ export interface RssMagnetEntry {
   guid: string;
   filename: string;
   changelog: string[];
+  pixeldrainId: string | null;
 }
 
 /**
@@ -270,6 +277,7 @@ export async function getRssMagnetMap(): Promise<Map<string, RssMagnetEntry>> {
         guid: item.guid ?? item.link ?? item.title ?? "",
         filename,
         changelog: extractChangelog(item.content),
+        pixeldrainId: extractPixeldrainId(item.content),
       });
     }
   }
@@ -361,6 +369,18 @@ function decodeEntities(s: string): string {
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'")
     .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
+}
+
+/**
+ * Pulls the Pixeldrain file id out of the RSS description HTML. Items list their
+ * download options as links — Magnet, Torrent, and (for most recent releases)
+ * Pixeldrain — and only the first two are exposed as feed fields, so the direct
+ * download has to be read out of the description markup.
+ */
+export function extractPixeldrainId(html: string | undefined): string | null {
+  if (!html) return null;
+  const m = decodeEntities(html).match(/https?:\/\/pixeldrain\.[a-z]+\/u\/([A-Za-z0-9]+)/i);
+  return m ? m[1] : null;
 }
 
 /**

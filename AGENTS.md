@@ -56,6 +56,12 @@ restarts on its own schedule:
   count is in-memory on purpose — re-confirming after a restart is the conservative choice.
 - **Duplicate adds.** Dispatch reattaches to an existing torrent instead of re-adding it, and
   `addMagnet` treats a refused add as success once it confirms the torrent is present.
+- **Independent transports.** BitTorrent and Pixeldrain fail for unrelated reasons — a dead VPN
+  port-forward strands torrents at `stalledDL`; Pixeldrain rate-limits per IP — so each covers the
+  other. `pixeldrain-downloads.ts` gates every transfer on the live `/api/misc/rate_limits` rather
+  than assuming; One Pace covers the bandwidth for their own files today (`bandwidth_used_paid`),
+  but that is their subscription, not a guarantee. Completion is judged from the filesystem
+  (`<name>.part` → rename), so a restart mid-transfer resumes via HTTP Range instead of restarting.
 - **Never downgrade.** `newerFileAlreadyOnDisk` refuses an import that would replace a newer file,
   using the coverage rule: an uncatalogued CRC32 postdates the dataset.
 
@@ -604,10 +610,13 @@ Filename-less items (no `dn`, no `torrent:fileName`) resolve CRC32 via title →
 
 ## Known Gaps / TODOs
 
-- **Download sources are RSS magnets/torrents only** — a `magnet:` URI (preferred) or an http(s)
-  `.torrent` URL fallback from each RSS item. No plain direct/HTTP file download. For torrent-URL
-  adds the info hash is resolved by diffing qBit's torrent list (no `urn:btih:` to read), which
-  assumes adds are serialized (they are — behind the action lock / sequential poll loop).
+- **Two download transports.** Feed items carry up to three sources: `<torrent:magnetURI>` (all
+  items), an `<enclosure>` `.torrent` URL (~88%), and a Pixeldrain direct link in the description
+  HTML (~42% overall, but ~97% of *recent* releases). `DOWNLOAD_SOURCE` picks which is tried first;
+  Pixeldrain falls back to the torrent when the release has no link, the limits API says no, or
+  three transfer attempts fail. For torrent-URL adds the info hash is resolved by diffing qBit's
+  torrent list (no `urn:btih:` to read), which assumes adds are serialized (they are — behind the
+  action lock / sequential poll loop).
 - **Plex baremetal routing** — `PLEX_URL` must be host IP/DNS, confirm container→host reachability.
 - **Info hash resolution** — `qbittorrent.ts` reads the hash from `urn:btih:` for magnets; for
   torrent URLs / base32 magnets it diffs the category's torrent list after adding. If that diff finds
