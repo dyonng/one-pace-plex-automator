@@ -40,7 +40,7 @@ function isTransientInfraError(message: string): boolean {
  * newer than anything the catalog knows — including the catalog's own canonical.
  * Returns the on-disk filename when the incoming file would be a downgrade.
  */
-async function newerFileAlreadyOnDisk(
+export async function newerFileAlreadyOnDisk(
   arcTitle: string,
   arcPart: number,
   episodeNum: number,

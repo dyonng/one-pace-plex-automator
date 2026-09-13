@@ -63,7 +63,11 @@ restarts on its own schedule:
   but that is their subscription, not a guarantee. Completion is judged from the filesystem
   (`<name>.part` → rename), so a restart mid-transfer resumes via HTTP Range instead of restarting.
 - **Never downgrade.** `newerFileAlreadyOnDisk` refuses an import that would replace a newer file,
-  using the coverage rule: an uncatalogued CRC32 postdates the dataset.
+  using the coverage rule: an uncatalogued CRC32 postdates the dataset. `pollRss` applies the same
+  rule twice more, before spending any bandwidth: it places every feed item before queueing any of
+  them and keeps one release per (arc, episode) — a re-release and the release it supersedes appear
+  in the same batch and take different branches, so both used to download — and it skips a release
+  that is already in the library or would be a downgrade.
 
 ### Pipeline
 

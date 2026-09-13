@@ -32,7 +32,12 @@ vi.mock("../src/db", () => ({
   upsertEpisode,
   updateEpisodeStatus,
   getEpisodesByStatus: vi.fn(() => []),
+  getEpisodeByCrc32: vi.fn(() => null),
+  setDownloadVia: vi.fn(),
+  setEpisodeOriginalFilename: vi.fn(),
 }));
+// Queue-time guards: nothing already on disk, so nothing is skipped here.
+vi.mock("../src/fileops", () => ({ findExistingEpisodeFile: vi.fn(() => null) }));
 vi.mock("../src/rss", () => ({
   fetchNewEpisodes,
   toIsoDate: (s: string) => (s ? s.slice(0, 10) : null),
@@ -55,12 +60,21 @@ vi.mock("../src/metadata", () => ({
 }));
 vi.mock("../src/onepace-sheet", () => ({ getArcResolution: async () => null }));
 vi.mock("../src/qbittorrent", () => ({ getQbitClient: () => ({ addMagnet }) }));
-vi.mock("../src/processor", () => ({ processDownloading: vi.fn(async () => {}) }));
+vi.mock("../src/processor", () => ({
+  processDownloading: vi.fn(async () => {}),
+  requeueRetryableFailures: vi.fn(async () => 0),
+  newerFileAlreadyOnDisk: vi.fn(async () => null),
+}));
 vi.mock("../src/discord", () => ({ sendDiscordNotification: vi.fn(async () => {}) }));
 vi.mock("../src/settings", () => ({
   getAutoDownload: () => true,
   getPreferExtended: () => true,
   getArcFilter: () => ({ include: new Set<string>(), exclude: new Set<string>() }),
+  getDownloadSource: () => "torrent",
+}));
+vi.mock("../src/pixeldrain-downloads", () => ({
+  checkEligible: vi.fn(async () => ({ ok: false, reason: "off in test" })),
+  clearTransferFailures: vi.fn(),
 }));
 vi.mock("../src/coverage", () => ({
   getStoredCoverage: () => null,
