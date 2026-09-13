@@ -6,7 +6,8 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 
 1. Polls the One Pace RSS feed on a schedule
 2. Detects new episode releases (and re-releases with an updated CRC32)
-3. Sends magnet links to qBittorrent
+3. Downloads each release — directly over HTTPS when One Pace offers a link for
+   it, otherwise by handing the magnet to qBittorrent
 4. Renames completed downloads to Plex naming format
 5. Moves files to the correct Plex library folder, replacing superseded copies
 6. Keeps Plex metadata, thumbnails, and posters rich and current automatically
@@ -18,7 +19,8 @@ Automates downloading, renaming, and Plex metadata management for [One Pace](htt
 
 A web dashboard (port `8282`) provides live logs with text/level filtering,
 manual controls, a **library coverage report**, a **metadata & thumbnail
-audit**, **live download progress**, and a system health panel. It's responsive
+audit**, **live download progress**, and a system health panel (Plex,
+qBittorrent, RSS, metadata, and stalled downloads). It's responsive
 on phones and installable to a home screen. Settings live behind the gear icon
 in the navbar, including appearance options (light/dark/auto theme, any DaisyUI
 theme, and a choice of logo).
@@ -32,7 +34,7 @@ theme, and a choice of logo).
 | **Full Plex sync** | Re-pushes titles/descriptions/air dates for **every** season and episode to Plex, applies the show's genres/rating/studio, then syncs season posters (skipping any whose image hasn't changed). The resync-everything hammer — day-to-day this happens automatically, so it's rarely needed. |
 | **Retry thumbnails** | Resets attempt counters (including episodes previously written off) and the blank-frame cache, then re-requests generation for anything still missing a thumbnail. |
 | **Re-apply posters** | Forgets which posters are recorded as applied and uploads every set again. Use when Plex is missing art the app believes it already set, or right after changing the poster set. |
-| **Retry failed** | Re-queues episodes whose download or processing failed. |
+| **Retry failed** | Re-queues episodes whose download or processing failed, and clears their automatic-retry budget. Failures already retry on their own (3 attempts, 5m/20m/60m apart), so this is for when you want them tried again immediately or after the budget ran out. |
 | **Normalize File Naming** | Scans for files whose names don't match the canonical scheme, previews each old → new rename, and applies the ones you select. |
 | **Clear done** | Removes completed rows from the pipeline table (files are kept). |
 
@@ -197,6 +199,7 @@ rest fall back to the defaults shown.
 | `POLL_ENABLED` | | Gate the scheduled refresh; `false` = manual Refresh Sources only (default `true`) |
 | `DOWNLOAD_CHECK_SECONDS` | | qBittorrent completion-check interval (default `30`) |
 | `AUTO_DOWNLOAD` | | Auto-download discovered releases (default `true`) |
+| `DOWNLOAD_SOURCE` | | `pixeldrain` (default) uses One Pace's direct HTTPS link when offered and falls back to the torrent; `torrent` always uses qBittorrent — see [Download sources](#download-sources) |
 | `AUTO_POSTERS` | | Auto-apply posters to new seasons (default `true`) |
 | `AUTO_RECONCILE` | | Auto-sync Plex metadata & thumbnails on source changes/ingest (default `true`) |
 | `PREFER_EXTENDED` | | Prefer the extended cut when an episode has both (default `true`) |
@@ -221,17 +224,67 @@ Open Plex web UI, browse to any media item, open browser devtools → Network ta
 
 ## Download sources
 
-Downloads come from the **RSS feed**: each release's `magnet:` URI is pulled from
-its RSS item and handed to qBittorrent. If an item has **no magnet** but does
-provide an http(s) `.torrent` URL (in its `<enclosure>` or `<link>`), that's used
-as a fallback — qBittorrent accepts either. Magnets are preferred because they
-carry the info hash inline; for a `.torrent` URL the hash is resolved from
-qBittorrent right after adding. There's no plain direct/HTTP *file* download
-(only torrents/magnets).
+Every download comes from the **RSS feed**, which offers up to three ways to
+fetch each release:
+
+| Source | Availability | Used |
+|--------|--------------|------|
+| **Pixeldrain** direct link | ~97% of recent releases (~42% of the whole feed) | First, by default |
+| `magnet:` URI | Every item | Fallback |
+| `.torrent` URL (`<enclosure>`) | Most items | If there's no magnet |
+
+**Pixeldrain is the default** (`DOWNLOAD_SOURCE=pixeldrain`) because it fails for
+entirely different reasons than BitTorrent does. A VPN whose port-forward drops
+leaves torrents stalled at zero peers; a plain HTTPS GET is unaffected — and when
+Pixeldrain rate-limits, the torrent still works. Each covers the other instead of
+sharing one point of failure.
+
+Direct downloads are checked against Pixeldrain's live rate-limit API before they
+start, and fall back to the torrent when the release has no direct link, the
+limits won't cover it, or three attempts fail. Transfers resume: bytes accumulate
+in a `.part` file and are renamed on completion, so a restart mid-download
+continues rather than starting over.
+
+Set **`DOWNLOAD_SOURCE=torrent`** to disable direct downloads entirely — worth
+doing if your torrent traffic goes through a VPN and you want *all* traffic to.
+
+Torrents are still used for everything Pixeldrain doesn't cover, mostly the back
+catalogue. Magnets are preferred over `.torrent` URLs there because they carry
+the info hash inline; for a `.torrent` URL the hash is resolved from qBittorrent
+right after adding.
 
 For episodes the feed no longer carries (older releases that show as
 *upgradeable* or *missing* in coverage), the dashboard can **search AnimeTosho
 and Nyaa** for a matching torrent and queue it directly.
+
+### Picking one release per episode
+
+A single feed batch can list a re-release *and* the release it supersedes. Every
+item is placed before anything is queued, and only one release per episode is
+downloaded — the one the catalog can't place yet, which is by definition newer
+than anything the dataset knows. Releases already in your library, and any that
+would replace a file with an older one, are skipped before the download starts
+rather than discarded after it finishes.
+
+### When things go wrong
+
+Downloads depend on services that restart without warning — a VPN sidecar
+updating, qBittorrent reloading — so failures are treated as expected rather than
+exceptional:
+
+- **Connection errors don't fail episodes.** If qBittorrent is unreachable, the
+  episode stays queued for the next poll instead of turning the pipeline red for
+  an outage that clears in a minute.
+- **Failures retry themselves** — 3 attempts, 5m/20m/60m apart. **Retry failed**
+  is for jumping the queue or restarting an exhausted budget, not routine recovery.
+- **Stalled downloads are surfaced.** Anything that hasn't advanced in 3 hours
+  shows as a warning on the **Downloads** health check (and in Discord, if health
+  alerts are on). A torrent sitting at zero peers is otherwise invisible.
+- **Abandoned torrents are detected.** One removed from qBittorrent fails its
+  episode with a clear reason rather than being waited on indefinitely.
+- **Retried episodes reattach** to a torrent qBittorrent still holds instead of
+  re-adding it, so a download that already finished is imported rather than
+  fetched again.
 
 ## Metadata source
 
@@ -310,8 +363,8 @@ restore, stop the container and copy a backup over `data/state.db`.
   `/data/state.db`
 - **Frontend** — Svelte 5 (runes) + Vite, Tailwind CSS v4 with DaisyUI v5;
   builds to static files served by the backend — no separate frontend server
-- **Integrations** — Plex HTTP API, qBittorrent Web API, Discord webhooks,
-  Google Sheets API (optional), AnimeTosho/Nyaa feeds
+- **Integrations** — Plex HTTP API, qBittorrent Web API, Pixeldrain API (direct
+  downloads), Discord webhooks, Google Sheets API (optional), AnimeTosho/Nyaa feeds
 - **Media** — ffmpeg/ffprobe for thumbnail frame extraction; pure-JS `jpeg-js`
   / `pngjs` for pixel analysis (no native image dependencies)
 - **Packaging** — multi-stage Alpine Docker image, built and published to GHCR
