@@ -25,6 +25,31 @@ on phones and installable to a home screen. Settings live behind the gear icon
 in the navbar, including appearance options (light/dark/auto theme, any DaisyUI
 theme, and a choice of logo).
 
+## Screenshots
+
+![Dashboard — dark theme](docs/screenshots/dashboard.png)
+
+<details>
+<summary>More screenshots</summary>
+
+**Full page** — pipeline, library coverage, logs, and system health:
+
+![Dashboard — full page](docs/screenshots/dashboard-full.png)
+
+**Light theme:**
+
+![Dashboard — light theme](docs/screenshots/dashboard-light.png)
+
+**Settings** (gear icon in the navbar):
+
+![Settings panel](docs/screenshots/settings.png)
+
+**Mobile:**
+
+![Dashboard — mobile](docs/screenshots/dashboard-mobile.png)
+
+</details>
+
 ### Dashboard controls
 
 | Control | What it does |
