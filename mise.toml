@@ -1,0 +1,33 @@
+[tools]
+# Matches the runtime the Dockerfile builds on and CI tests against, so a local
+# `mise install` reproduces the supported Node version rather than whatever is
+# newest on the machine.
+node = "22"
+
+[tasks.install]
+description = "Install dependencies"
+run = "npm ci"
+
+[tasks.build]
+description = "Compile the backend and build the dashboard"
+run = "npm run build"
+
+[tasks.test]
+description = "Run the test suite"
+run = "npm test"
+
+[tasks.typecheck]
+description = "Typecheck without emitting"
+run = "npm run typecheck"
+
+[tasks.check]
+description = "Typecheck, test, then build"
+depends = ["typecheck", "test", "build"]
+
+[tasks.dev]
+description = "Run the backend against a live Plex/qBittorrent setup"
+run = "npm run dev"
+
+[tasks.dev-web]
+description = "Run the frontend with HMR against a mock backend"
+run = "npm run dev:web"
