@@ -108,6 +108,13 @@ function mockCoverage() {
     if (part === 2 && e === 3) return "present_unknown";
     return "present";
   };
+  // A missing episode only offers a one-click download when the feed holds a
+  // link, so the mock has to exercise both branches: most episodes are
+  // link-ready, and every third missing one stands in for a delisted release.
+  const hasMagnet = (status, e) => {
+    if (status === "present" || status === "present_unknown") return false;
+    return !(status === "missing" && e % 3 === 0);
+  };
   const arcs = arcDefs.map(([part, title, saga, total]) => {
     const episodes = [];
     let present = 0,
@@ -120,6 +127,7 @@ function mockCoverage() {
       else present++;
       episodes.push({
         arcPart: part,
+        arcTitle: title,
         episodeNum: e,
         seasonEpisodeId: `s${String(part).padStart(2, "0")}e${String(e).padStart(2, "0")}`,
         episodeTitle: `${title} ${e}`,
@@ -127,9 +135,22 @@ function mockCoverage() {
         status,
         diskFilename: status === "missing" ? null : `One Pace - ${title} - S${part}E${e} [1080p][AAAA0000].mkv`,
         diskCrc32: status === "missing" || status === "present_unknown" ? null : "AAAA0000",
+        hasMagnet: hasMagnet(status, e),
+        extended: false,
       });
     }
-    return { arcPart: part, arcTitle: title, arcSaga: saga, total, present, missing, upgradeable, episodes };
+    return {
+      arcPart: part,
+      arcTitle: title,
+      arcSaga: saga,
+      total,
+      present,
+      missing,
+      upgradeable,
+      downloading: 0,
+      seasonFolder: `Season ${String(part).padStart(2, "0")}`,
+      episodes,
+    };
   });
   const totals = arcs.reduce(
     (t, a) => ({
@@ -137,8 +158,9 @@ function mockCoverage() {
       present: t.present + a.present,
       missing: t.missing + a.missing,
       upgradeable: t.upgradeable + a.upgradeable,
+      downloading: t.downloading + a.downloading,
     }),
-    { episodes: 0, present: 0, missing: 0, upgradeable: 0 }
+    { episodes: 0, present: 0, missing: 0, upgradeable: 0, downloading: 0 }
   );
   return {
     scannedAt: Date.now(),
@@ -382,16 +404,28 @@ const server = http.createServer(async (req, res) => {
       return sendJson(res, status, body);
     }
     // Before the per-episode route below, which would read "bulk" as a CRC32.
+    if (method === "POST" && url.startsWith("/api/episodes/download-missing")) {
+      const b = await readBody(req);
+      const crc32s = Array.isArray(b?.crc32s) ? b.crc32s : [];
+      emitLog("info", `Download-missing requested: ${crc32s.length} episode(s)`);
+      return sendJson(res, 200, {
+        ok: true,
+        message: `Started ${crc32s.length} episode${crc32s.length === 1 ? "" : "s"}`,
+        succeeded: crc32s.length,
+        failed: 0,
+        results: crc32s.map((crc32) => ({ crc32, ok: true, message: "Download started" })),
+      });
+    }
     if (method === "POST" && url.startsWith("/api/episodes/bulk/")) {
       const action = url.replace(/^\/api\/episodes\/bulk\//, "").split("?")[0];
-      if (!["retry", "remove"].includes(action))
+      if (!["retry", "remove", "upgrade"].includes(action))
         return sendJson(res, 404, { ok: false, message: "Unknown bulk episode action" });
       const b = await readBody(req);
       const crc32s = Array.isArray(b?.crc32s) ? b.crc32s : [];
       const results = crc32s.map((crc32) => {
         const ep = episodes.find((e) => e.crc32 === crc32);
         if (!ep) return { crc32, ok: false, message: "Not found" };
-        if (action === "retry") {
+        if (action === "retry" || action === "upgrade") {
           ep.status = "downloading";
           ep.updated_at = Date.now();
           return { crc32, ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` };

@@ -36,6 +36,21 @@ theme, and a choice of logo).
 
 ![Dashboard — full page](docs/screenshots/dashboard-full.png)
 
+**Library coverage** — an arc expanded, showing its missing episodes and the
+per-arc **Download missing (n)** action:
+
+![Library coverage with missing episodes and download actions](docs/screenshots/library-missing.png)
+
+**Selecting episodes in bulk** — with a selection active, the card header swaps in
+**Retry (n)**, **Remove (n)** and **Clear selection**:
+
+![Episodes with a bulk selection active](docs/screenshots/episodes-selection.png)
+
+**Bulk delete guard** — removing five or more episodes with "delete the media
+files" ticked requires typing `DELETE`:
+
+![Bulk remove confirmation requiring a typed DELETE](docs/screenshots/bulk-remove-guard.png)
+
 **Light theme:**
 
 ![Dashboard — light theme](docs/screenshots/dashboard-light.png)
@@ -81,6 +96,13 @@ option as the per-episode dialog. Both run as a single locked batch: one
 episode failing does not abandon the rest, and the result toast reports the
 split (`Re-queued 2 of 3 — 1 failed`). Failed rows stay selected so a retry is
 one click.
+
+Ticking "delete the media files from disk" on a bulk remove of **5 or more**
+episodes additionally requires typing `DELETE` before the button enables — the
+confirmation says how many files will be permanently deleted. Removing rows from
+tracking is undoable by re-scanning; deleting the files is not, and the two are
+easy to confuse when the checkbox is already ticked from a previous dialog.
+Smaller batches keep the single-click confirmation.
 
 Every column header is also a sort button. Resolution sorts numerically, so
 1080p ranks above 720p rather than after it, and status follows the pipeline
@@ -128,6 +150,14 @@ a newer release exists), **downloading** (the new release is in the pipeline), o
 available — click to compare old vs new and queue the upgrade, individually or in
 a batch) and **Cannot Upgrade Automatically** (no link in the feed yet). The
 coverage report refreshes itself when an episode finishes or a pipeline action runs.
+
+Missing episodes work the same way, in reverse: each arc shows how many of its
+gaps are **ready to download**, and any episode the feed still carries a link for
+can be queued on its own or in one click with the arc's **Download missing (n)**
+button. Episodes whose release has dropped out of the feed are reported as
+having no link rather than silently offering an action that would fail. Both
+batches run as a single locked action with per-episode error isolation, so one
+failure doesn't abandon the rest.
 
 ### Scoping to specific arcs
 
