@@ -728,3 +728,25 @@ export function parseResolutionFromFilename(filename: string): string | null {
 export function extractResolutionFromFilename(filename: string): string {
   return parseResolutionFromFilename(filename) ?? "1080p";
 }
+
+/** The vertical resolution in a tag ("1080p" → 1080), or null when unparseable. */
+export function resolutionRank(resolution: string | null | undefined): number | null {
+  const match = resolution?.match(/(\d{3,4})p/i);
+  return match ? parseInt(match[1], 10) : null;
+}
+
+/**
+ * Orders two resolution tags: 1 when `a` is sharper, -1 when it is softer, 0
+ * when they match. Null when either side has no usable tag, so callers can
+ * treat "unknown" as "no opinion" instead of as the lowest resolution.
+ */
+export function compareResolution(
+  a: string | null | undefined,
+  b: string | null | undefined
+): number | null {
+  const ra = resolutionRank(a);
+  const rb = resolutionRank(b);
+  if (ra === null || rb === null) return null;
+  if (ra === rb) return 0;
+  return ra > rb ? 1 : -1;
+}

@@ -27,7 +27,8 @@ vi.mock("../src/db", () => ({
   getEpisodeByCrc32: vi.fn(() => null),
   getEpisodesByStatus: vi.fn(() => []),
 }));
-vi.mock("../src/metadata", () => ({
+vi.mock("../src/metadata", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/metadata")>()),
   getAllEpisodes,
   getCatalogedCrc32s,
   extractCrc32FromFilename: (f: string) => (f.match(/\[([0-9A-Fa-f]{8})\]/)?.[1] ?? null),
@@ -97,5 +98,54 @@ describe("coverage: uncatalogued on-disk release", () => {
 
     const report = await scanCoverage();
     expect(report.arcs[0].episodes[0].status).toBe("present");
+  });
+});
+
+// One Pace republished Arlong Park at 480p, and the uncatalogued 480p re-release
+// overwrote the 1080p file the dataset lists as canonical. Two things must hold:
+// a softer on-disk file must never be presented as "present_uncatalogued" (which
+// reads as fine), and the sharper canonical release must still be offered so the
+// downgrade can be undone from the dashboard.
+describe("coverage: an on-disk downgrade is recoverable", () => {
+  const CANON_1080 = "0510B910";
+  const DOWNGRADE_480 = "EB1B1AA6";
+
+  const withResolution = (resolution: string) =>
+    getAllEpisodes.mockResolvedValue([
+      {
+        crc32: CANON_1080, arcIndex: 6, arcPart: 6, arcTitle: "Arlong Park", arcSaga: "East Blue",
+        arcDescription: "", episodeNum: 9, episodeTitle: "Arlong Park 09",
+        episodeDescription: "", chapters: "", originalEpisodes: "", released: "2021-01-01",
+        resolution, extended: false, seasonEpisodeId: "s06e09",
+      },
+    ]);
+
+  const diskHolds = (name: string) =>
+    readdirSync.mockImplementation((p: string) =>
+      p === "/media"
+        ? [{ name: "Season 06", isDirectory: () => true, isFile: () => false }]
+        : [{ name, isDirectory: () => false, isFile: () => true }]
+    );
+
+  it("offers the 1080p release when a 480p downgrade sits on disk", async () => {
+    withResolution("1080p");
+    diskHolds(`One Pace - Arlong Park - S06E09 [480p][${DOWNGRADE_480}].mkv`);
+    // The 480p hash isn't catalogued, so the old rule alone would hide this.
+    getCatalogedCrc32s.mockResolvedValue(new Set([CANON_1080]));
+
+    const report = await scanCoverage();
+    expect(report.arcs[0].episodes[0].status).toBe("upgradeable");
+    expect(report.totals.upgradeable).toBe(1);
+  });
+
+  it("does not offer a softer release over a sharper file on disk", async () => {
+    // Dataset's release is 480p; disk holds a 1080p file with a different CRC.
+    withResolution("480p");
+    diskHolds(`One Pace - Arlong Park - S06E09 [1080p][${DOWNGRADE_480}].mkv`);
+    getCatalogedCrc32s.mockResolvedValue(new Set([CANON_1080]));
+
+    const report = await scanCoverage();
+    expect(report.arcs[0].episodes[0].status).toBe("present_uncatalogued");
+    expect(report.totals.upgradeable).toBe(0);
   });
 });

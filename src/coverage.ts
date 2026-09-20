@@ -3,7 +3,7 @@ import path from "path";
 import { MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getKv, setKv, getEpisodeByCrc32, getEpisodesByStatus } from "./db";
-import { getAllEpisodes, extractCrc32FromFilename, getCatalogedCrc32s } from "./metadata";
+import { getAllEpisodes, extractCrc32FromFilename, getCatalogedCrc32s, compareResolution, parseResolutionFromFilename } from "./metadata";
 import { getRssMagnetMap } from "./rss";
 import { lookupEpisodeText } from "./onepace-descriptions";
 
@@ -134,10 +134,23 @@ export async function scanCoverage(): Promise<CoverageReport> {
 
     let status: CoverageStatus;
     let hasMagnet = false;
+    // Resolution outranks recency here for the same reason it does in the import
+    // guard: One Pace re-encodes arcs at lower resolutions, so the canonical CRC32
+    // is regularly the softer one and the newer on-disk file can be a downgrade.
+    // Only a CRC32 of equal sharpness is decided by catalog membership.
+    const cmp = compareResolution(ep.resolution, parseResolutionFromFilename(onDisk?.filename ?? ""));
     if (!onDisk) status = "missing";
     else if (!onDisk.crc32) status = "present_unknown";
     else if (onDisk.crc32.toUpperCase() === ep.crc32.toUpperCase()) status = "present";
-    else if (!cataloged.has(onDisk.crc32.toUpperCase())) {
+    else if (cmp === -1) {
+      // The catalog's release is softer than what's on disk — offering it would
+      // replace a sharper file with a blurrier one.
+      status = "present_uncatalogued";
+    } else if (cmp === 1) {
+      // The catalog's release is sharper: the on-disk file is a downgrade, so the
+      // upgrade is worth offering even when its CRC32 isn't catalogued.
+      status = "upgradeable";
+    } else if (!cataloged.has(onDisk.crc32.toUpperCase())) {
       // A CRC32 mismatch is only an *upgrade* when what's on disk is a release the
       // dataset knows about (it keeps historical CRC32s), i.e. genuinely older. A
       // CRC32 the catalog has never seen came from a release that landed before the
@@ -146,6 +159,9 @@ export async function scanCoverage(): Promise<CoverageReport> {
       status = "present_uncatalogued";
     } else {
       status = "upgradeable";
+    }
+
+    if (status === "upgradeable") {
       const rssEntry = rssMagnets.get(ep.crc32.toUpperCase());
       hasMagnet = Boolean(getEpisodeByCrc32(ep.crc32.toUpperCase())?.magnet_uri) || Boolean(rssEntry);
       // Store the magnet in KV so the upgrade action can use it without a live

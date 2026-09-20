@@ -5,7 +5,7 @@ import { DOWNLOAD_PATH, MEDIA_PATH } from "./constants";
 import { logger } from "./logger";
 import { getEpisodeByCrc32, getEpisodesByStatus, updateEpisodeStatus, upsertEpisode, deleteEpisode, recordDownloadProgress, getRetryableFailed, scheduleRetry, clearRetryState, type EpisodeRecord } from "./db";
 import { getQbitClient, isTorrentComplete, type TorrentInfo } from "./qbittorrent";
-import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, parseResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, getCatalogedCrc32s, parseReleaseFilename, resolveArcByTitle, type ResolvedEpisode } from "./metadata";
+import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename, parseResolutionFromFilename, extractCrc32FromFilename, isProvisionalKey, getAllArcs, getAllEpisodes, getCatalogedCrc32s, parseReleaseFilename, resolveArcByTitle, compareResolution, type ResolvedEpisode } from "./metadata";
 import { getArcResolution } from "./onepace-sheet";
 import { buildSeasonFolder, findDownloadedFile, findExistingEpisodeFile, moveAndRename, scanBatchFiles, type BatchFile } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
@@ -30,24 +30,43 @@ function isTransientInfraError(message: string): boolean {
 }
 
 /**
- * Guards against importing a release that is OLDER than the file already in the
- * library. One Pace's feed carries both the current release and its
- * predecessor, so the same episode can be queued twice with different CRC32s;
- * whichever finished last used to win, silently overwriting the newer file.
+ * Guards against importing a release that is WORSE than the file already in the
+ * library. Resolution is the first test: One Pace re-encodes an arc at a lower
+ * resolution and republishes it, so the newer release for a slot is regularly
+ * the softer one, and a fresh 480p encode would otherwise overwrite a 1080p file.
  *
- * The test mirrors the coverage report's: a CRC32 the dataset has never listed
- * came from a release that landed after the dataset was last generated, so it is
- * newer than anything the catalog knows — including the catalog's own canonical.
+ * Only when the two are equally sharp (or a tag is missing) does recency decide,
+ * via the rule the coverage report uses: One Pace's feed carries both the current
+ * release and its predecessor, so the same episode can be queued twice with
+ * different CRC32s; whichever finished last used to win, silently overwriting the
+ * newer file. A CRC32 the dataset has never listed came from a release that
+ * landed after the dataset was last generated, so it is newer than anything the
+ * catalog knows — including the catalog's own canonical.
+ *
  * Returns the on-disk filename when the incoming file would be a downgrade.
  */
 export async function newerFileAlreadyOnDisk(
   arcTitle: string,
   arcPart: number,
   episodeNum: number,
-  incomingCrc32: string
+  incomingCrc32: string,
+  incomingResolution?: string | null
 ): Promise<string | null> {
   const existing = findExistingEpisodeFile(arcTitle, arcPart, episodeNum);
-  if (!existing?.crc32) return null;
+  if (!existing) return null;
+
+  // Resolution outranks recency. One Pace re-encodes an arc at a lower
+  // resolution and republishes it, so the newer release is regularly the softer
+  // one — a fresh 480p encode of a slot holding 1080p is a downgrade no matter
+  // how new it is. Decide on resolution first, and only fall back to the CRC32
+  // recency rule when the two are the same sharpness (or a tag is missing).
+  const cmp = compareResolution(incomingResolution, parseResolutionFromFilename(existing.filename));
+  if (cmp !== null) {
+    if (cmp < 0) return existing.filename;
+    if (cmp > 0) return null;
+  }
+
+  if (!existing.crc32) return null;
   const incoming = incomingCrc32.toUpperCase();
   if (existing.crc32 === incoming) return null;
   const cataloged = await getCatalogedCrc32s();
@@ -146,7 +165,9 @@ async function processBatchSiblings(
       const resolution = extractResolutionFromFilename(sibling.filename);
       const meta = await resolveBatchFileMeta(sibling.crc32, sibling.filename, resolution);
 
-      const newer = await newerFileAlreadyOnDisk(meta.arcTitle, meta.arcPart, meta.episodeNum, sibling.crc32);
+      const newer = await newerFileAlreadyOnDisk(
+        meta.arcTitle, meta.arcPart, meta.episodeNum, sibling.crc32, meta.resolution
+      );
       if (newer) {
         logger.info("Skipping batch file — a newer release is already in the library", {
           crc32: sibling.crc32, file: sibling.filename, keeping: newer,
@@ -332,7 +353,9 @@ async function importVideos(
     };
   }
 
-  const newer = await newerFileAlreadyOnDisk(meta.arcTitle, meta.arcPart, meta.episodeNum, realCrc32);
+  const newer = await newerFileAlreadyOnDisk(
+    meta.arcTitle, meta.arcPart, meta.episodeNum, realCrc32, resolution
+  );
   if (newer) {
     logger.info("Skipping older release — a newer file is already in the library", {
       crc32: realCrc32, arc: meta.arcTitle, episode: meta.episodeNum, keeping: newer,
@@ -612,7 +635,9 @@ async function _processDownloading(): Promise<boolean> {
 
       // One Pace's feed lists a re-release alongside the release it replaces, so
       // both can be queued for the same slot. Never let the older one land on top.
-      const newer = await newerFileAlreadyOnDisk(epMeta.arcTitle, ep.arc_part, ep.episode_num, ep.crc32);
+      const newer = await newerFileAlreadyOnDisk(
+        epMeta.arcTitle, ep.arc_part, ep.episode_num, ep.crc32, ep.resolution
+      );
       if (newer) {
         logger.info("Skipping older release — a newer file is already in the library", {
           crc32: ep.crc32, arc: ep.arc_title, episode: ep.episode_num, keeping: newer,

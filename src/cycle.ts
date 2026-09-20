@@ -125,7 +125,9 @@ export async function pollRss(): Promise<number> {
         continue;
       }
 
-      const skip = await reasonToSkipQueueing(rssEp.crc32!, ep.arcTitle, ep.arcPart, ep.episodeNum);
+      const skip = await reasonToSkipQueueing(
+        rssEp.crc32!, ep.arcTitle, ep.arcPart, ep.episodeNum, ep.resolution
+      );
       if (skip) {
         logger.info("Skipping release — nothing to download", {
           crc32: rssEp.crc32, arc: ep.arcTitle, episode: ep.episodeNum, reason: skip,
@@ -213,15 +215,16 @@ async function reasonToSkipQueueing(
   crc32: string,
   arcTitle: string,
   arcPart: number,
-  episodeNum: number
+  episodeNum: number,
+  resolution?: string | null
 ): Promise<string | null> {
   const existing = getEpisodeByCrc32(crc32.toUpperCase());
   if (existing?.status === "done" && findExistingEpisodeFile(arcTitle, arcPart, episodeNum)) {
     return "this exact release is already in the library";
   }
 
-  const newer = await newerFileAlreadyOnDisk(arcTitle, arcPart, episodeNum, crc32);
-  if (newer) return `a newer file is already in the library (${newer})`;
+  const newer = await newerFileAlreadyOnDisk(arcTitle, arcPart, episodeNum, crc32, resolution);
+  if (newer) return `a better file is already in the library (${newer})`;
 
   return null;
 }
