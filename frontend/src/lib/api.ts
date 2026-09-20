@@ -118,6 +118,27 @@ export async function episodeAction(
   return r.json();
 }
 
+export interface BulkActionResult {
+  ok: boolean;
+  message: string;
+  succeeded: number;
+  failed: number;
+  results: { crc32: string; ok: boolean; message: string }[];
+}
+
+export async function bulkEpisodeAction(
+  action: "retry" | "remove",
+  crc32s: string[],
+  body?: Record<string, unknown>
+): Promise<BulkActionResult> {
+  const r = await fetch(`/api/episodes/bulk/${action}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ crc32s, ...body }),
+  });
+  return r.json();
+}
+
 export interface SettingView {
   key: string;
   label: string;

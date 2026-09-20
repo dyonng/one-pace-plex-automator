@@ -2,7 +2,7 @@ import { runCycle, dispatchPending } from "./cycle";
 import { runMetadataSync, retryFailed } from "./processor";
 import { syncPosters, resyncPosters } from "./posters";
 import { refreshMetadata, clearMetadataCache, resolveEpisodeByCrc32, extractResolutionFromFilename } from "./metadata";
-import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes } from "./db";
+import { getEpisodeByCrc32, getKv, updateEpisodeStatus, deleteEpisode, upsertEpisode, clearDoneEpisodes, type EpisodeRecord } from "./db";
 import { getQbitClient } from "./qbittorrent";
 import { syncSingleEpisode, triggerLibraryScan } from "./plex";
 import { deleteEpisodeFile } from "./fileops";
@@ -209,6 +209,136 @@ function seasonEpisodeId(arcPart: number, episodeNum: number): string {
 
 export type EpisodeActionId = "download" | "retry" | "resync" | "remove" | "upgrade" | "download-source";
 
+/**
+ * Hands an episode's magnet to qBittorrent and flips it to "downloading".
+ * Caller must already hold the action lock. `refresh` is off for bulk runs,
+ * which refresh coverage once at the end instead of once per episode.
+ */
+async function startEpisodeDownload(
+  ep: EpisodeRecord,
+  logMessage: string,
+  refresh = true
+): Promise<ActionResult> {
+  if (!ep.magnet_uri) return { ok: false, message: "No magnet stored for this episode" };
+  if (ep.status === "downloading" || ep.status === "processing") {
+    return { ok: false, message: `Already ${ep.status}` };
+  }
+  const torrentHash = await getQbitClient().addMagnet(ep.magnet_uri);
+  updateEpisodeStatus(ep.crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+  if (refresh) await refreshCoverageIfPresent();
+  logger.info(logMessage, { crc32: ep.crc32, torrentHash });
+  return { ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` };
+}
+
+/**
+ * Drops an episode from tracking, optionally deleting its file, and cancels any
+ * in-flight torrent first. Caller must already hold the action lock.
+ */
+async function removeEpisodeRecord(
+  ep: EpisodeRecord,
+  deleteFile: boolean,
+  refresh = true
+): Promise<ActionResult> {
+  let deletedFile = false;
+  if (deleteFile && ep.final_filename) {
+    deletedFile = deleteEpisodeFile(ep.arc_title, ep.arc_part, ep.final_filename);
+  }
+  // If the episode is still in the pipeline (e.g. a stalled download), cancel its
+  // torrent and drop the partial data so removing it fully resets state — the user
+  // can retry the download/upgrade later.
+  const inFlight =
+    ep.status === "pending" || ep.status === "downloading" || ep.status === "processing";
+  if (inFlight && ep.torrent_hash) {
+    try {
+      await getQbitClient().deleteTorrent(ep.torrent_hash, true);
+      logger.info("Cancelled in-flight torrent on remove", { crc32: ep.crc32, hash: ep.torrent_hash });
+    } catch (err) {
+      logger.warn("Failed to cancel torrent on remove", { crc32: ep.crc32, error: (err as Error).message });
+    }
+  }
+  deleteEpisode(ep.crc32);
+  if (refresh) await refreshCoverageIfPresent();
+  logger.info("Episode removed from dashboard", { crc32: ep.crc32, deletedFile });
+  return {
+    ok: true,
+    message: `Removed S${ep.arc_part}E${ep.episode_num}${deletedFile ? " + file" : ""}`,
+  };
+}
+
+export type BulkEpisodeActionId = "retry" | "remove";
+
+export const BULK_EPISODE_ACTIONS: BulkEpisodeActionId[] = ["retry", "remove"];
+
+export interface BulkEpisodeResult {
+  crc32: string;
+  ok: boolean;
+  message: string;
+}
+
+export interface BulkActionResult extends ActionResult {
+  succeeded: number;
+  failed: number;
+  results: BulkEpisodeResult[];
+}
+
+/**
+ * Applies an action to many episodes. Runs under ONE lock acquisition: the lock
+ * is not reentrant, so looping over `runEpisodeAction` would fail with "Busy"
+ * from the second episode onwards.
+ *
+ * Per-episode failures are collected rather than thrown, so one bad row (a
+ * torrent qBittorrent refuses, a file that won't delete) can't abandon the rest
+ * of the batch half-done.
+ */
+export async function runBulkEpisodeAction(
+  action: BulkEpisodeActionId,
+  crc32s: string[],
+  opts: { deleteFile?: boolean } = {}
+): Promise<BulkActionResult> {
+  const wanted = [...new Set(crc32s.map((c) => c.toUpperCase()))];
+  if (wanted.length === 0) {
+    return { ok: false, message: "No episodes selected", succeeded: 0, failed: 0, results: [] };
+  }
+
+  const label = action === "retry" ? "Retry episodes" : "Remove episodes";
+  return withLock(label, async () => {
+    const results: BulkEpisodeResult[] = [];
+
+    for (const crc32 of wanted) {
+      const ep = getEpisodeByCrc32(crc32);
+      if (!ep) {
+        results.push({ crc32, ok: false, message: "Not found" });
+        continue;
+      }
+      try {
+        const r =
+          action === "retry"
+            ? await startEpisodeDownload(ep, "Episode download started from dashboard (bulk)", false)
+            : await removeEpisodeRecord(ep, Boolean(opts.deleteFile), false);
+        results.push({ crc32, ok: r.ok, message: r.message });
+      } catch (err) {
+        logger.warn("Bulk episode action failed", {
+          crc32, action, error: (err as Error).message,
+        });
+        results.push({ crc32, ok: false, message: (err as Error).message });
+      }
+    }
+
+    const succeeded = results.filter((r) => r.ok).length;
+    const failed = results.length - succeeded;
+    // One refresh for the whole batch — each one re-walks the media tree.
+    if (succeeded > 0) await refreshCoverageIfPresent();
+
+    const verb = action === "retry" ? "Re-queued" : "Removed";
+    const message =
+      failed === 0
+        ? `${verb} ${succeeded} episode${succeeded === 1 ? "" : "s"}`
+        : `${verb} ${succeeded} of ${results.length} — ${failed} failed`;
+
+    return { ok: failed === 0, message, succeeded, failed, results };
+  });
+}
+
 export async function runEpisodeAction(
   action: EpisodeActionId,
   crc32: string,
@@ -312,17 +442,9 @@ export async function runEpisodeAction(
   switch (action) {
     case "download":
     case "retry":
-      return withLock(action === "retry" ? "Retry episode" : "Download episode", async () => {
-        if (!ep.magnet_uri) return { ok: false, message: "No magnet stored for this episode" };
-        if (ep.status === "downloading" || ep.status === "processing") {
-          return { ok: false, message: `Already ${ep.status}` };
-        }
-        const torrentHash = await getQbitClient().addMagnet(ep.magnet_uri);
-        updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
-        await refreshCoverageIfPresent();
-        logger.info("Episode download started from dashboard", { crc32, torrentHash });
-        return { ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` };
-      });
+      return withLock(action === "retry" ? "Retry episode" : "Download episode", () =>
+        startEpisodeDownload(ep, "Episode download started from dashboard")
+      );
 
     case "resync":
       return withLock("Re-sync episode", async () => {
@@ -332,29 +454,7 @@ export async function runEpisodeAction(
       });
 
     case "remove":
-      return withLock("Remove episode", async () => {
-        let deletedFile = false;
-        if (opts.deleteFile && ep.final_filename) {
-          deletedFile = deleteEpisodeFile(ep.arc_title, ep.arc_part, ep.final_filename);
-        }
-        // If the episode is still in the pipeline (e.g. a stalled download),
-        // cancel its torrent and drop the partial data so removing it fully
-        // resets state — the user can retry the download/upgrade later.
-        const inFlight =
-          ep.status === "pending" || ep.status === "downloading" || ep.status === "processing";
-        if (inFlight && ep.torrent_hash) {
-          try {
-            await getQbitClient().deleteTorrent(ep.torrent_hash, true);
-            logger.info("Cancelled in-flight torrent on remove", { crc32, hash: ep.torrent_hash });
-          } catch (err) {
-            logger.warn("Failed to cancel torrent on remove", { crc32, error: (err as Error).message });
-          }
-        }
-        deleteEpisode(crc32);
-        await refreshCoverageIfPresent();
-        logger.info("Episode removed from dashboard", { crc32, deletedFile });
-        return { ok: true, message: `Removed S${ep.arc_part}E${ep.episode_num}${deletedFile ? " + file" : ""}` };
-      });
+      return withLock("Remove episode", () => removeEpisodeRecord(ep, Boolean(opts.deleteFile)));
 
     default:
       return { ok: false, message: `Unknown episode action: ${action}` };

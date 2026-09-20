@@ -10,6 +10,31 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Added
+- **Multi-select in the episodes table.** Rows can be selected individually,
+  with shift-click for a range or the header checkbox for everything, and the
+  selected rows are tinted. A selection opens bulk **Retry** and **Remove**
+  actions in the card header; the single-episode remove dialog's
+  "also delete the file" option is carried over to the bulk one, which lists
+  what is about to go.
+  - Bulk work runs under a **single** acquisition of the action lock. The lock
+    is a plain boolean rather than reentrant, so applying the existing
+    per-episode action in a loop would have failed from the second episode on
+    with `Busy: "Retry episodes" is already running` — the batch would have
+    re-queued exactly one download and reported the rest as errors.
+  - A failure on one episode no longer abandons the batch: results are
+    collected per episode and the toast reports the split (e.g. "Re-queued 2 of
+    3 — 1 failed"). Coverage is refreshed once at the end rather than per
+    episode, since each refresh re-walks the media tree.
+- **Sortable columns in the episodes table.** Every column header is a button
+  that toggles ascending/descending, with `aria-sort` set for screen readers.
+  Resolution sorts numerically (1080p above 720p, not by string), status sorts
+  by pipeline progression rather than alphabetically, and rows with no value
+  (a missing file size, an unparseable resolution) sink to the bottom in both
+  directions instead of crowding the top. Sort indicators are inline SVG
+  because the bundled Chakra Petch and IBM Plex faces have no glyphs for
+  ▲/▼/↕.
+
 ## [1.1.37] — 2026-09-13
 
 ### Added

@@ -67,6 +67,27 @@ Each pipeline row also has per-episode actions (download, retry, re-sync
 metadata, upgrade, remove), and the coverage report can queue upgrades
 individually or in batch.
 
+### Selecting episodes in bulk
+
+Tick the checkbox on any pipeline row to select it — shift-click selects a
+range, and the header checkbox selects everything. With a selection active, the
+card header swaps in **Retry (n)**, **Remove (n)** and **Clear selection**.
+
+Retry covers only the selected episodes that can actually be re-queued (failed
+or available), so its count can be lower than the number selected; if none
+qualify the button is disabled. Remove opens a confirmation listing the
+episodes about to go, with the same "delete the media files from disk"
+option as the per-episode dialog. Both run as a single locked batch: one
+episode failing does not abandon the rest, and the result toast reports the
+split (`Re-queued 2 of 3 — 1 failed`). Failed rows stay selected so a retry is
+one click.
+
+Every column header is also a sort button. Resolution sorts numerically, so
+1080p ranks above 720p rather than after it, and status follows the pipeline
+order (`available → pending → downloading → processing → done → failed`).
+Rows missing the sorted value (no file size, an unparseable resolution) always
+sink to the bottom, whichever direction you sort.
+
 ### Metadata & thumbnails
 
 Plex episode/season **titles, summaries, air dates, and thumbnails** are kept

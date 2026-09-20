@@ -6,7 +6,7 @@ import { logger, logBus, LogEntry } from "../logger";
 import { getRecentLogs, listEpisodes, countByStatus, getEpisodesByStatus, getEpisodeByCrc32 } from "../db";
 import { getData, resolveEpisodeByCrc32 } from "../metadata";
 import { resolvePlexConnection } from "../plex";
-import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, runNormalizeNaming, ActionId, EpisodeActionId } from "../controls";
+import { runtime, isBusy, busyLabel, runAction, runEpisodeAction, runBulkEpisodeAction, runNormalizeNaming, ActionId, EpisodeActionId, BulkEpisodeActionId, BULK_EPISODE_ACTIONS } from "../controls";
 import { scanNamingCandidates } from "../naming";
 import { describeSettings, applySetting, resetSetting, getSettingValue } from "../settings";
 import { sendDiscordTest } from "../discord";
@@ -174,6 +174,24 @@ function buildRouter(): Router {
     if (!ACTION_IDS.includes(id)) return c.json(404, { ok: false, message: "Unknown action" });
     try {
       c.json(200, await runAction(id));
+    } catch (err) {
+      c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  // Registered before /api/episodes/:crc32/:action so "bulk" isn't parsed as a CRC32.
+  r.post("/api/episodes/bulk/:action", async (c) => {
+    const action = c.params.action as BulkEpisodeActionId;
+    if (!BULK_EPISODE_ACTIONS.includes(action)) {
+      return c.json(404, { ok: false, message: "Unknown bulk episode action" });
+    }
+    const body = await c.body();
+    const crc32s = Array.isArray(body?.crc32s) ? (body.crc32s as string[]) : [];
+    try {
+      const result = await runBulkEpisodeAction(action, crc32s, {
+        deleteFile: Boolean(body?.deleteFile),
+      });
+      c.json(result.ok ? 200 : 409, result);
     } catch (err) {
       c.json(409, { ok: false, message: (err as Error).message });
     }

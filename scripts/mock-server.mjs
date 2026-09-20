@@ -381,6 +381,41 @@ const server = http.createServer(async (req, res) => {
       const { status, body } = await runMockAction(id);
       return sendJson(res, status, body);
     }
+    // Before the per-episode route below, which would read "bulk" as a CRC32.
+    if (method === "POST" && url.startsWith("/api/episodes/bulk/")) {
+      const action = url.replace(/^\/api\/episodes\/bulk\//, "").split("?")[0];
+      if (!["retry", "remove"].includes(action))
+        return sendJson(res, 404, { ok: false, message: "Unknown bulk episode action" });
+      const b = await readBody(req);
+      const crc32s = Array.isArray(b?.crc32s) ? b.crc32s : [];
+      const results = crc32s.map((crc32) => {
+        const ep = episodes.find((e) => e.crc32 === crc32);
+        if (!ep) return { crc32, ok: false, message: "Not found" };
+        if (action === "retry") {
+          ep.status = "downloading";
+          ep.updated_at = Date.now();
+          return { crc32, ok: true, message: `Download started: S${ep.arc_part}E${ep.episode_num}` };
+        }
+        return { crc32, ok: true, message: `Removed S${ep.arc_part}E${ep.episode_num}` };
+      });
+      if (action === "remove") {
+        const gone = new Set(results.filter((r) => r.ok).map((r) => r.crc32));
+        episodes = episodes.filter((e) => !gone.has(e.crc32));
+      }
+      const succeeded = results.filter((r) => r.ok).length;
+      const failed = results.length - succeeded;
+      emitLog("info", `Bulk ${action}: ${succeeded} succeeded, ${failed} failed`);
+      return sendJson(res, failed === 0 ? 200 : 409, {
+        ok: failed === 0,
+        message:
+          failed === 0
+            ? `${action === "retry" ? "Re-queued" : "Removed"} ${succeeded} episode${succeeded === 1 ? "" : "s"}`
+            : `${action === "retry" ? "Re-queued" : "Removed"} ${succeeded} of ${results.length} — ${failed} failed`,
+        succeeded,
+        failed,
+        results,
+      });
+    }
     if (method === "POST" && url.startsWith("/api/episodes/")) {
       const [crc32, action] = url.replace(/^\/api\/episodes\//, "").split("?")[0].split("/");
       const ep = episodes.find((e) => e.crc32 === crc32);

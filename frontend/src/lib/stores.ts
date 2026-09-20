@@ -11,6 +11,7 @@ import {
   fetchHealth,
   runHealthCheckReq,
   episodeAction,
+  bulkEpisodeAction,
   fetchDownloadProgress,
   type Status,
   type LogEntry,
@@ -20,6 +21,7 @@ import {
   type MetadataAuditReport,
   type HealthReport,
   type TorrentProgress,
+  type BulkActionResult,
 } from "./api";
 
 export const status = writable<Status | null>(null);
@@ -109,6 +111,22 @@ export async function doEpisodeAction(
     r = await episodeAction(crc32, action, body);
   } catch {
     r = { ok: false, message: "Request failed" };
+  }
+  toast(r.message, r.ok);
+  await refreshStatus();
+  return r;
+}
+
+export async function doBulkEpisodeAction(
+  action: "retry" | "remove",
+  crc32s: string[],
+  body?: Record<string, unknown>
+): Promise<BulkActionResult> {
+  let r: BulkActionResult;
+  try {
+    r = await bulkEpisodeAction(action, crc32s, body);
+  } catch {
+    r = { ok: false, message: "Request failed", succeeded: 0, failed: crc32s.length, results: [] };
   }
   toast(r.message, r.ok);
   await refreshStatus();
