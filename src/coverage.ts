@@ -161,11 +161,16 @@ export async function scanCoverage(): Promise<CoverageReport> {
       status = "upgradeable";
     }
 
-    if (status === "upgradeable") {
+    // A stored magnet matters wherever the canonical release isn't on disk yet:
+    // for "missing" it's the only thing that makes the episode downloadable at
+    // all, for "upgradeable" it's what makes the upgrade offerable. Computing it
+    // for "upgradeable" alone left missing rows reporting hasMagnet:false no
+    // matter what the feed held, which reads as "unavailable" when it isn't.
+    if (status === "missing" || status === "upgradeable") {
       const rssEntry = rssMagnets.get(ep.crc32.toUpperCase());
       hasMagnet = Boolean(getEpisodeByCrc32(ep.crc32.toUpperCase())?.magnet_uri) || Boolean(rssEntry);
-      // Store the magnet in KV so the upgrade action can use it without a live
-      // RSS lookup, even across restarts.
+      // Store the magnet in KV so the action can use it without a live RSS
+      // lookup, even across restarts.
       if (rssEntry) {
         setKv(`magnet:${ep.crc32.toUpperCase()}`, JSON.stringify(rssEntry));
       }

@@ -7,11 +7,14 @@
     metadataAuditLoading,
     runMetadataAuditScan,
     doEpisodeAction,
+    doBulkEpisodeAction,
+    doDownloadMissing,
     status,
     toast,
     refreshStatus,
   } from "./stores";
   import { fmtTime, fmtBytes, fmtAge } from "./util";
+  import { isActionable, actionHint, primaryActionLabel, downloadSummary } from "./coverage-actions";
   import {
     fetchEpisodeMetadata,
     searchTorrents,
@@ -153,6 +156,21 @@
 
   let modal = $state<ModalState | null>(null);
   let dialogEl = $state<HTMLDialogElement | null>(null);
+
+  // Per-arc "download every missing episode" runs as a batch. Keyed by arcPart so
+  // only the arc that was clicked shows the busy state.
+  let missingBusy = $state<number | null>(null);
+
+  async function downloadMissing(arcPart: number, eps: CoverageEpisode[]) {
+    if (eps.length === 0 || missingBusy !== null) return;
+    missingBusy = arcPart;
+    try {
+      const r = await doDownloadMissing(eps.map((e) => e.datasetCrc32).filter(Boolean));
+      if (r.succeeded > 0) await runCoverageScan();
+    } finally {
+      missingBusy = null;
+    }
+  }
 
   $effect(() => {
     if (modal) dialogEl?.showModal();
@@ -301,9 +319,10 @@
     if (batchSelected.size === 0) return;
     batchUpgrading = true;
     try {
-      for (const crc32 of batchSelected) {
-        await doEpisodeAction(crc32, "upgrade");
-      }
+      // One request instead of N: the server holds the action lock for the whole
+      // batch and refreshes coverage once, where per-episode calls would take the
+      // lock and re-walk the media tree for every single episode.
+      await doBulkEpisodeAction("upgrade", [...batchSelected]);
       closeBatchModal();
     } finally {
       batchUpgrading = false;
@@ -496,19 +515,36 @@
 
               {#if open[arc.arcPart]}
                 <div class="px-3 pb-3 pt-1 flex flex-wrap gap-1">
+                  {#if arc.missing > 0}
+                    {@const missingEps = arc.episodes.filter((e) => e.status === "missing" && e.datasetCrc32)}
+                    <div class="w-full flex items-center justify-between gap-2 mb-1">
+                      <span class="text-xs opacity-60">{downloadSummary(missingEps)}</span>
+                      <button
+                        class="btn btn-xs btn-error btn-outline gap-1"
+                        disabled={missingBusy !== null || missingEps.length === 0}
+                        onclick={() => downloadMissing(arc.arcPart, missingEps)}
+                        title="Queue every missing episode in this arc that has a link in the feed"
+                      >
+                        {#if missingBusy === arc.arcPart}
+                          <span class="loading loading-spinner loading-xs"></span>
+                        {/if}
+                        Download missing ({missingEps.length})
+                      </button>
+                    </div>
+                  {/if}
                   {#each arc.episodes as ep (ep.seasonEpisodeId)}
                     {@const m = metaByEp.get(ep.seasonEpisodeId)}
                     <div
                       class="tooltip before:max-w-xs before:whitespace-pre-line before:text-left"
                       data-tip={`E${ep.episodeNum} · ${ep.episodeTitle}\n${
-                        ep.status === "upgradeable"
-                          ? `${ep.extended ? "upgrade to Extended cut" : "upgradeable"}${ep.hasMagnet ? " · click to download" : " · no link yet"}\nClick to compare releases`
+                        isActionable(ep.status)
+                          ? actionHint(ep)
                           : LABEL[ep.status]
                       }${metaLines(ep)}${ep.diskFilename ? "\n" + ep.diskFilename : ""}`}
                     >
-                      {#if ep.status === "upgradeable"}
+                      {#if isActionable(ep.status)}
                         <button
-                          class="relative badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
+                          class="relative badge badge-sm border font-mono tabular-nums cursor-pointer {ep.hasMagnet && ep.status === "upgradeable" ? CHIP_UPGRADEABLE_WITH_MAGNET : CHIP[ep.status]}"
                           onclick={() => openModal(ep)}
                         >
                           E{String(ep.episodeNum).padStart(2, "0")}
@@ -726,12 +762,16 @@
               {pipelineEp.status === "pending" ? "Queued" : pipelineEp.status === "downloading" ? "Downloading…" : "Processing…"}
             </button>
           {:else if modal.ep.hasMagnet}
-            <button class="btn btn-sm btn-warning" disabled={modal.infoLoading} onclick={doUpgrade}>
-              Update
+            <button
+              class="btn btn-sm {modal.ep.status === 'missing' ? 'btn-primary' : 'btn-warning'}"
+              disabled={modal.infoLoading}
+              onclick={doUpgrade}
+            >
+              {primaryActionLabel(modal.ep)}
             </button>
           {:else}
             <button class="btn btn-sm btn-primary" onclick={openSearch}>
-              Search for torrent
+              {primaryActionLabel(modal.ep)}
             </button>
           {/if}
           <button class="btn btn-sm btn-ghost" onclick={closeModal}>Close</button>

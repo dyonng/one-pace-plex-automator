@@ -130,9 +130,20 @@ function streamLogs(req: http.IncomingMessage, res: http.ServerResponse): void {
   res.on("error", cleanup);
 }
 
-function buildRouter(): Router {
-  const r = new Router();
+/**
+ * Identifies who is driving a mutating request, for the log trail. Destructive
+ * actions used to log only their effect, so a mass removal left no record of what
+ * triggered it — undiagnosable without asking the operator.
+ */
+function requestClient(req: http.IncomingMessage): string {
+  const fwd = req.headers["x-forwarded-for"];
+  const ip = (Array.isArray(fwd) ? fwd[0] : fwd)?.split(",")[0].trim() || req.socket.remoteAddress || "unknown";
+  const ua = req.headers["user-agent"];
+  return `${ip} (${typeof ua === "string" && ua ? ua.slice(0, 80) : "no user-agent"})`;
+}
 
+export function buildRouter(): Router {
+  const r = new Router();
   r.get("/api/status", async (c) => c.json(200, await buildStatus()));
   r.get("/api/logs", (c) => c.json(200, getRecentLogs(500)));
 
@@ -173,13 +184,15 @@ function buildRouter(): Router {
     const id = c.params.id as ActionId;
     if (!ACTION_IDS.includes(id)) return c.json(404, { ok: false, message: "Unknown action" });
     try {
+      logger.info("Dashboard action requested", { action: id, client: requestClient(c.req) });
       c.json(200, await runAction(id));
     } catch (err) {
       c.json(409, { ok: false, message: (err as Error).message });
     }
   });
 
-  // Registered before /api/episodes/:crc32/:action so "bulk" isn't parsed as a CRC32.
+  // Bulk destructive work is the highest-consequence thing the dashboard can do,
+  // so record the caller and the full target list before acting.
   r.post("/api/episodes/bulk/:action", async (c) => {
     const action = c.params.action as BulkEpisodeActionId;
     if (!BULK_EPISODE_ACTIONS.includes(action)) {
@@ -187,10 +200,35 @@ function buildRouter(): Router {
     }
     const body = await c.body();
     const crc32s = Array.isArray(body?.crc32s) ? (body.crc32s as string[]) : [];
+    const deleteFile = Boolean(body?.deleteFile);
     try {
-      const result = await runBulkEpisodeAction(action, crc32s, {
-        deleteFile: Boolean(body?.deleteFile),
+      logger.info("Bulk episode action requested", {
+        action,
+        count: crc32s.length,
+        deleteFile,
+        client: requestClient(c.req),
+        crc32s: crc32s.slice(0, 200),
       });
+      const result = await runBulkEpisodeAction(action, crc32s, { deleteFile });
+      c.json(result.ok ? 200 : 409, result);
+    } catch (err) {
+      c.json(409, { ok: false, message: (err as Error).message });
+    }
+  });
+
+  // Fetches episodes that have no pipeline row at all. `upgrade` is the only
+  // action that can start a download without an existing record, so it doubles as
+  // "download these missing episodes".
+  r.post("/api/episodes/download-missing", async (c) => {
+    const body = await c.body();
+    const crc32s = Array.isArray(body?.crc32s) ? (body.crc32s as string[]) : [];
+    try {
+      logger.info("Download-missing requested", {
+        count: crc32s.length,
+        client: requestClient(c.req),
+        crc32s: crc32s.slice(0, 200),
+      });
+      const result = await runBulkEpisodeAction("upgrade", crc32s);
       c.json(result.ok ? 200 : 409, result);
     } catch (err) {
       c.json(409, { ok: false, message: (err as Error).message });
@@ -202,6 +240,13 @@ function buildRouter(): Router {
     if (!EPISODE_ACTIONS.includes(action)) return c.json(404, { ok: false, message: "Unknown episode action" });
     const body = (action === "remove" || action === "download-source") ? await c.body() : {};
     try {
+      if (action === "remove") {
+        logger.info("Episode remove requested", {
+          crc32: c.params.crc32.toUpperCase(),
+          deleteFile: Boolean(body?.deleteFile),
+          client: requestClient(c.req),
+        });
+      }
       const result = await runEpisodeAction(action, c.params.crc32.toUpperCase(), {
         deleteFile: Boolean(body?.deleteFile),
         source: typeof body?.source === "string" ? body.source : undefined,

@@ -3,6 +3,7 @@
   import { fmtTime, fmtSpeed, fmtEta, fmtBytes, STATUS_BADGE } from "./util";
   import { postAction, type Episode } from "./api";
   import { sortEpisodes, toggleSort, DEFAULT_SORT, type SortKey, type SortState } from "./sort";
+  import { needsTypeConfirm, typeConfirmOk, CONFIRM_WORD } from "./confirm";
 
   let busy = $state<string | null>(null);
   let removeTarget = $state<Episode | null>(null);
@@ -16,6 +17,12 @@
   let bulkBusy = $state(false);
   let bulkRemoveOpen = $state(false);
   let bulkDeleteFile = $state(false);
+  // Deleting files across a large selection is the one action with no undo, and a
+  // select-all plus one click is enough to do it. Require the word to be typed
+  // once the selection is big enough that the blast radius stops being obvious.
+  let bulkConfirmText = $state("");
+  const typeConfirmRequired = $derived(needsTypeConfirm(bulkDeleteFile, selectedEpisodes.length));
+  const typeConfirmPassed = $derived(typeConfirmOk(bulkConfirmText));
 
   const episodes = $derived(sortEpisodes($status?.episodes ?? [], sort));
   const doneCount = $derived(($status?.episodes ?? []).filter((e) => e.status === "done").length);
@@ -102,8 +109,10 @@
   }
 
   async function confirmBulkRemove() {
+    if (typeConfirmRequired && !typeConfirmPassed) return;
     const crc32s = selectedEpisodes.map((e) => e.crc32);
     bulkRemoveOpen = false;
+    bulkConfirmText = "";
     if (crc32s.length === 0) return;
     bulkBusy = true;
     try {
@@ -112,6 +121,17 @@
     } finally {
       bulkBusy = false;
     }
+  }
+
+  function openBulkRemove() {
+    bulkDeleteFile = false;
+    bulkConfirmText = "";
+    bulkRemoveOpen = true;
+  }
+
+  function closeBulkRemove() {
+    bulkRemoveOpen = false;
+    bulkConfirmText = "";
   }
 </script>
 
@@ -139,7 +159,7 @@
           <button
             class="btn btn-xs btn-error btn-outline"
             disabled={bulkBusy}
-            onclick={() => { bulkDeleteFile = false; bulkRemoveOpen = true; }}
+            onclick={openBulkRemove}
           >
             Remove ({selectedEpisodes.length})
           </button>
@@ -336,13 +356,32 @@
         </p>
       {/if}
 
+      {#if typeConfirmRequired}
+        <div class="rounded-box border border-error/40 bg-error/5 p-3 my-2">
+          <p class="text-xs text-error mb-2">
+            This deletes {selectedEpisodes.filter((e) => e.final_filename).length} files at once and cannot be undone.
+            Type DELETE to confirm.
+          </p>
+          <input
+            class="input input-sm input-bordered w-full font-mono"
+            bind:value={bulkConfirmText}
+            placeholder={CONFIRM_WORD}
+            autocomplete="off"
+          />
+        </div>
+      {/if}
+
       <div class="modal-action">
-        <button class="btn btn-ghost btn-sm" onclick={() => (bulkRemoveOpen = false)}>Cancel</button>
-        <button class="btn btn-error btn-sm" onclick={confirmBulkRemove}>
+        <button class="btn btn-ghost btn-sm" onclick={closeBulkRemove}>Cancel</button>
+        <button
+          class="btn btn-error btn-sm"
+          disabled={typeConfirmRequired && !typeConfirmPassed}
+          onclick={confirmBulkRemove}
+        >
           Remove {selectedEpisodes.length}
         </button>
       </div>
     </div>
-    <button class="modal-backdrop" aria-label="Close" onclick={() => (bulkRemoveOpen = false)}></button>
+    <button class="modal-backdrop" aria-label="Close" onclick={closeBulkRemove}></button>
   </div>
 {/if}

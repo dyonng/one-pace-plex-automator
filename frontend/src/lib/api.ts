@@ -127,7 +127,7 @@ export interface BulkActionResult {
 }
 
 export async function bulkEpisodeAction(
-  action: "retry" | "remove",
+  action: "retry" | "remove" | "upgrade",
   crc32s: string[],
   body?: Record<string, unknown>
 ): Promise<BulkActionResult> {
@@ -135,6 +135,20 @@ export async function bulkEpisodeAction(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ crc32s, ...body }),
+  });
+  return r.json();
+}
+
+/**
+ * Starts downloads for episodes with no pipeline row at all. Uses the `upgrade`
+ * action server-side, which is the only one that resolves a magnet without an
+ * existing record.
+ */
+export async function downloadMissingEpisodes(crc32s: string[]): Promise<BulkActionResult> {
+  const r = await fetch("/api/episodes/download-missing", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ crc32s }),
   });
   return r.json();
 }

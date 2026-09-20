@@ -11,6 +11,35 @@ into a version heading when a GitHub release is cut.
 ## [Unreleased]
 
 ### Added
+- **Missing episodes can now be downloaded from the dashboard.** The coverage
+  chips for missing episodes were inert spans, so the one status that most needs
+  an action had no way to trigger one. Missing chips are now buttons like
+  upgradeable ones, and the arc header gained a **Download missing** action that
+  queues every missing episode in the arc in a single batch.
+  - The root cause was upstream of the UI: `hasMagnet` was only computed for
+    `upgradeable` rows, so every missing episode reported `hasMagnet: false`
+    regardless of what the feed held, and the modal always fell through to a
+    manual search. It is now computed for missing rows too.
+  - `upgrade` is the only episode action that resolves a magnet without an
+    existing pipeline row, which is what makes it the download path for an
+    episode that isn't tracked at all. It now words its result as
+    "Download started" rather than "Upgrade started" when there was nothing on
+    disk to replace, and it is available as a bulk action so a whole arc can be
+    queued in one request.
+  - Batch upgrade from the Library now uses that bulk endpoint instead of
+    looping over single-episode calls, so the action lock is taken once and
+    coverage is refreshed once rather than per episode.
+- **Destructive actions now record who triggered them.** Removals logged only
+  their effect, so the mass removal of ~92 episodes left nothing in the log to
+  attribute it to. Global actions, bulk episode actions (with the target list
+  and the delete-files flag), download-missing, and single removals now log the
+  requesting client before acting.
+- **Large file-deleting batches require a typed confirmation.** A select-all
+  plus one click was enough to delete the media files behind a large selection
+  with no undo; the modal's scrolling list stopped conveying the blast radius.
+  Selections of five or more with "delete the media file" ticked now require
+  typing `DELETE` before the button enables. Small batches and file-keeping
+  removals are unchanged.
 - **Multi-select in the episodes table.** Rows can be selected individually,
   with shift-click for a range or the header checkbox for everything, and the
   selected rows are tinted. A selection opens bulk **Retry** and **Remove**

@@ -43,7 +43,7 @@ export function busyLabel(): string | null {
   return _runningLabel;
 }
 
-async function withLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
+export async function withLock<T>(label: string, fn: () => Promise<T>): Promise<T> {
   if (_running) throw new Error(`Busy: "${_runningLabel}" is already running`);
   _running = true;
   _runningLabel = label;
@@ -265,9 +265,71 @@ async function removeEpisodeRecord(
   };
 }
 
-export type BulkEpisodeActionId = "retry" | "remove";
+/**
+ * Resolves a magnet (DB → KV cache → live RSS), hands it to qBittorrent, and
+ * flips the episode to "downloading". Serves both upgrading a file we already
+ * have and fetching an episode we're missing entirely.
+ *
+ * Works for a CRC32 with no pipeline row at all, which is what makes it the only
+ * way to download a missing episode. `refresh` is off for bulk runs, which
+ * refresh coverage once at the end instead of once per episode. Caller must
+ * already hold the action lock.
+ */
+async function startEpisodeUpgrade(crc32: string, refresh = true): Promise<ActionResult> {
+  let record = getEpisodeByCrc32(crc32);
+  // Only the wording of the result should differ between the two cases.
+  const replacingExisting = Boolean(record);
 
-export const BULK_EPISODE_ACTIONS: BulkEpisodeActionId[] = ["retry", "remove"];
+  if (!record?.magnet_uri) {
+    // Check the KV cache populated by the coverage scan before hitting the RSS live.
+    const kvRaw = getKv(`magnet:${crc32.toUpperCase()}`);
+    const rssItem = kvRaw
+      ? (JSON.parse(kvRaw) as { magnet: string; guid: string; filename: string; changelog: string[] })
+      : await findMagnetByCrc32(crc32);
+
+    if (!rssItem) return { ok: false, message: "No magnet found — episode not in RSS feed" };
+
+    const meta = await resolveEpisodeByCrc32(crc32, extractResolutionFromFilename(rssItem.filename));
+    upsertEpisode({
+      crc32,
+      arc_num: meta.arcIndex,
+      arc_title: meta.arcTitle,
+      arc_part: meta.arcPart,
+      episode_num: meta.episodeNum,
+      resolution: meta.resolution,
+      original_filename: rssItem.filename,
+      final_filename: null,
+      status: "available",
+      torrent_hash: null,
+      magnet_uri: rssItem.magnet,
+      error_message: null,
+      rss_guid: rssItem.guid,
+      changelog: rssItem.changelog,
+      extended: meta.extended,
+    });
+    record = getEpisodeByCrc32(crc32)!;
+  }
+
+  if (record.status === "downloading" || record.status === "processing") {
+    return { ok: false, message: `Already ${record.status}` };
+  }
+
+  const torrentHash = await getQbitClient().addMagnet(record.magnet_uri!);
+  updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
+  if (refresh) await refreshCoverageIfPresent();
+  logger.info(
+    replacingExisting ? "Episode upgrade queued from dashboard" : "Missing episode download queued",
+    { crc32, torrentHash }
+  );
+  return {
+    ok: true,
+    message: `${replacingExisting ? "Upgrade started" : "Download started"}: S${record.arc_part}E${record.episode_num}`,
+  };
+}
+
+export type BulkEpisodeActionId = "retry" | "remove" | "upgrade";
+
+export const BULK_EPISODE_ACTIONS: BulkEpisodeActionId[] = ["retry", "remove", "upgrade"];
 
 export interface BulkEpisodeResult {
   crc32: string;
@@ -300,21 +362,27 @@ export async function runBulkEpisodeAction(
     return { ok: false, message: "No episodes selected", succeeded: 0, failed: 0, results: [] };
   }
 
-  const label = action === "retry" ? "Retry episodes" : "Remove episodes";
+  const label =
+    action === "retry" ? "Retry episodes" : action === "upgrade" ? "Upgrade episodes" : "Remove episodes";
   return withLock(label, async () => {
     const results: BulkEpisodeResult[] = [];
 
     for (const crc32 of wanted) {
-      const ep = getEpisodeByCrc32(crc32);
-      if (!ep) {
+      // Upgrade is the one action that must work without a pipeline row — that's
+      // how a missing episode gets fetched. The others operate on an existing
+      // record, so a vanished CRC32 is a real failure for them.
+      const ep = action === "upgrade" ? null : getEpisodeByCrc32(crc32);
+      if (action !== "upgrade" && !ep) {
         results.push({ crc32, ok: false, message: "Not found" });
         continue;
       }
       try {
         const r =
           action === "retry"
-            ? await startEpisodeDownload(ep, "Episode download started from dashboard (bulk)", false)
-            : await removeEpisodeRecord(ep, Boolean(opts.deleteFile), false);
+            ? await startEpisodeDownload(ep!, "Episode download started from dashboard (bulk)", false)
+            : action === "upgrade"
+              ? await startEpisodeUpgrade(crc32, false)
+              : await removeEpisodeRecord(ep!, Boolean(opts.deleteFile), false);
         results.push({ crc32, ok: r.ok, message: r.message });
       } catch (err) {
         logger.warn("Bulk episode action failed", {
@@ -329,7 +397,7 @@ export async function runBulkEpisodeAction(
     // One refresh for the whole batch — each one re-walks the media tree.
     if (succeeded > 0) await refreshCoverageIfPresent();
 
-    const verb = action === "retry" ? "Re-queued" : "Removed";
+    const verb = action === "retry" ? "Re-queued" : action === "upgrade" ? "Started" : "Removed";
     const message =
       failed === 0
         ? `${verb} ${succeeded} episode${succeeded === 1 ? "" : "s"}`
@@ -391,49 +459,7 @@ export async function runEpisodeAction(
   }
 
   if (action === "upgrade") {
-    return withLock("Upgrade episode", async () => {
-      let record = getEpisodeByCrc32(crc32);
-
-      if (!record?.magnet_uri) {
-        // Check the KV cache populated by the coverage scan before hitting the RSS live.
-        const kvRaw = getKv(`magnet:${crc32.toUpperCase()}`);
-        const rssItem = kvRaw
-          ? (JSON.parse(kvRaw) as { magnet: string; guid: string; filename: string; changelog: string[] })
-          : await findMagnetByCrc32(crc32);
-
-        if (!rssItem) return { ok: false, message: "No magnet found — episode not in RSS feed" };
-
-        const meta = await resolveEpisodeByCrc32(crc32, extractResolutionFromFilename(rssItem.filename));
-        upsertEpisode({
-          crc32,
-          arc_num: meta.arcIndex,
-          arc_title: meta.arcTitle,
-          arc_part: meta.arcPart,
-          episode_num: meta.episodeNum,
-          resolution: meta.resolution,
-          original_filename: rssItem.filename,
-          final_filename: null,
-          status: "available",
-          torrent_hash: null,
-          magnet_uri: rssItem.magnet,
-          error_message: null,
-          rss_guid: rssItem.guid,
-          changelog: rssItem.changelog,
-          extended: meta.extended,
-        });
-        record = getEpisodeByCrc32(crc32)!;
-      }
-
-      if (record.status === "downloading" || record.status === "processing") {
-        return { ok: false, message: `Already ${record.status}` };
-      }
-
-      const torrentHash = await getQbitClient().addMagnet(record.magnet_uri!);
-      updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
-      await refreshCoverageIfPresent();
-      logger.info("Episode upgrade queued from dashboard", { crc32, torrentHash });
-      return { ok: true, message: `Upgrade started: S${record.arc_part}E${record.episode_num}` };
-    });
+    return withLock("Upgrade episode", () => startEpisodeUpgrade(crc32));
   }
 
   const ep = getEpisodeByCrc32(crc32);

@@ -12,6 +12,7 @@ import {
   runHealthCheckReq,
   episodeAction,
   bulkEpisodeAction,
+  downloadMissingEpisodes,
   fetchDownloadProgress,
   type Status,
   type LogEntry,
@@ -118,13 +119,25 @@ export async function doEpisodeAction(
 }
 
 export async function doBulkEpisodeAction(
-  action: "retry" | "remove",
+  action: "retry" | "remove" | "upgrade",
   crc32s: string[],
   body?: Record<string, unknown>
 ): Promise<BulkActionResult> {
   let r: BulkActionResult;
   try {
     r = await bulkEpisodeAction(action, crc32s, body);
+  } catch {
+    r = { ok: false, message: "Request failed", succeeded: 0, failed: crc32s.length, results: [] };
+  }
+  toast(r.message, r.ok);
+  await refreshStatus();
+  return r;
+}
+
+export async function doDownloadMissing(crc32s: string[]): Promise<BulkActionResult> {
+  let r: BulkActionResult;
+  try {
+    r = await downloadMissingEpisodes(crc32s);
   } catch {
     r = { ok: false, message: "Request failed", succeeded: 0, failed: crc32s.length, results: [] };
   }
