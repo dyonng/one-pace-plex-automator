@@ -12,6 +12,8 @@ export default defineConfig({
   },
   server: {
     // `vite dev` HMR; proxy API calls to the running backend on 8282.
-    proxy: { "/api": "http://localhost:8282" },
+    // Override with API_PROXY_TARGET to shoot screenshots against the mock
+    // backend (scripts/mock-server.mjs) instead of the live one.
+    proxy: { "/api": process.env.API_PROXY_TARGET ?? "http://localhost:8282" },
   },
 });
