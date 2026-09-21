@@ -10,6 +10,8 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.39] — 2026-09-20
+
 ### Added
 - **Missing episodes can now be downloaded from the dashboard.** The coverage
   chips for missing episodes were inert spans, so the one status that most needs
