@@ -10,6 +10,15 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+### Security
+- **Trust store hardened against the eMudhra intermediate-CA compromise.**
+  Eight eMudhra intermediate CAs were compromised through weak key generation
+  and distrusted by all major root programs in October 2026. The runtime base
+  is now pinned to `node:22.23.4-alpine`, which carries the patched CA bundle,
+  and the local toolchain pin matches (`mise.toml` → Node `22.23.4`). Rebuilds
+  also pull Alpine's fixed `ca-certificates`. No application code changes; no
+  action needed beyond upgrading to the new image.
+
 ## [1.1.39] — 2026-09-20
 
 ### Added

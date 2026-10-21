@@ -2,7 +2,7 @@
 # Matches the runtime the Dockerfile builds on and CI tests against, so a local
 # `mise install` reproduces the supported Node version rather than whatever is
 # newest on the machine.
-node = "22"
+node = "22.23.4"
 
 [tasks.install]
 description = "Install dependencies"

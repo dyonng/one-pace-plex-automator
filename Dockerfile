@@ -1,4 +1,4 @@
-FROM node:22-alpine AS builder
+FROM node:22.23.4-alpine AS builder
 
 RUN apk add --no-cache python3 make g++
 
@@ -11,7 +11,7 @@ COPY src ./src
 COPY frontend ./frontend
 RUN npm run build
 
-FROM node:22-alpine AS runner
+FROM node:22.23.4-alpine AS runner
 
 # Runtime shared lib for the better-sqlite3 native addon (musl build links
 # libstdc++/libgcc). Builder had these via g++; the runner needs them too.
