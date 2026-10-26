@@ -395,7 +395,10 @@ export function isProvisionalKey(crc32: string): boolean {
 export function parseReleaseTitle(
   title: string
 ): { arcTitle: string; epNum: number; extended: boolean } | null {
-  let t = title.trim();
+  let t = title
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   let extended = false;
   const extMatch = t.match(/\s+extended(?:\s+cut)?\s*$/i);
   if (extMatch) {
@@ -408,6 +411,31 @@ export function parseReleaseTitle(
   const epNum = parseInt(last, 10);
   if (isNaN(epNum) || !/^\d+$/.test(last)) return null;
   return { arcTitle: parts.slice(0, -1).join(" "), epNum, extended };
+}
+
+/**
+ * Recovers the arc name from a whole-arc batch title like
+ * `[One Pace][96-100] Loguetown [1080p]` or
+ * `[One Pace][96-100] Loguetown - Extended Cut [1080p]`.
+ * Bracketed groups are dropped, a trailing extended marker is flagged and
+ * stripped (including a dangling dash), and the remainder is the arc title.
+ * Returns null when nothing usable remains.
+ */
+export function parseBatchArcTitle(title: string): { arcTitle: string; extended: boolean } | null {
+  const stripped = title
+    .replace(/\[[^\]]*\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!stripped) return null;
+  const extended = /\bextended(?:\s+cut)?\b/i.test(stripped);
+  const arcTitle = stripped
+    .replace(/\s*-?\s*\bextended(?:\s+cut)?\b\s*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/-+$/, "")
+    .trim();
+  if (!arcTitle) return null;
+  return { arcTitle, extended };
 }
 
 /**

@@ -6,6 +6,7 @@ import {
   extractResolutionFromFilename,
   parseResolutionFromFilename,
   isPreferredRelease,
+  parseBatchArcTitle,
   parseReleaseTitle,
   resolveArcByTitle,
   resolveAliasedRelease,
@@ -271,14 +272,16 @@ async function placeProvisional(rssEp: RssEpisode): Promise<Placement | null> {
   if (!parsed) {
     // No trailing episode number — but One Pace distributes most arcs as a
     // single whole-arc torrent ("[One Pace][1-7] Romance Dawn [1080p]", a folder
-    // with no CRC32 anywhere). Those titles are just the arc name, so resolve
-    // them as a batch instead of dropping the release.
-    const batchArc = await resolveArcByTitle(rssEp.title);
-    if (batchArc) {
+    // with no CRC32 anywhere). Feed titles carry bracketed groups, so strip
+    // them before resolving the arc name.
+    const batch = parseBatchArcTitle(rssEp.title);
+    const batchArc = batch ? await resolveArcByTitle(batch.arcTitle) : null;
+    if (batch && batchArc) {
       logger.info("Recognized whole-arc batch release", {
         title: rssEp.title, arc: batchArc.arcTitle, part: batchArc.arcPart,
+        extended: batch.extended,
       });
-      return { ...batchArc, epNum: BATCH_EPISODE, extended: false };
+      return { ...batchArc, epNum: BATCH_EPISODE, extended: batch.extended };
     }
     logger.warn("Provisional download skipped — can't parse arc/episode from title", {
       title: rssEp.title, willRetry: retriesLater(rssEp),

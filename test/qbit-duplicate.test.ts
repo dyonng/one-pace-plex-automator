@@ -30,6 +30,7 @@ vi.mock("../src/metadata", () => ({
   resolveEpisodeByCrc32: vi.fn(), resolveArcByTitle: vi.fn(), resolveAliasedRelease: vi.fn(),
   extractResolutionFromFilename: () => "1080p", parseResolutionFromFilename: () => "1080p",
   isPreferredRelease: async () => true, parseReleaseTitle: () => null,
+  parseBatchArcTitle: () => null,
   provisionalKey: (a: number, e: number) => `PROV-${a}-${e}`,
 }));
 vi.mock("../src/onepace-sheet", () => ({ getArcResolution: async () => null }));

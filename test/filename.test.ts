@@ -2,6 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   buildPlexFilename,
   extractCrc32FromFilename,
+  parseBatchArcTitle,
+  parseReleaseFilename,
+  parseReleaseTitle,
   parseResolutionFromFilename,
   extractResolutionFromFilename,
 } from "../src/metadata";
@@ -61,5 +64,30 @@ describe("resolution parsing", () => {
   it("extractResolutionFromFilename defaults to 1080p when absent", () => {
     expect(extractResolutionFromFilename("no resolution here.mkv")).toBe("1080p");
     expect(extractResolutionFromFilename("x [480p].mkv")).toBe("480p");
+  });
+});
+
+describe("bracketed RSS titles", () => {
+  it("parses episode titles with bracketed groups", () => {
+    expect(parseReleaseTitle("[One Pace][605-606] Fishman Island 02 [1080p]")).toEqual({
+      arcTitle: "Fishman Island", epNum: 2, extended: false,
+    });
+  });
+
+  it("returns null for whole-arc batch titles (no episode number)", () => {
+    expect(parseReleaseTitle("[One Pace][96-100] Loguetown [1080p]")).toBeNull();
+    expect(parseReleaseFilename("[One Pace][1-7] Romance Dawn [1080p].mkv")).toBeNull();
+  });
+
+  it("recovers the arc from whole-arc batch titles", () => {
+    expect(parseBatchArcTitle("[One Pace][96-100] Loguetown [1080p]")).toEqual({
+      arcTitle: "Loguetown", extended: false,
+    });
+    expect(parseBatchArcTitle("[One Pace][96-100] Loguetown - Extended Cut [1080p]")).toEqual({
+      arcTitle: "Loguetown", extended: true,
+    });
+    expect(parseBatchArcTitle("[One Pace][1-7] Romance Dawn [1080p]")).toEqual({
+      arcTitle: "Romance Dawn", extended: false,
+    });
   });
 });

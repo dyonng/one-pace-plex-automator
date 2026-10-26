@@ -53,6 +53,7 @@ vi.mock("../src/metadata", () => ({
   getAllArcs: vi.fn(), getAllEpisodes: vi.fn(), getCatalogedCrc32s: vi.fn(async () => new Set()),
   parseReleaseFilename: () => null, resolveArcByTitle: vi.fn(async () => null),
   resolveAliasedRelease: vi.fn(async () => null), parseReleaseTitle: () => null,
+  parseBatchArcTitle: () => null,
   isPreferredRelease: async () => true, provisionalKey: (a: number, e: number) => `PROV-${a}-${e}`,
 }));
 vi.mock("../src/onepace-sheet", () => ({ getArcResolution: async () => null }));

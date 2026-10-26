@@ -32,10 +32,19 @@ vi.mock("../src/metadata", () => ({
   extractResolutionFromFilename: () => "1080p", parseResolutionFromFilename: () => "1080p",
   isPreferredRelease: async () => true,
   parseReleaseTitle: (t: string) => {
-    const parts = t.trim().split(/\s+/);
+    const clean = t.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+    const parts = clean.split(/\s+/);
     const last = parts[parts.length - 1];
     if (!/^\d+$/.test(last) || parts.length < 2) return null;
     return { arcTitle: parts.slice(0, -1).join(" "), epNum: parseInt(last, 10), extended: false };
+  },
+  parseBatchArcTitle: (t: string) => {
+    const stripped = t.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+    if (!stripped) return null;
+    const extended = /\bextended(?:\s+cut)?\b/i.test(stripped);
+    const arcTitle = stripped.replace(/\s*-?\s*\bextended(?:\s+cut)?\b\s*$/i, "").replace(/\s+/g, " ").trim().replace(/-+$/, "").trim();
+    if (!arcTitle) return null;
+    return { arcTitle, extended };
   },
   provisionalKey: (a: number, e: number) => `PROV-${a}-${e}`,
 }));

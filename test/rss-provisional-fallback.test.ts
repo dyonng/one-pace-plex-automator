@@ -49,12 +49,21 @@ vi.mock("../src/metadata", () => ({
   extractResolutionFromFilename: () => "1080p",
   parseResolutionFromFilename: () => "1080p",
   isPreferredRelease: async () => true,
-  // Mirrors the real parser: trailing integer = episode, rest = arc title.
+  // Mirrors the real parser: strips [...] groups, trailing integer = episode.
   parseReleaseTitle: (t: string) => {
-    const parts = t.trim().split(/\s+/);
+    const clean = t.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+    const parts = clean.split(/\s+/);
     const last = parts[parts.length - 1];
     if (!/^\d+$/.test(last) || parts.length < 2) return null;
     return { arcTitle: parts.slice(0, -1).join(" "), epNum: parseInt(last, 10), extended: false };
+  },
+  parseBatchArcTitle: (t: string) => {
+    const stripped = t.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+    if (!stripped) return null;
+    const extended = /\bextended(?:\s+cut)?\b/i.test(stripped);
+    const arcTitle = stripped.replace(/\s*-?\s*\bextended(?:\s+cut)?\b\s*$/i, "").replace(/\s+/g, " ").trim().replace(/-+$/, "").trim();
+    if (!arcTitle) return null;
+    return { arcTitle, extended };
   },
   provisionalKey: (arcPart: number, epNum: number) => `PROV-${arcPart}-${epNum}`,
 }));
@@ -199,5 +208,29 @@ describe("unresolvable CRC32 falls back to the provisional path", () => {
 
     expect(upsertEpisode).not.toHaveBeenCalled();
     expect(markGuidSeen).toHaveBeenCalledWith("guid-junk");
+  });
+
+  it("queues bracketed whole-arc batch titles like the real feed", async () => {
+    // Real 2026-10-26 failure: "[One Pace][96-100] Loguetown [1080p]" carries
+    // bracketed groups, so the arc lookup must strip them first.
+    resolveArcByTitle.mockImplementation(async (arcTitle: string) =>
+      arcTitle === "Loguetown"
+        ? { arcIndex: 5, arcPart: 6, arcTitle: "Loguetown", arcSaga: "East Blue", arcDescription: "", arcReleased: "" }
+        : null
+    );
+    fetchNewEpisodes.mockResolvedValue([
+      entry({ crc32: null, guid: "guid-logue-std", title: "[One Pace][96-100] Loguetown [1080p]",
+              filename: "[One Pace][96-100] Loguetown [1080p]" }),
+      entry({ crc32: null, guid: "guid-logue-ext", title: "[One Pace][96-100] Loguetown - Extended Cut [1080p]",
+              filename: "[One Pace][96-100] Loguetown - Extended Cut [1080p]" }),
+    ]);
+
+    await pollRss();
+
+    expect(resolveArcByTitle).toHaveBeenCalledWith("Loguetown");
+    expect(upsertEpisode).toHaveBeenCalled();
+    expect(addMagnet).toHaveBeenCalled();
+    expect(markGuidSeen).toHaveBeenCalledWith("guid-logue-std");
+    expect(markGuidSeen).toHaveBeenCalledWith("guid-logue-ext");
   });
 });
