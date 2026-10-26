@@ -1,12 +1,4 @@
-FROM node:22.23.3-alpine AS builder
-
-# eMudhra workaround (2026-10-21): the fixed node:22.23.4-alpine images were
-# still unpublished on Docker Hub (empty manifest), so the base stays on
-# 22.23.3 and TLS trust comes from the OS store instead of Node's bundled
-# roots. --use-openssl-ca makes Node verify against /etc/ssl/certs, and the
-# ca-certificates install below pulls Alpine's fixed release (20261020-r0).
-# Revert to node:22.23.4-alpine and drop this flag once its manifest lands.
-ENV NODE_OPTIONS=--use-openssl-ca
+FROM node:22.23.4-alpine AS builder
 
 RUN apk add --no-cache python3 make g++ ca-certificates
 
@@ -19,10 +11,7 @@ COPY src ./src
 COPY frontend ./frontend
 RUN npm run build
 
-FROM node:22.23.3-alpine AS runner
-
-# Same eMudhra workaround as the builder stage: OS store instead of bundled roots.
-ENV NODE_OPTIONS=--use-openssl-ca
+FROM node:22.23.4-alpine AS runner
 
 # Runtime shared lib for the better-sqlite3 native addon (musl build links
 # libstdc++/libgcc). Builder had these via g++; the runner needs them too.

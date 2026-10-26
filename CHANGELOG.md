@@ -11,19 +11,13 @@ into a version heading when a GitHub release is cut.
 ## [Unreleased]
 
 ### Security
-- **Trust store hardened against the eMudhra intermediate-CA compromise.**
-  Eight eMudhra intermediate CAs were compromised through weak key generation
-  and distrusted by all major root programs in October 2026. The image no
-  longer trusts Node's bundled CA list, which is only fixed as of Node
-  `22.23.4` — a release whose Docker Hub images were still unpublished when
-  this shipped (`node:22.23.4-alpine` resolved to an empty manifest and broke
-  the image build). The base stays on `node:22.23.3-alpine` and both stages
-  set `NODE_OPTIONS=--use-openssl-ca`, so all TLS verifies against the OS
-  store, with Alpine's fixed `ca-certificates` installed fresh at build time.
-  Follow-up: pin `node:22.23.4-alpine` and drop the flag once Docker Hub
-  publishes it. The local toolchain pin matches the fixed release where it
-  exists (`mise.toml` → Node `22.23.4`). No application code changes; no
-  action needed beyond upgrading to the new image.
+- **eMudhra remediation finalized: base now on published `node:22.23.4-alpine`.**
+  Docker Hub has published the fixed images, so both stages move off
+  `node:22.23.3-alpine` and the temporary `NODE_OPTIONS=--use-openssl-ca`
+  workaround is removed — TLS verifies against Node's corrected bundled
+  roots again, with Alpine's fixed `ca-certificates` still installed fresh
+  at build time as defense in depth. No application code changes; pull the
+  new image and recreate the container.
 
 ## [1.1.39] — 2026-09-20
 
