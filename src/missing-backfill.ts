@@ -1,9 +1,10 @@
 import { logger } from "./logger";
 import { getEpisodeByCrc32, getEpisodesByStatus, getKv, setKv, upsertEpisode, updateEpisodeStatus } from "./db";
 import { getStoredCoverage } from "./coverage";
-import { canonicalizeArcTitle, parseReleaseTitle, resolveEpisodeByCrc32 } from "./metadata";
+import { canonicalizeArcTitle, parseBatchArcTitle, parseReleaseTitle, resolveEpisodeByCrc32 } from "./metadata";
 import { searchTorrents, type TorrentSearchResult } from "./torrent-search";
 import { getQbitClient } from "./qbittorrent";
+import { prepareBatchDownload } from "./batch-fileselect";
 import { sendDiscordNotification } from "./discord";
 import { getAutoDownload, getAutoSearchMissing, getMissingSearchPerCycle } from "./settings";
 import { toIsoDate } from "./rss";
@@ -34,6 +35,34 @@ function pickBest(results: TorrentSearchResult[], arcTitle: string, episodeNum: 
   );
   if (matching.length === 0) return null;
   return [...matching].sort((a, b) => (b.seeders ?? -1) - (a.seeders ?? -1))[0];
+}
+
+// Packs bigger than this are never worth fetching for one episode — a full
+// series dump matched by accident, not an arc release.
+const PACK_MAX_BYTES = 20 * 1024 ** 3;
+
+/**
+ * Arc-pack fallback for a missing episode with no single release: a pack for
+ * the whole arc (e.g. "[One Pace][431-441] Post-Enies Lobby [720p]") usually
+ * predates the episode's single release and still carries the file, which the
+ * import flow then places as a sibling. Dead and absurdly large packs are
+ * skipped — only missing (empty-slot) targets qualify, since every file the
+ * pack holds for the target slot is wanted by definition.
+ */
+function pickPack(results: TorrentSearchResult[], arcTitle: string, extended: boolean): TorrentSearchResult | null {
+  const packs = results.filter((r) => {
+    if (!(r.magnet ?? r.torrentUrl)) return false;
+    if ((r.seeders ?? 1) <= 0) return false;
+    if (r.size != null && r.size > PACK_MAX_BYTES) return false;
+    const pack = parseBatchArcTitle(r.title);
+    return (
+      pack !== null &&
+      canonicalizeArcTitle(pack.arcTitle) === canonicalizeArcTitle(arcTitle) &&
+      pack.extended === extended
+    );
+  });
+  if (packs.length === 0) return null;
+  return [...packs].sort((a, b) => (b.seeders ?? -1) - (a.seeders ?? -1))[0];
 }
 
 /**
@@ -85,7 +114,7 @@ export async function backfillMissing(): Promise<number> {
           }
           return getEpisodeByCrc32(crc)?.magnet_uri ?? null;
         })();
-        if (magnet && (await queueFound(crc, magnet, null, autoDownload))) queued++;
+        if (magnet && (await queueFound(crc, magnet, null, autoDownload, false))) queued++;
         else setKv(`${ATTEMPT_PREFIX}${crc}`, String(now));
         continue;
       }
@@ -93,14 +122,27 @@ export async function backfillMissing(): Promise<number> {
       const results = await searchTorrents(buildQuery(target.arcTitle, target.episodeNum));
       const best = pickBest(results, target.arcTitle, target.episodeNum, target.extended);
       if (!best) {
+        // No single release — an arc pack may still carry the file.
+        const pack = target.status === "missing" ? pickPack(results, target.arcTitle, target.extended) : null;
+        if (!pack) {
+          setKv(`${ATTEMPT_PREFIX}${crc}`, String(now));
+          logger.info("Backfill search found no match", {
+            arc: target.arcTitle, episode: target.episodeNum, crc,
+          });
+          continue;
+        }
+        // Stamp the attempt up front: a dud pack that lacks the episode
+        // self-cleans on completion, and this stops it re-downloading daily.
         setKv(`${ATTEMPT_PREFIX}${crc}`, String(now));
-        logger.info("Backfill search found no match", {
-          arc: target.arcTitle, episode: target.episodeNum, crc,
+        const source = pack.magnet ?? pack.torrentUrl!;
+        logger.info("Backfill episode found in arc pack", {
+          arc: target.arcTitle, episode: target.episodeNum, crc, pack: pack.title.slice(0, 80),
         });
+        if (await queueFound(crc, source, pack.publishedAt, autoDownload, true)) queued++;
         continue;
       }
       const source = best.magnet ?? best.torrentUrl!;
-      if (await queueFound(crc, source, best.publishedAt, autoDownload)) queued++;
+      if (await queueFound(crc, source, best.publishedAt, autoDownload, false)) queued++;
     } catch (err) {
       logger.warn("Backfill search failed", {
         arc: target.arcTitle, episode: target.episodeNum, error: (err as Error).message,
@@ -113,7 +155,7 @@ export async function backfillMissing(): Promise<number> {
   return queued;
 }
 
-async function queueFound(crc: string, source: string, publishedAt: number | null, autoDownload: boolean): Promise<boolean> {
+async function queueFound(crc: string, source: string, publishedAt: number | null, autoDownload: boolean, pack: boolean): Promise<boolean> {
   let meta;
   try {
     meta = await resolveEpisodeByCrc32(crc);
@@ -141,7 +183,11 @@ async function queueFound(crc: string, source: string, publishedAt: number | nul
     pixeldrain_id: null,
   });
   if (autoDownload) {
-    const torrentHash = await getQbitClient().addMagnet(source);
+    // Packs only fetch the files the library still needs — the rest of the
+    // arc stays deselected, so a 2GB pack can cost a single episode.
+    const torrentHash = pack
+      ? await prepareBatchDownload(source)
+      : await getQbitClient().addMagnet(source);
     updateEpisodeStatus(crc, "downloading", { torrent_hash: torrentHash });
     logger.info("Backfill episode queued for download", {
       crc, arc: meta.arcTitle, episode: meta.episodeNum, torrentHash,

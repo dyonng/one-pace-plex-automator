@@ -5,11 +5,12 @@ const { kv, coverageReport } = vi.hoisted(() => ({
   coverageReport: { value: null as unknown },
 }));
 
-const { mockSearch, mockResolve, mockAddMagnet, mockNotify } = vi.hoisted(() => ({
+const { mockSearch, mockResolve, mockAddMagnet, mockNotify, mockPrepare } = vi.hoisted(() => ({
   mockSearch: vi.fn(),
   mockResolve: vi.fn(),
   mockAddMagnet: vi.fn(),
   mockNotify: vi.fn(),
+  mockPrepare: vi.fn(),
 }));
 
 vi.mock("../src/db", () => ({
@@ -31,6 +32,9 @@ vi.mock("../src/qbittorrent", () => ({
 }));
 vi.mock("../src/discord", () => ({
   sendDiscordNotification: mockNotify,
+}));
+vi.mock("../src/batch-fileselect", () => ({
+  prepareBatchDownload: mockPrepare,
 }));
 vi.mock("../src/settings", () => ({
   getAutoSearchMissing: vi.fn(() => true),
@@ -72,6 +76,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   kv.clear();
   mockAddMagnet.mockResolvedValue("hash123");
+  mockPrepare.mockResolvedValue("packhash");
   mockResolve.mockImplementation(async (crc: string) => ({
     crc32: crc, arcIndex: 0, arcTitle: "Fishman Island", arcSaga: "",
     arcPart: 35, arcDescription: "", episodeNum: 2, episodeTitle: "Ep 2",
@@ -133,5 +138,53 @@ describe("missing backfill", () => {
 
     expect(await backfillMissing()).toBe(0);
     expect(mockSearch).not.toHaveBeenCalled();
+  });
+
+  it("queues an arc pack when no single release matches", async () => {
+    coverageReport.value = report([ep("FFFFFFFF")]) as never;
+    mockSearch.mockResolvedValue([
+      { source: "nyaa", title: "[One Pace][10-11] Fishman Island [720p]", magnet: "magnet:?xt=pack", torrentUrl: null, infoHash: "d", size: 2 * 1024 ** 3, seeders: 5, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+    ]);
+
+    const queued = await backfillMissing();
+
+    expect(queued).toBe(1);
+    expect(mockPrepare).toHaveBeenCalledWith("magnet:?xt=pack");
+    expect(mockAddMagnet).not.toHaveBeenCalled();
+    expect(kv.get("backfill_attempt:FFFFFFFF")).toBeTruthy();
+  });
+
+  it("skips dead, oversized, and wrong-arc packs", async () => {
+    coverageReport.value = report([
+      ep("11111111"),
+      ep("22222222"),
+      ep("33333333"),
+    ]) as never;
+    mockSearch
+      .mockResolvedValueOnce([ // dead pack
+        { source: "nyaa", title: "[One Pace][10-11] Fishman Island [720p]", magnet: "magnet:?xt=dead", torrentUrl: null, infoHash: "d", size: 2 * 1024 ** 3, seeders: 0, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+      ])
+      .mockResolvedValueOnce([ // pack over the size cap
+        { source: "animetosho", title: "[One Pace] Fishman Island [2160p]", magnet: "magnet:?xt=huge", torrentUrl: null, infoHash: "e", size: 325 * 1024 ** 3, seeders: 50, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+      ])
+      .mockResolvedValueOnce([ // pack for a different arc
+        { source: "nyaa", title: "[One Pace][10-11] Punk Hazard [720p]", magnet: "magnet:?xt=wrong", torrentUrl: null, infoHash: "f", size: 2 * 1024 ** 3, seeders: 50, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+      ]);
+
+    const queued = await backfillMissing();
+
+    expect(queued).toBe(0);
+    expect(mockPrepare).not.toHaveBeenCalled();
+  });
+
+  it("does not queue packs for upgradeable targets", async () => {
+    coverageReport.value = report([ep("44444444", { status: "upgradeable" })]) as never;
+    mockSearch.mockResolvedValue([
+      { source: "nyaa", title: "[One Pace][10-11] Fishman Island [720p]", magnet: "magnet:?xt=pack", torrentUrl: null, infoHash: "d", size: 2 * 1024 ** 3, seeders: 5, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+    ]);
+
+    expect(await backfillMissing()).toBe(0);
+    expect(mockPrepare).not.toHaveBeenCalled();
+    expect(mockAddMagnet).not.toHaveBeenCalled();
   });
 });
