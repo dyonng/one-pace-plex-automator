@@ -14,6 +14,7 @@ import { clearDescriptionsCache, prefetchDescriptions } from "./onepace-descript
 import { clearOnepacerrCache, prefetchOnepacerr } from "./onepacerr";
 import { scanMetadataAudit, reconcilePlexMetadata, markDirtyFromSource, retryThumbnails, markPostersChecked } from "./metadata-audit";
 import { getAutoReconcile } from "./settings";
+import { prepareBatchDownload } from "./batch-fileselect";
 import { logger } from "./logger";
 
 export interface Runtime {
@@ -451,7 +452,9 @@ export async function runEpisodeAction(
         upsertEpisode({ ...record, magnet_uri: source, status: "available", error_message: null });
         record = getEpisodeByCrc32(crc32)!;
       }
-      const torrentHash = await getQbitClient().addMagnet(source);
+      // A manual pick can be a whole-arc batch for a single episode — same
+      // file selection as the automatic path so unwanted files never fetch.
+      const torrentHash = await prepareBatchDownload(source);
       updateEpisodeStatus(crc32, "downloading", { torrent_hash: torrentHash, error_message: null });
       logger.info("Episode download started via interactive search", { crc32, torrentHash });
       return { ok: true, message: `Download started: S${record.arc_part}E${record.episode_num}` };

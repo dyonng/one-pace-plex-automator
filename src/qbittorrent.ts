@@ -20,6 +20,14 @@ export type TorrentState =
   | "forcedDL"
   | "forcedUP";
 
+export interface TorrentFile {
+  index: number;
+  name: string;
+  size: number;
+  progress: number;
+  priority: number;
+}
+
 export interface TorrentInfo {
   hash: string;
   name: string;
@@ -164,7 +172,7 @@ class QBittorrentClient {
    * is resolved by diffing the category's torrent list after the add, since
    * completion detection keys off this hash.
    */
-  async addMagnet(source: string): Promise<string> {
+  async addMagnet(source: string, opts: { paused?: boolean } = {}): Promise<string> {
     const { QBIT_CATEGORY } = getConfig();
 
     // Fast path: a v1 magnet carries its SHA-1 infohash inline.
@@ -180,7 +188,7 @@ class QBittorrentClient {
     const params = new URLSearchParams({
       urls: source,
       category: QBIT_CATEGORY,
-      paused: "false",
+      paused: opts.paused ? "true" : "false",
     });
     try {
       await this.request<string>("post", "/torrents/add", params);
@@ -199,19 +207,22 @@ class QBittorrentClient {
       throw err;
     }
 
-    if (inlineHash) {
-      logger.info("Added magnet to qBittorrent", { hash: inlineHash, category: QBIT_CATEGORY });
-      return inlineHash;
-    }
-
-    const hash = await this.resolveNewHash(before!);
+    const hash = inlineHash ?? (await this.resolveNewHash(before!));
     if (!hash) {
       logger.warn("Added torrent but could not resolve its info hash; completion detection may fail", {
         source: source.slice(0, 80),
       });
-    } else {
-      logger.info("Added torrent to qBittorrent", { hash, category: QBIT_CATEGORY });
+      return "";
     }
+    // The add endpoint answers before the torrent exists in the list — a ghost
+    // hash used to surface three sweeps later as an abandoned download. Confirm
+    // presence now so a failed queue fails loudly at queue time instead.
+    for (let i = 0; i < 3; i++) {
+      if (await this.getTorrent(hash)) break;
+      if (i === 2) throw new Error(`qBittorrent accepted the torrent but hash ${hash} never appeared`);
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    logger.info("Added magnet to qBittorrent", { hash, category: QBIT_CATEGORY });
     return hash;
   }
 
@@ -251,6 +262,33 @@ class QBittorrentClient {
     const params = new URLSearchParams({ hashes: hash, deleteFiles: String(deleteFiles) });
     await this.request<string>("post", "/torrents/delete", params);
     logger.info("Deleted torrent from qBittorrent", { hash });
+  }
+
+  /** File list for content selection. Empty until the metadata resolves. */
+  async getTorrentFiles(hash: string): Promise<TorrentFile[]> {
+    const params = new URLSearchParams({ hash });
+    return this.request<TorrentFile[]>("get", `/torrents/files?${params}`);
+  }
+
+  /** Priority 0 skips the file, 1 downloads it normally. */
+  async setFilePriorities(hash: string, ids: number[], priority: 0 | 1): Promise<void> {
+    if (ids.length === 0) return;
+    const params = new URLSearchParams({
+      hash,
+      id: ids.join("|"),
+      priority: String(priority),
+    });
+    await this.request<string>("post", "/torrents/filePrio", params);
+  }
+
+  async pauseTorrents(hashes: string[]): Promise<void> {
+    if (hashes.length === 0) return;
+    await this.request<string>("post", "/torrents/pause", new URLSearchParams({ hashes: hashes.join("|") }));
+  }
+
+  async resumeTorrents(hashes: string[]): Promise<void> {
+    if (hashes.length === 0) return;
+    await this.request<string>("post", "/torrents/resume", new URLSearchParams({ hashes: hashes.join("|") }));
   }
 }
 

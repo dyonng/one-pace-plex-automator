@@ -23,6 +23,7 @@ import * as pixeldrainDownloads from "./pixeldrain-downloads";
 import { isArcIncluded } from "./arc-filter";
 import { getStoredCoverage, scanCoverage } from "./coverage";
 import { backfillMissing } from "./missing-backfill";
+import { prepareBatchDownload } from "./batch-fileselect";
 
 // Sentinel episode number for a whole-arc batch download. Real episodes start at
 // 1, so this can't collide; the actual episodes are identified from the files in
@@ -378,7 +379,9 @@ async function processProvisional(items: PlacedItem[], autoDownload: boolean): P
       markGuidSeen(rssEp.guid);
 
       if (autoDownload) {
-        const torrentHash = await getQbitClient().addMagnet(rssEp.magnet);
+        // Provisional releases are often whole-arc batches carrying episodes
+        // the library already holds — select only the wanted files up front.
+        const torrentHash = await prepareBatchDownload(rssEp.magnet);
         updateEpisodeStatus(key, "downloading", { torrent_hash: torrentHash });
         logger.info("Provisional download started", {
           provisionalKey: key,

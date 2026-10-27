@@ -247,6 +247,37 @@ async function processBatchSiblings(
 }
 
 /**
+ * Pushes freshly imported batch siblings into Plex and refreshes posters.
+ * The files are already on disk by the time this runs, so every failure here
+ * warns rather than failing the import.
+ */
+async function scanAndSyncSiblings(siblings: BatchResult[]): Promise<void> {
+  if (siblings.length === 0) return;
+  try {
+    await triggerLibraryScan();
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    for (const s of siblings) {
+      try {
+        await syncSingleEpisode({
+          ...s.meta,
+          seasonEpisodeId: `s${String(s.meta.arcPart).padStart(2, "0")}e${String(s.meta.episodeNum).padStart(2, "0")}`,
+        });
+      } catch (err) {
+        logger.warn("Plex sync failed for batch sibling", { crc32: s.crc32, error: (err as Error).message });
+      }
+    }
+  } catch (err) {
+    logger.warn("Plex scan/sync failed after batch sibling ingest — files are on disk, use Full Sync to recover", {
+      error: (err as Error).message,
+    });
+  }
+  if (getAutoPosters()) {
+    const arcParts = new Set(siblings.map((s) => s.meta.arcPart));
+    for (const arcPart of arcParts) await ensureSeasonPoster(arcPart);
+  }
+}
+
+/**
  * Locates the downloaded video file(s) for a torrent we don't have a CRC32 for
  * (a provisional download). qBittorrent's content_path is in its own namespace,
  * so we remap it onto our DOWNLOAD_PATH mount via the basename and scan there.
@@ -294,7 +325,7 @@ async function importTorrentContents(ep: EpisodeRecord, torrentHash: string): Pr
  * `torrentHash` is null for a direct HTTP download, in which case there is no
  * torrent to clean up afterwards.
  */
-async function importVideos(
+export async function importVideos(
   ep: EpisodeRecord,
   videos: BatchFile[],
   torrentHash: string | null
@@ -360,9 +391,13 @@ async function importVideos(
     logger.info("Skipping older release — a newer file is already in the library", {
       crc32: realCrc32, arc: meta.arcTitle, episode: meta.episodeNum, keeping: newer,
     });
+    // The torrent may still hold episodes the library wants — a batch whose
+    // primary sorts older must not strand its upgradeable siblings.
+    const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32);
     deleteEpisode(ep.crc32);
     if (torrentHash) await safeDeleteTorrent(torrentHash);
-    return false;
+    await scanAndSyncSiblings(siblings);
+    return siblings.length > 0;
   }
 
   const finalFilename = buildPlexFilename(
