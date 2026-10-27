@@ -77,6 +77,7 @@ beforeEach(() => {
   kv.clear();
   mockAddMagnet.mockResolvedValue("hash123");
   mockPrepare.mockResolvedValue("packhash");
+  mockSearch.mockResolvedValue([]);
   mockResolve.mockImplementation(async (crc: string) => ({
     crc32: crc, arcIndex: 0, arcTitle: "Fishman Island", arcSaga: "",
     arcPart: 35, arcDescription: "", episodeNum: 2, episodeTitle: "Ep 2",
@@ -152,6 +153,21 @@ describe("missing backfill", () => {
     expect(mockPrepare).toHaveBeenCalledWith("magnet:?xt=pack");
     expect(mockAddMagnet).not.toHaveBeenCalled();
     expect(kv.get("backfill_attempt:FFFFFFFF")).toBeTruthy();
+  });
+
+  it("finds packs with an arc-wide retry query", async () => {
+    coverageReport.value = report([ep("55555555")]) as never;
+    mockSearch
+      .mockResolvedValueOnce([]) // episode-numbered query: nothing usable
+      .mockResolvedValueOnce([
+        { source: "nyaa", title: "[One Pace][10-11] Fishman Island [720p]", magnet: "magnet:?xt=pack", torrentUrl: null, infoHash: "d", size: 2 * 1024 ** 3, seeders: 5, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+      ]);
+
+    const queued = await backfillMissing();
+
+    expect(mockSearch).toHaveBeenNthCalledWith(2, "One Pace Fishman Island");
+    expect(queued).toBe(1);
+    expect(mockPrepare).toHaveBeenCalledWith("magnet:?xt=pack");
   });
 
   it("skips dead, oversized, and wrong-arc packs", async () => {

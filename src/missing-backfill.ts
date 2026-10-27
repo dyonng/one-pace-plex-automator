@@ -122,8 +122,13 @@ export async function backfillMissing(): Promise<number> {
       const results = await searchTorrents(buildQuery(target.arcTitle, target.episodeNum));
       const best = pickBest(results, target.arcTitle, target.episodeNum, target.extended);
       if (!best) {
-        // No single release — an arc pack may still carry the file.
-        const pack = target.status === "missing" ? pickPack(results, target.arcTitle, target.extended) : null;
+        // No single release — an arc pack may still carry the file. The
+        // episode-numbered query can't match a pack title, so retry arc-wide.
+        let pack = target.status === "missing" ? pickPack(results, target.arcTitle, target.extended) : null;
+        if (!pack && target.status === "missing") {
+          const arcResults = await searchTorrents(`One Pace ${target.arcTitle}`);
+          pack = pickPack([...results, ...arcResults], target.arcTitle, target.extended);
+        }
         if (!pack) {
           setKv(`${ATTEMPT_PREFIX}${crc}`, String(now));
           logger.info("Backfill search found no match", {
