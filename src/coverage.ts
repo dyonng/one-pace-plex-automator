@@ -127,9 +127,25 @@ export async function scanCoverage(): Promise<CoverageReport> {
 
   const arcMap = new Map<number, CoverageArc>();
 
+  // The dataset occasionally lists one release under two episode numbers (a
+  // re-cut renumbering leaving a stale row, e.g. Post-Enies Lobby 05 and 06
+  // sharing a CRC32). Index disk files by CRC too, so the twin slot sees the
+  // bytes already here instead of reporting a phantom "missing".
+  const diskByCrc = new Map<string, DiskFile & { arcPart: number }>();
+  for (const [key, entry] of disk) {
+    if (!entry.crc32) continue;
+    const crc = entry.crc32.toUpperCase();
+    if (diskByCrc.has(crc)) continue;
+    diskByCrc.set(crc, { ...entry, arcPart: Number(key.split("-")[0]) });
+  }
+
   for (const ep of dataset) {
     const key = seKey(ep.arcPart, ep.episodeNum);
-    const onDisk = disk.get(key);
+    let onDisk = disk.get(key);
+    if (!onDisk) {
+      const twin = diskByCrc.get(ep.crc32.toUpperCase());
+      if (twin && twin.arcPart === ep.arcPart) onDisk = twin;
+    }
     disk.delete(key); // whatever's left over becomes "extras"
 
     let status: CoverageStatus;

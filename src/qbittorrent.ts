@@ -288,7 +288,15 @@ class QBittorrentClient {
 
   async resumeTorrents(hashes: string[]): Promise<void> {
     if (hashes.length === 0) return;
-    await this.request<string>("post", "/torrents/resume", new URLSearchParams({ hashes: hashes.join("|") }));
+    const params = new URLSearchParams({ hashes: hashes.join("|") });
+    try {
+      await this.request<string>("post", "/torrents/resume", params);
+    } catch (err) {
+      // qBittorrent 5.x dropped /torrents/resume in favor of /torrents/start.
+      if (!/failed with 404/.test((err as Error).message)) throw err;
+      logger.info("Falling back to /torrents/start (qBittorrent 5.x)", { hashes: hashes.length });
+      await this.request<string>("post", "/torrents/start", params);
+    }
   }
 }
 
