@@ -26,6 +26,8 @@ export type SettingKey =
   | "ANIMETOSHO_API_KEY"
   | "ANIMETOSHO_BASE_URL"
   | "NYAA_BASE_URL"
+  | "AUTO_SEARCH_MISSING"
+  | "MISSING_SEARCH_PER_CYCLE"
   | "GOOGLE_SHEETS_API_KEY"
   | "USE_ONEPACERR"
   | "DOWNLOAD_SOURCE"
@@ -46,6 +48,8 @@ const CATEGORY: Record<SettingKey, SettingCategory> = {
   ANIMETOSHO_API_KEY: "service",
   ANIMETOSHO_BASE_URL: "service",
   NYAA_BASE_URL: "service",
+  AUTO_SEARCH_MISSING: "preference",
+  MISSING_SEARCH_PER_CYCLE: "preference",
   GOOGLE_SHEETS_API_KEY: "service",
   USE_ONEPACERR: "service",
   DOWNLOAD_SOURCE: "preference",
@@ -298,6 +302,20 @@ const DEFS: Record<SettingKey, SettingDef> = {
     envValue: () => getConfig().NYAA_BASE_URL,
     validate: validateUrl,
   },
+  AUTO_SEARCH_MISSING: {
+    key: "AUTO_SEARCH_MISSING",
+    label: "Auto-search AnimeTosho/Nyaa for missing episodes",
+    type: "bool",
+    envValue: () => String(getConfig().AUTO_SEARCH_MISSING),
+    validate: validateBool,
+  },
+  MISSING_SEARCH_PER_CYCLE: {
+    key: "MISSING_SEARCH_PER_CYCLE",
+    label: "Missing-episode searches per refresh (rate limit)",
+    type: "int",
+    envValue: () => String(getConfig().MISSING_SEARCH_PER_CYCLE),
+    validate: validateInt(1, 10),
+  },
   USE_ONEPACERR: {
     key: "USE_ONEPACERR",
     label: "Use the OnePacerr community API as an extra metadata source",
@@ -337,6 +355,16 @@ export function getDownloadCheckMs(): number {
 
 export function getAutoDownload(): boolean {
   return getSettingValue("AUTO_DOWNLOAD") === "true";
+}
+
+export function getAutoSearchMissing(): boolean {
+  return getSettingValue("AUTO_SEARCH_MISSING") === "true";
+}
+
+export function getMissingSearchPerCycle(): number {
+  const n = Number(getSettingValue("MISSING_SEARCH_PER_CYCLE"));
+  if (!Number.isInteger(n)) return 2;
+  return Math.min(10, Math.max(1, n));
 }
 
 export function getPollEnabled(): boolean {

@@ -63,14 +63,79 @@ function sanitizeCount(n: number | undefined): number | null {
   return n;
 }
 
+// Rate limits keep auto-search from burning the free tiers. AnimeTosho is a
+// small community feed — anonymous callers are throttled hard, keyed callers
+// less so. Nyaa has no official API; its RSS is Cloudflare-fronted and 429s
+// fast when scraped in a loop. Both gates are per-source so one backoff never
+// blocks the other, and backoffs are fail-open (that source returns []).
+const ATO_MIN_INTERVAL_MS_ANON = 10_000;
+const ATO_MIN_INTERVAL_MS_KEYED = 3_000;
+const NYAA_MIN_INTERVAL_MS = 5_000;
+const BACKOFF_429_MS = 15 * 60 * 1000;
+const BACKOFF_5XX_MS = 5 * 60 * 1000;
+
+let _lastAtoAt = 0;
+let _lastNyaaAt = 0;
+let _atoBackoffUntil = 0;
+let _nyaaBackoffUntil = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function gate(source: "ato" | "nyaa"): Promise<void> {
+  const now = Date.now();
+  const backoffUntil = source === "ato" ? _atoBackoffUntil : _nyaaBackoffUntil;
+  if (now < backoffUntil) throw new Error(`${source} in backoff for ${Math.ceil((backoffUntil - now) / 1000)}s`);
+  const minInterval =
+    source === "ato"
+      ? (getSettingValue("ANIMETOSHO_API_KEY") ? ATO_MIN_INTERVAL_MS_KEYED : ATO_MIN_INTERVAL_MS_ANON)
+      : NYAA_MIN_INTERVAL_MS;
+  const lastAt = source === "ato" ? _lastAtoAt : _lastNyaaAt;
+  const wait = minInterval - (now - lastAt);
+  if (wait > 0) await sleep(wait);
+  if (source === "ato") _lastAtoAt = Date.now();
+  else _lastNyaaAt = Date.now();
+}
+
+function noteFailure(source: "ato" | "nyaa", status: number | null): void {
+  // 429/403 = throttled or Cloudflare-challenged; 5xx = upstream trouble.
+  // Network errors (status null) don't back off — they may be local/VPN blips.
+  if (status === 429 || status === 403) {
+    if (source === "ato") _atoBackoffUntil = Date.now() + BACKOFF_429_MS;
+    else _nyaaBackoffUntil = Date.now() + BACKOFF_429_MS;
+  } else if (status !== null && status >= 500) {
+    if (source === "ato") _atoBackoffUntil = Date.now() + BACKOFF_5XX_MS;
+    else _nyaaBackoffUntil = Date.now() + BACKOFF_5XX_MS;
+  }
+}
+
+/** Test hook — resets the in-memory gates between test cases. */
+export function _resetSearchRateLimitsForTests(): void {
+  _lastAtoAt = 0;
+  _lastNyaaAt = 0;
+  _atoBackoffUntil = 0;
+  _nyaaBackoffUntil = 0;
+}
+
 async function searchAnimeTosho(query: string): Promise<TorrentSearchResult[]> {
+  await gate("ato");
   const base = getSettingValue("ANIMETOSHO_BASE_URL").replace(/\/$/, "");
   const apiKey = getSettingValue("ANIMETOSHO_API_KEY");
   let url = `${base}/json?q=${encodeURIComponent(query)}&only_tor=1`;
   if (apiKey) url += `&api_key=${encodeURIComponent(apiKey)}`;
 
-  const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  let resp: Response;
+  try {
+    resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  } catch (err) {
+    noteFailure("ato", null);
+    throw err;
+  }
+  if (!resp.ok) {
+    noteFailure("ato", resp.status);
+    throw new Error(`HTTP ${resp.status}`);
+  }
 
   const json: unknown = await resp.json();
   if (!Array.isArray(json)) return [];
@@ -113,10 +178,20 @@ function parseNyaaSize(s: string | undefined): number | null {
 }
 
 async function searchNyaa(query: string): Promise<TorrentSearchResult[]> {
+  await gate("nyaa");
   const base = getSettingValue("NYAA_BASE_URL").replace(/\/$/, "");
   const url = `${base}/?page=rss&q=${encodeURIComponent(query)}&c=1_2&f=0`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  let resp: Response;
+  try {
+    resp = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+  } catch (err) {
+    noteFailure("nyaa", null);
+    throw err;
+  }
+  if (!resp.ok) {
+    noteFailure("nyaa", resp.status);
+    throw new Error(`HTTP ${resp.status}`);
+  }
 
   const feed = await nyaaParser.parseString(await resp.text());
   return (feed.items ?? []).map((item) => {

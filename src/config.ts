@@ -80,6 +80,8 @@ const ConfigSchema = z.object({
   ANIMETOSHO_API_KEY: z.string().default(""),
   ANIMETOSHO_BASE_URL: z.string().url().default("https://feed.animetosho.xyz"),
   NYAA_BASE_URL: z.string().url().default("https://nyaa.si"),
+  AUTO_SEARCH_MISSING: z.coerce.string().default("true").transform((v) => v.toLowerCase() !== "false"),
+  MISSING_SEARCH_PER_CYCLE: z.coerce.number().int().min(1).max(10).default(2),
   // The official One Pace episode guide (Google Sheet). Used as an extra source
   // to recover an episode's CRC32 when a release lands before the metadata repo
   // is regenerated. Requires a Google Sheets API key with the Sheets API enabled.

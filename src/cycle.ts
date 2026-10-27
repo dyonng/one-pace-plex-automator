@@ -22,6 +22,7 @@ import { getAutoDownload, getPreferExtended, getArcFilter, getDownloadSource } f
 import * as pixeldrainDownloads from "./pixeldrain-downloads";
 import { isArcIncluded } from "./arc-filter";
 import { getStoredCoverage, scanCoverage } from "./coverage";
+import { backfillMissing } from "./missing-backfill";
 
 // Sentinel episode number for a whole-arc batch download. Real episodes start at
 // 1, so this can't collide; the actual episodes are identified from the files in
@@ -486,6 +487,15 @@ export async function runCycle(): Promise<void> {
   await requeueRetryableFailures();
   await dispatchPending();
   await processDownloading();
+
+  // Backfill episodes the library is missing that the feed no longer carries.
+  // Budgeted and rate-limited inside — a quiet cycle costs no HTTP calls when
+  // there's nothing missing or every target was attempted recently.
+  try {
+    await backfillMissing();
+  } catch (err) {
+    logger.warn("Missing-episode backfill failed", { error: (err as Error).message });
+  }
 
   // If new RSS items appeared and the user has run a coverage scan before,
   // refresh the stored report so hasMagnet stays accurate without manual
