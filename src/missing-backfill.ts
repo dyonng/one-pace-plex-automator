@@ -5,6 +5,7 @@ import { canonicalizeArcTitle, parseBatchArcTitle, parseReleaseTitle, resolveEpi
 import { searchTorrents, type TorrentSearchResult } from "./torrent-search";
 import { getQbitClient } from "./qbittorrent";
 import { prepareBatchDownload } from "./batch-fileselect";
+import { getBackfillExcludedHashes, candidateSourceHash } from "./backfill-exclusions";
 import { sendDiscordNotification } from "./discord";
 import { getAutoDownload, getAutoSearchMissing, getMissingSearchPerCycle } from "./settings";
 import { toIsoDate } from "./rss";
@@ -29,10 +30,13 @@ function matchesTarget(result: TorrentSearchResult, arcTitle: string, episodeNum
   );
 }
 
-function pickBest(results: TorrentSearchResult[], arcTitle: string, episodeNum: number, extended: boolean): TorrentSearchResult | null {
-  const matching = results.filter(
-    (r) => (r.magnet ?? r.torrentUrl) && matchesTarget(r, arcTitle, episodeNum, extended)
-  );
+function pickBest(results: TorrentSearchResult[], arcTitle: string, episodeNum: number, extended: boolean, excluded: Set<string>): TorrentSearchResult | null {
+  const matching = results.filter((r) => {
+    if (!(r.magnet ?? r.torrentUrl)) return false;
+    if (!matchesTarget(r, arcTitle, episodeNum, extended)) return false;
+    const hash = candidateSourceHash(r.magnet, r.infoHash);
+    return !(hash && excluded.has(hash));
+  });
   if (matching.length === 0) return null;
   return [...matching].sort((a, b) => (b.seeders ?? -1) - (a.seeders ?? -1))[0];
 }
@@ -49,11 +53,13 @@ const PACK_MAX_BYTES = 20 * 1024 ** 3;
  * skipped — only missing (empty-slot) targets qualify, since every file the
  * pack holds for the target slot is wanted by definition.
  */
-function pickPack(results: TorrentSearchResult[], arcTitle: string, extended: boolean): TorrentSearchResult | null {
+function pickPack(results: TorrentSearchResult[], arcTitle: string, extended: boolean, excluded: Set<string>): TorrentSearchResult | null {
   const packs = results.filter((r) => {
     if (!(r.magnet ?? r.torrentUrl)) return false;
     if ((r.seeders ?? 1) <= 0) return false;
     if (r.size != null && r.size > PACK_MAX_BYTES) return false;
+    const hash = candidateSourceHash(r.magnet, r.infoHash);
+    if (hash && excluded.has(hash)) return false;
     const pack = parseBatchArcTitle(r.title);
     return (
       pack !== null &&
@@ -120,14 +126,15 @@ export async function backfillMissing(): Promise<number> {
       }
 
       const results = await searchTorrents(buildQuery(target.arcTitle, target.episodeNum));
-      const best = pickBest(results, target.arcTitle, target.episodeNum, target.extended);
+      const excluded = getBackfillExcludedHashes(crc);
+      const best = pickBest(results, target.arcTitle, target.episodeNum, target.extended, excluded);
       if (!best) {
         // No single release — an arc pack may still carry the file. The
         // episode-numbered query can't match a pack title, so retry arc-wide.
-        let pack = target.status === "missing" ? pickPack(results, target.arcTitle, target.extended) : null;
+        let pack = target.status === "missing" ? pickPack(results, target.arcTitle, target.extended, excluded) : null;
         if (!pack && target.status === "missing") {
           const arcResults = await searchTorrents(`One Pace ${target.arcTitle}`);
-          pack = pickPack([...results, ...arcResults], target.arcTitle, target.extended);
+          pack = pickPack([...results, ...arcResults], target.arcTitle, target.extended, excluded);
         }
         if (!pack) {
           setKv(`${ATTEMPT_PREFIX}${crc}`, String(now));

@@ -203,4 +203,33 @@ describe("missing backfill", () => {
     expect(mockPrepare).not.toHaveBeenCalled();
     expect(mockAddMagnet).not.toHaveBeenCalled();
   });
+
+  it("skips sources proven unable to fill the slot", async () => {
+    coverageReport.value = report([ep("FFFFFFFF")]) as never;
+    const dead = "a".repeat(40);
+    const live = "b".repeat(40);
+    kv.set("backfill_excluded:FFFFFFFF", JSON.stringify([dead]));
+    mockSearch.mockResolvedValue([
+      { source: "nyaa", title: "[One Pace] Fishman Island 02 [1080p]", magnet: `magnet:?xt=urn:btih:${dead}`, torrentUrl: null, infoHash: dead, size: 1e9, seeders: 100, leechers: 0, publishedAt: null, pageUrl: null, isBatch: false },
+      { source: "nyaa", title: "[One Pace] Fishman Island 02 [1080p]", magnet: `magnet:?xt=urn:btih:${live}`, torrentUrl: null, infoHash: live, size: 1e9, seeders: 50, leechers: 0, publishedAt: null, pageUrl: null, isBatch: false },
+    ]);
+
+    expect(await backfillMissing()).toBe(1);
+    expect(mockAddMagnet).toHaveBeenCalledWith(`magnet:?xt=urn:btih:${live}`);
+  });
+
+  it("does not re-queue an excluded pack, by infoHash or magnet", async () => {
+    coverageReport.value = report([ep("FFFFFFFF")]) as never;
+    const h1 = "c".repeat(40);
+    const h2 = "d".repeat(40);
+    kv.set("backfill_excluded:FFFFFFFF", JSON.stringify([h1, h2]));
+    mockSearch.mockResolvedValue([
+      { source: "nyaa", title: "[One Pace][10-11] Fishman Island [720p]", magnet: "magnet:?xt=pack1", torrentUrl: null, infoHash: h1, size: 2 * 1024 ** 3, seeders: 50, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+      { source: "nyaa", title: "[One Pace][10-11] Fishman Island [1080p]", magnet: `magnet:?xt=urn:btih:${h2}&dn=pack`, torrentUrl: null, infoHash: null, size: 4 * 1024 ** 3, seeders: 60, leechers: 0, publishedAt: null, pageUrl: null, isBatch: true },
+    ]);
+
+    expect(await backfillMissing()).toBe(0);
+    expect(mockPrepare).not.toHaveBeenCalled();
+    expect(mockAddMagnet).not.toHaveBeenCalled();
+  });
 });

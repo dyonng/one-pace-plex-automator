@@ -9,6 +9,7 @@ import { resolveEpisodeByCrc32, buildPlexFilename, extractResolutionFromFilename
 import { getArcResolution } from "./onepace-sheet";
 import { buildSeasonFolder, findDownloadedFile, findExistingEpisodeFile, moveAndRename, scanBatchFiles, type BatchFile } from "./fileops";
 import { triggerLibraryScan, syncSingleEpisode, syncFullLibrary } from "./plex";
+import { recordBackfillExclusion } from "./backfill-exclusions";
 import { sendDiscordNotification } from "./discord";
 import { ensureSeasonPoster } from "./posters";
 import { getAutoPosters, getAutoReconcile } from "./settings";
@@ -153,7 +154,8 @@ async function resolveBatchFileMeta(
 async function processBatchSiblings(
   batchDir: string,
   torrentHash: string | null,
-  primaryCrc32: string
+  primaryCrc32: string,
+  queuedCrc32: string | null
 ): Promise<BatchResult[]> {
   const results: BatchResult[] = [];
   for (const sibling of scanBatchFiles(batchDir)) {
@@ -172,6 +174,11 @@ async function processBatchSiblings(
         logger.info("Skipping batch file — a newer release is already in the library", {
           crc32: sibling.crc32, file: sibling.filename, keeping: newer,
         });
+        // The queued slot's own file lives here but belongs to a filled slot —
+        // this source can never fill the queue, don't offer it again.
+        if (queuedCrc32 && sibling.crc32 === queuedCrc32.toUpperCase()) {
+          recordBackfillExclusion(queuedCrc32, torrentHash);
+        }
         continue;
       }
 
@@ -396,7 +403,7 @@ export async function importVideos(
       logger.warn("Skipping unplaceable batch primary — scanning siblings", {
         crc32: realCrc32, file: primary.filename, error: (err as Error).message,
       });
-      const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32);
+      const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32, ep.crc32);
       deleteEpisode(ep.crc32);
       if (torrentHash) await safeDeleteTorrent(torrentHash);
       await scanAndSyncSiblings(siblings);
@@ -413,7 +420,7 @@ export async function importVideos(
     });
     // The torrent may still hold episodes the library wants — a batch whose
     // primary sorts older must not strand its upgradeable siblings.
-    const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32);
+    const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32, ep.crc32);
     deleteEpisode(ep.crc32);
     if (torrentHash) await safeDeleteTorrent(torrentHash);
     await scanAndSyncSiblings(siblings);
@@ -452,7 +459,7 @@ export async function importVideos(
   logger.info("Imported from torrent contents", { queuedAs: ep.crc32, crc32: realCrc32, filename: finalFilename });
 
   // The torrent may actually be a batch — pick up any other episodes in it.
-  const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32);
+  const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32, ep.crc32);
 
   try {
     await triggerLibraryScan();
@@ -682,7 +689,13 @@ async function _processDownloading(): Promise<boolean> {
           crc32: ep.crc32, arc: ep.arc_title, episode: ep.episode_num,
         });
         const ok = await importTorrentContents(ep, ep.torrent_hash);
-        if (ok) completed++;
+        if (ok) {
+          // The feed's title promised this CRC32 but the torrent doesn't carry
+          // it — a re-upload under a stale title. Remember, so the backfill
+          // doesn't download the same useless torrent every cycle.
+          recordBackfillExclusion(ep.crc32, ep.torrent_hash);
+          completed++;
+        }
         continue;
       }
 
@@ -697,6 +710,9 @@ async function _processDownloading(): Promise<boolean> {
         logger.info("Skipping older release — a newer file is already in the library", {
           crc32: ep.crc32, arc: ep.arc_title, episode: ep.episode_num, keeping: newer,
         });
+        // The queued file is already superseded on disk, so this source can
+        // never fill the queue — don't offer it again.
+        recordBackfillExclusion(ep.crc32, ep.torrent_hash);
         updateEpisodeStatus(ep.crc32, "done", { final_filename: newer, error_message: null });
         await safeDeleteTorrent(ep.torrent_hash);
         continue;
@@ -725,7 +741,7 @@ async function _processDownloading(): Promise<boolean> {
       // any sibling episodes before triggering the Plex scan — one scan covers all.
       const sourceDir = path.dirname(sourcePath);
       const siblings = sourceDir !== DOWNLOAD_PATH
-        ? await processBatchSiblings(sourceDir, ep.torrent_hash, ep.crc32)
+        ? await processBatchSiblings(sourceDir, ep.torrent_hash, ep.crc32, ep.crc32)
         : [];
 
       // Mark done now — the file is safely on disk. Plex scan/sync is best-effort;
