@@ -346,42 +346,62 @@ export async function importVideos(
     ?? "1080p";
   const ext = path.extname(primary.filePath);
 
-  // Prefer full metadata if the catalog now lists this CRC32; otherwise build a
-  // minimal record from what we parsed at queue time (arc/episode/extended).
+  // Prefer full metadata if the catalog now lists this CRC32. A lone download
+  // falls back to what was parsed at queue time; a batch file falls back to
+  // what its own filename says.
   let meta: ResolvedEpisode;
-  try {
-    meta = await resolveEpisodeByCrc32(realCrc32, resolution);
-  } catch {
-    // The dataset doesn't list this CRC32 yet. Pull what we can from ladyisatis'
-    // metadata sheet (episode/arc titles + descriptions) so Plex still gets real
-    // text instead of blanks; fall back to empties when the sheet is off/missing.
-    const [epText, arcText] = await Promise.all([
-      lookupEpisodeText(ep.arc_title, ep.episode_num),
-      lookupArcText(ep.arc_title),
-    ]);
-    logger.info("Episode not in dataset — using sheet/parsed metadata", {
-      crc32: realCrc32, arc: ep.arc_title, episode: ep.episode_num, sheetHit: Boolean(epText),
-      published: ep.published_at ?? "(none)",
-    });
-    meta = {
-      crc32: realCrc32,
-      arcIndex: ep.arc_num,
-      arcTitle: ep.arc_title,
-      arcSaga: arcText?.saga ?? "",
-      arcPart: ep.arc_part,
-      arcDescription: arcText?.description ?? "",
-      episodeNum: ep.episode_num,
-      episodeTitle: epText?.title ?? "",
-      episodeDescription: epText?.description ?? "",
-      chapters: "",
-      originalEpisodes: "",
-      // The catalog has no air date for this release yet; the feed's publication
-      // date is the best available stand-in. Reconcile replaces it with the
-      // dataset's own date once the episode is listed.
-      released: ep.published_at ?? "",
-      resolution,
-      extended: ep.extended,
-    };
+  if (videos.length === 1) {
+    try {
+      meta = await resolveEpisodeByCrc32(realCrc32, resolution);
+    } catch {
+      // The dataset doesn't list this CRC32 yet. Pull what we can from ladyisatis'
+      // metadata sheet (episode/arc titles + descriptions) so Plex still gets real
+      // text instead of blanks; fall back to empties when the sheet is off/missing.
+      const [epText, arcText] = await Promise.all([
+        lookupEpisodeText(ep.arc_title, ep.episode_num),
+        lookupArcText(ep.arc_title),
+      ]);
+      logger.info("Episode not in dataset — using sheet/parsed metadata", {
+        crc32: realCrc32, arc: ep.arc_title, episode: ep.episode_num, sheetHit: Boolean(epText),
+        published: ep.published_at ?? "(none)",
+      });
+      meta = {
+        crc32: realCrc32,
+        arcIndex: ep.arc_num,
+        arcTitle: ep.arc_title,
+        arcSaga: arcText?.saga ?? "",
+        arcPart: ep.arc_part,
+        arcDescription: arcText?.description ?? "",
+        episodeNum: ep.episode_num,
+        episodeTitle: epText?.title ?? "",
+        episodeDescription: epText?.description ?? "",
+        chapters: "",
+        originalEpisodes: "",
+        // The catalog has no air date for this release yet; the feed's publication
+        // date is the best available stand-in. Reconcile replaces it with the
+        // dataset's own date once the episode is listed.
+        released: ep.published_at ?? "",
+        resolution,
+        extended: ep.extended,
+      };
+    }
+  } else {
+    // A batch primary is one file among many — place it by its own identity,
+    // never by the queued slot. The queue-time fallback above exists for direct
+    // single-episode downloads (fansub names that parse to nothing); applying
+    // it to a batch file misfiles companions like "Loguetown 01.5" as ep01.
+    try {
+      meta = await resolveBatchFileMeta(realCrc32, primary.filename, resolution);
+    } catch (err) {
+      logger.warn("Skipping unplaceable batch primary — scanning siblings", {
+        crc32: realCrc32, file: primary.filename, error: (err as Error).message,
+      });
+      const siblings = await processBatchSiblings(path.dirname(primary.filePath), torrentHash, realCrc32);
+      deleteEpisode(ep.crc32);
+      if (torrentHash) await safeDeleteTorrent(torrentHash);
+      await scanAndSyncSiblings(siblings);
+      return siblings.length > 0;
+    }
   }
 
   const newer = await newerFileAlreadyOnDisk(

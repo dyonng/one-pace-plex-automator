@@ -69,9 +69,11 @@ function meta(episodeNum: number, crc: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockCataloged.mockResolvedValue(new Set(["7191C79A", "1EFBB55B"]));
-  mockResolve.mockImplementation(async (crc: string) =>
-    crc === "7191C79A" ? meta(1, crc) : meta(2, crc)
-  );
+  mockResolve.mockImplementation(async (crc: string) => {
+    if (crc === "7191C79A") return meta(1, crc);
+    if (crc === "1EFBB55B") return meta(2, crc);
+    throw new Error(`CRC32 ${crc} is not in the dataset`);
+  });
   // Ep01: library holds a newer uncatalogued file; ep02: library holds 480p.
   mockFindExisting.mockImplementation((_t: string, _p: number, ep: number) =>
     ep === 1
@@ -143,4 +145,40 @@ describe("importVideos with an older primary in a batch", () => {
     expect(mockMoveAndRename).not.toHaveBeenCalled();
     expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", false);
   });
+
+  it("refuses to file an unplaceable companion as the batch primary", async () => {
+    const companion = "[One Pace][97.5] Loguetown 01.5 [1080p][DEADBEEF].mkv";
+    fs.writeFileSync(path.join(batchDir, companion), "x".repeat(300));
+    const videos = [
+      {
+        filePath: path.join(batchDir, companion),
+        filename: companion,
+        crc32: "DEADBEEF",
+      },
+      {
+        filePath: path.join(batchDir, "[One Pace][96-97] Loguetown 01 [1080p][7191C79A].mkv"),
+        filename: "[One Pace][96-97] Loguetown 01 [1080p][7191C79A].mkv",
+        crc32: "7191C79A",
+      },
+      {
+        filePath: path.join(batchDir, "[One Pace][98-99] Loguetown 02 [1080p][1EFBB55B].mkv"),
+        filename: "[One Pace][98-99] Loguetown 02 [1080p][1EFBB55B].mkv",
+        crc32: "1EFBB55B",
+      },
+    ];
+    const ep = {
+      crc32: "PROV-8-0-E", arc_num: 7, arc_title: "Loguetown", arc_part: 8,
+      episode_num: 0, resolution: "1080p", original_filename: "batch",
+      final_filename: null, status: "downloading", torrent_hash: "hash123",
+      magnet_uri: "magnet:?xt=1", error_message: null, rss_guid: "g",
+      changelog: [], extended: true,
+    };
+
+    const imported = await importVideos(ep as never, videos, "hash123");
+
+    expect(imported).toBe(true);
+    expect(mockMoveAndRename).toHaveBeenCalledTimes(1);
+    expect(mockMoveAndRename.mock.calls[0][0]).toContain("1EFBB55B");
+    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", false);
+  }, 20000);
 });
