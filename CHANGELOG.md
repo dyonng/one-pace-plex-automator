@@ -19,6 +19,30 @@ into a version heading when a GitHub release is cut.
   at build time as defense in depth. No application code changes; pull the
   new image and recreate the container.
 
+## [1.1.44] — 2026-10-27
+
+### Fixed
+- **Bracketed whole-arc batch titles parse again (fixes the missed Loguetown
+  release).** The poll dropped `[One Pace][96-100] Loguetown [1080p]` and its
+  Extended Cut because the `[...]` groups confused arc lookup. Bracketed
+  groups are now stripped before resolving, the extended marker is detected,
+  and both cuts place as whole-arc provisional downloads honoring the
+  extended-cut preference.
+
+### Added
+- **Missing episodes auto-search AnimeTosho and Nyaa.** Each refresh now
+  backfills up to `MISSING_SEARCH_PER_CYCLE` (default 2) missing/upgradeable
+  episodes whose magnet the feed no longer carries — stored RSS magnets
+  first, otherwise a `One Pace {arc} {ep}` search taking the best-seeded
+  same-arc/episode/cut match. A round-robin cursor plus a 24h miss cache
+  spreads a large backlog without hammering either indexer.
+- **Rate limits on both indexers.** AnimeTosho: 10s between calls anonymous,
+  3s with `ANIMETOSHO_API_KEY`; Nyaa: 5s. A 429/403 backs that source off for
+  15min (5min on 5xx), per source so one never blocks the other; a throttled
+  source simply sits out the cycle.
+- **New settings:** `AUTO_SEARCH_MISSING` (default on) and
+  `MISSING_SEARCH_PER_CYCLE` (1–10, default 2), both dashboard-editable.
+
 ## [1.1.39] — 2026-09-20
 
 ### Added
