@@ -512,7 +512,7 @@ export async function importVideos(
  */
 async function safeDeleteTorrent(hash: string): Promise<void> {
   try {
-    await getQbitClient().deleteTorrent(hash, false);
+    await getQbitClient().deleteTorrent(hash, true);
   } catch (err) {
     logger.warn("Could not remove torrent from qBittorrent — file is already imported", {
       hash, error: (err as Error).message,
@@ -804,7 +804,7 @@ async function _processDownloading(): Promise<boolean> {
         });
       }
 
-      // Remove torrent from qBit (keep file)
+      // Remove torrent from qBit along with its files (already in the library)
       await safeDeleteTorrent(ep.torrent_hash);
     } catch (err) {
       const msg = (err as Error).message;

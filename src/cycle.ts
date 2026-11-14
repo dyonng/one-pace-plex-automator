@@ -23,6 +23,7 @@ import * as pixeldrainDownloads from "./pixeldrain-downloads";
 import { isArcIncluded } from "./arc-filter";
 import { getStoredCoverage, scanCoverage } from "./coverage";
 import { backfillMissing } from "./missing-backfill";
+import { cleanupOrphanDownloads } from "./download-cleanup";
 import { prepareBatchDownload } from "./batch-fileselect";
 
 // Sentinel episode number for a whole-arc batch download. Real episodes start at
@@ -511,5 +512,15 @@ export async function runCycle(): Promise<void> {
     } catch (err) {
       logger.warn("Coverage refresh after RSS update failed", { error: (err as Error).message });
     }
+  }
+
+  // Multi-file releases leave their folders behind when the torrent entry is
+  // removed, so sweep our own leftovers. Only touches [One Pace]-named
+  // entries no live torrent references — the shared folder's other contents
+  // are never considered.
+  try {
+    await cleanupOrphanDownloads();
+  } catch (err) {
+    logger.warn("Orphan download cleanup failed", { error: (err as Error).message });
   }
 }
