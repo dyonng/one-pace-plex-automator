@@ -365,7 +365,7 @@
           Your media folder and Plex, diffed against the One Pace catalog — coverage, metadata, and thumbnails.
         </p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex gap-2 flex-wrap">
           <div
             class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
             data-tip="Asks Plex to generate a thumbnail again for every episode missing one — including those previous attempts gave up on. Generation runs in Plex's background queue, so results show up on a later scan."

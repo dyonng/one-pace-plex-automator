@@ -90,7 +90,6 @@
      elevated rather than flat.                                            */
   .deck-card {
     backdrop-filter: blur(2px);
-    border-top: 1px solid color-mix(in oklch, var(--color-base-content) 14%, transparent);
   }
 
   /* ── LEDs ────────────────────────────────────────────────────────────────
@@ -102,16 +101,13 @@
   .led-info { box-shadow: 0 0 6px 1px var(--color-info); }
   .led-accent { box-shadow: 0 0 6px 1px var(--color-accent); }
 
+  /* ── Closed dialogs ──────────────────────────────────────────────────────
+     (Implementation lives in the unlayered overrides at the end of this
+     file — DaisyUI's unlayered styles outrank anything inside @layer.) */
+
   /* ── Touch targets ───────────────────────────────────────────────────────
-     Episode chips are dense by design; on touch screens give them a real
-     tap target without changing the desktop layout.                         */
-  @media (pointer: coarse) {
-    #library .badge-sm {
-      min-height: 1.75rem;
-      padding-inline: 0.75rem;
-      font-size: 0.8rem;
-    }
-  }
+     (Implementation lives in the unlayered overrides at the end of this
+     file — DaisyUI's unlayered styles outrank anything inside @layer.) */
 
   /* ── Eyebrow label ───────────────────────────────────────────────────────
      Muted label above section headings.                                    */
@@ -122,4 +118,39 @@
     text-transform: uppercase;
     color: oklch(from var(--color-base-content) l c h / 0.55);
   }
+}
+
+/* ── Unlayered overrides ───────────────────────────────────────────────────
+   Tailwind v4 emits DaisyUI's styles outside any cascade layer, and unlayered
+   styles beat layered ones regardless of specificity. Anything that must win
+   over a DaisyUI component therefore lives here, not in @layer.             */
+
+/* Closed dialogs stay out of layout entirely. DaisyUI keeps them rendered
+   (for transitions), which leaks their natural width into the page on narrow
+   screens. showModal() sets [open] and restores them. */
+dialog.modal:not([open]):not(.modal-open) {
+  display: none;
+}
+
+/* Lit top edge on deck cards, like a rack panel. */
+.deck-card {
+  border-top: 1px solid color-mix(in oklch, var(--color-base-content) 14%, transparent);
+}
+
+/* Larger episode-chip tap targets on touch screens; desktop untouched. */
+@media (pointer: coarse) {
+  #library .badge-sm {
+    min-height: 1.75rem;
+    padding-inline: 0.75rem;
+    font-size: 0.8rem;
+  }
+}
+
+/* The attention banner must wrap on narrow screens. DaisyUI v5 renders
+   .alert as grid (single row), which pushes wide content off-viewport.
+   Flex restores wrapping; colors and padding still come from .alert. */
+div.alert[role="alert"] {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
 }
