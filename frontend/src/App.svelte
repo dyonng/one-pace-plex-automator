@@ -32,13 +32,13 @@
 
 <Navbar />
 <main class="p-4 sm:p-6 max-w-screen-2xl mx-auto flex flex-col gap-4">
+  <Episodes />
   <NewReleases />
   <System />
   <Controls />
   <Library />
-  <InfoCards />
-  <Episodes />
   <Logs />
+  <InfoCards />
 </main>
 <Settings />
 <WhatsNew />
