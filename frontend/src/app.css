@@ -23,10 +23,49 @@
 
   html {
     font-family: "IBM Plex Sans", system-ui, sans-serif;
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--color-base-content) 25%, transparent) transparent;
   }
 
   body {
     min-height: 100vh;
+    /* Console grid — faint instrument-panel texture under every theme. */
+    background-image:
+      linear-gradient(color-mix(in oklch, var(--color-base-content) 4%, transparent) 1px, transparent 1px),
+      linear-gradient(90deg, color-mix(in oklch, var(--color-base-content) 4%, transparent) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--color-accent) 35%, transparent);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--color-base-content) 20%, transparent);
+    border-radius: 8px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 
   h1, h2, h3, .font-display {
@@ -41,10 +80,32 @@
 
 @layer components {
   /* ── Deck card ───────────────────────────────────────────────────────────
-     Shared: slight backdrop blur. Dark and light variants tune the border
-     and shadow so cards feel elevated rather than flat.                    */
+     Shared: slight backdrop blur plus a lit top edge, like a rack panel.
+     Dark and light variants tune the border and shadow so cards feel
+     elevated rather than flat.                                            */
   .deck-card {
     backdrop-filter: blur(2px);
+    border-top: 1px solid color-mix(in oklch, var(--color-base-content) 14%, transparent);
+  }
+
+  /* ── LEDs ────────────────────────────────────────────────────────────────
+     Status dots with a glow in their own color. Dim (unlit) states simply
+     omit the led-* class.                                                   */
+  .led-success { box-shadow: 0 0 6px 1px var(--color-success); }
+  .led-warning { box-shadow: 0 0 6px 1px var(--color-warning); }
+  .led-error { box-shadow: 0 0 6px 1px var(--color-error); }
+  .led-info { box-shadow: 0 0 6px 1px var(--color-info); }
+  .led-accent { box-shadow: 0 0 6px 1px var(--color-accent); }
+
+  /* ── Touch targets ───────────────────────────────────────────────────────
+     Episode chips are dense by design; on touch screens give them a real
+     tap target without changing the desktop layout.                         */
+  @media (pointer: coarse) {
+    #library .badge-sm {
+      min-height: 1.75rem;
+      padding-inline: 0.75rem;
+      font-size: 0.8rem;
+    }
   }
 
   /* ── Eyebrow label ───────────────────────────────────────────────────────

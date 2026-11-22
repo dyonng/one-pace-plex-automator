@@ -4,9 +4,9 @@
   import type { HealthStatus } from "./api";
 
   const DOT: Record<HealthStatus, string> = {
-    ok: "bg-success",
-    warn: "bg-warning",
-    error: "bg-error",
+    ok: "bg-success led-success",
+    warn: "bg-warning led-warning",
+    error: "bg-error led-error",
   };
   const BAR: Record<HealthStatus, string> = {
     ok: "progress-success",
@@ -24,14 +24,14 @@
     error: "Problem detected",
   };
 
-  // Episode pipeline (formerly the Stats card).
+  // Episode pipeline (formerly the Stats card). Dim pending = unlit LED.
   const pipeDot: Record<string, string> = {
-    available: "bg-accent",
+    available: "bg-accent led-accent",
     pending: "bg-neutral-content/40",
-    downloading: "bg-info",
-    processing: "bg-warning",
-    done: "bg-success",
-    failed: "bg-error",
+    downloading: "bg-info led-info",
+    processing: "bg-warning led-warning",
+    done: "bg-success led-success",
+    failed: "bg-error led-error",
   };
 </script>
 
