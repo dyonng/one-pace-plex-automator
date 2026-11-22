@@ -45,6 +45,11 @@
     outline-offset: 2px;
   }
 
+  /* Banner jump-links target these; keep them clear of the sticky navbar. */
+  section[id] {
+    scroll-margin-top: 4.5rem;
+  }
+
   *::-webkit-scrollbar {
     width: 10px;
     height: 10px;
