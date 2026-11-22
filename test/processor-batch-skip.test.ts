@@ -119,7 +119,7 @@ describe("importVideos with an older primary in a batch", () => {
     expect(imported).toBe(true);
     expect(mockMoveAndRename).toHaveBeenCalledTimes(1);
     expect(mockMoveAndRename.mock.calls[0][0]).toContain("1EFBB55B");
-    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", false);
+    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", true);
   }, 20000);
 
   it("returns false and only cleans up when no sibling is wanted", async () => {
@@ -143,7 +143,7 @@ describe("importVideos with an older primary in a batch", () => {
 
     expect(imported).toBe(false);
     expect(mockMoveAndRename).not.toHaveBeenCalled();
-    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", false);
+    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", true);
   });
 
   it("refuses to file an unplaceable companion as the batch primary", async () => {
@@ -179,6 +179,6 @@ describe("importVideos with an older primary in a batch", () => {
     expect(imported).toBe(true);
     expect(mockMoveAndRename).toHaveBeenCalledTimes(1);
     expect(mockMoveAndRename.mock.calls[0][0]).toContain("1EFBB55B");
-    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", false);
+    expect(mockDeleteTorrent).toHaveBeenCalledWith("hash123", true);
   }, 20000);
 });
