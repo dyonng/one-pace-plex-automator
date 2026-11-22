@@ -135,7 +135,7 @@
   }
 </script>
 
-<section class="deck-card card bg-base-100/70">
+<section id="pipeline" class="deck-card card bg-base-100/70">
   <div class="card-body py-4 gap-2">
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <div>

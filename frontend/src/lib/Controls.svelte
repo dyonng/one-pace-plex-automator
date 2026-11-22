@@ -5,9 +5,9 @@
   const buttons = [
     {
       id: "refresh-sources",
-      label: "Refresh Sources",
+      label: "Fetch new releases",
       cls: "btn-primary",
-      tip: "Clears caches and re-fetches the metadata dataset, episode-guide sheets, and RSS feed to pick up new or updated releases — the same cycle the scheduler runs. With auto-reconcile on, it also pushes any changed Plex metadata and generates missing thumbnails.",
+      tip: "Polls the RSS feed and re-fetches the metadata dataset and episode-guide sheets, then runs the full pipeline — the same cycle the scheduler runs. Picks up new releases; does not change Plex unless auto-reconcile is on.",
     },
     {
       id: "retry-failed",

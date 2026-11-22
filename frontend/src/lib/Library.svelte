@@ -21,6 +21,7 @@
     postAction,
     type CoverageStatus,
     type CoverageEpisode,
+    type CoverageArc,
     type EpisodeMetadata,
     type TorrentSearchResult,
     type MetadataState,
@@ -72,6 +73,31 @@
 
   const scanning = $derived($coverageLoading || $metadataAuditLoading);
   let syncing = $state(false);
+
+  // Totals cards double as gap filters — click to show only arcs with that
+  // problem, click again to clear.
+  type GapFilter = "all" | "missing" | "upgrades" | "meta" | "thumbs";
+  let gapFilter = $state<GapFilter>("all");
+  const toggleGap = (f: Exclude<GapFilter, "all">) => (gapFilter = gapFilter === f ? "all" : f);
+
+  function arcMatchesGap(arc: CoverageArc): boolean {
+    if (gapFilter === "all") return true;
+    if (gapFilter === "missing") return arc.missing > 0;
+    if (gapFilter === "upgrades") return arc.upgradeable > 0;
+    const meta = metaByArc.get(arc.arcPart);
+    if (gapFilter === "meta")
+      return (meta ? meta.missing + meta.drifted : 0) > 0 || meta?.seasonState === "missing" || meta?.seasonState === "drifted";
+    if (gapFilter === "thumbs") return (meta?.needsThumb ?? 0) > 0;
+    return true;
+  }
+
+  const visibleArcs = $derived(($coverage?.arcs ?? []).filter(arcMatchesGap));
+  const gapLabel: Record<Exclude<GapFilter, "all">, string> = {
+    missing: "missing episodes",
+    upgrades: "upgrades",
+    meta: "flagged metadata",
+    thumbs: "missing thumbnails",
+  };
 
   // One button, both scans: the disk-vs-catalog diff and the Plex metadata audit.
   async function scanAll() {
@@ -330,7 +356,7 @@
   }
 </script>
 
-<section class="deck-card card bg-base-100/60">
+<section id="library" class="deck-card card bg-base-100/60">
   <div class="card-body p-4 gap-4">
     <div class="flex items-center justify-between gap-3 flex-wrap">
       <div>
@@ -370,7 +396,7 @@
         {#if $metadataAudit}
           <div
             class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
-            data-tip="Pushes the flagged missing/drifted metadata to Plex and triggers thumbnail generation for episodes missing one. Only touches what's flagged, not the whole library."
+            data-tip="Pushes only the flagged fixes to Plex — missing or drifted metadata plus thumbnail generation for episodes missing one. Does not touch anything that already matches; does not download anything."
           >
             <button
               class="btn btn-sm {flaggedCount > 0 ? 'btn-warning' : 'btn-outline'}"
@@ -378,13 +404,13 @@
               disabled={syncing || scanning || retryingThumbs || $status?.busy}
               onclick={syncFlagged}
             >
-              {syncing ? "Reconciling…" : flaggedCount > 0 ? `Reconcile (${flaggedCount})` : "Reconcile"}
+              {syncing ? "Pushing…" : flaggedCount > 0 ? `Push fixes (${flaggedCount})` : "Push fixes"}
             </button>
           </div>
         {/if}
         <div
           class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
-          data-tip="Scans your media folder for coverage (present / missing / upgradeable) and checks Plex for missing or drifted metadata and absent thumbnails. Read-only — makes no changes."
+          data-tip="Reads your media folder and Plex to report coverage (have / missing / upgradeable), drifted metadata, and absent thumbnails. Reporting only — downloads and changes nothing."
         >
           <button
             class="btn btn-sm btn-primary"
@@ -392,7 +418,7 @@
             disabled={scanning || syncing || retryingThumbs || $status?.busy}
             onclick={scanAll}
           >
-            {scanning ? "Scanning…" : $coverage || $metadataAudit ? "Re-scan" : "Scan library"}
+            {scanning ? "Auditing…" : $coverage || $metadataAudit ? "Re-audit" : "Audit library"}
           </button>
         </div>
       </div>
@@ -416,13 +442,19 @@
               <span class="text-[0.65rem] opacity-50">{t.present} / {t.episodes} episodes</span>
             </div>
           </div>
-          <div class="deck-card card bg-base-100/60">
+          <button
+            class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default {gapFilter === 'missing' ? 'ring-2 ring-error/60' : ''}"
+            disabled={t.missing === 0}
+            title="Show only arcs with missing episodes — click again to clear"
+            aria-pressed={gapFilter === "missing"}
+            onclick={() => toggleGap("missing")}
+          >
             <div class="card-body p-3 gap-0.5">
               <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Missing</span>
               <span class="font-display text-2xl tabular-nums text-error/80">{t.missing}</span>
-              <span class="text-[0.65rem] opacity-50">not on disk</span>
+              <span class="text-[0.65rem] opacity-50">not on disk · filter ↓</span>
             </div>
-          </div>
+          </button>
           <button
             class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default"
             disabled={upgradeNow.length === 0}
@@ -444,32 +476,50 @@
         {/if}
         {#if $metadataAudit}
           {@const a = $metadataAudit.totals}
-          <div class="deck-card card bg-base-100/60">
+          <button
+            class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default {gapFilter === 'meta' ? 'ring-2 ring-warning/60' : ''}"
+            disabled={a.flagged + $metadataAudit.seasonsFlagged === 0}
+            title="Show only arcs with flagged metadata — click again to clear"
+            aria-pressed={gapFilter === "meta"}
+            onclick={() => toggleGap("meta")}
+          >
             <div class="card-body p-3 gap-0.5">
               <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Metadata flagged</span>
               <span class="font-display text-2xl tabular-nums {a.flagged + $metadataAudit.seasonsFlagged > 0 ? 'text-warning' : 'text-success'}">
                 {a.flagged + $metadataAudit.seasonsFlagged}
               </span>
               <span class="text-[0.65rem] opacity-50">
-                {a.missing} missing · {a.drifted} drifted{$metadataAudit.seasonsFlagged ? ` · ${$metadataAudit.seasonsFlagged} season(s)` : ""}
+                {a.missing} missing · {a.drifted} drifted{$metadataAudit.seasonsFlagged ? ` · ${$metadataAudit.seasonsFlagged} season(s)` : ""} · filter ↓
               </span>
             </div>
-          </div>
-          <div class="deck-card card bg-base-100/60">
+          </button>
+          <button
+            class="deck-card card bg-base-100/60 text-left transition-colors hover:bg-base-100/90 active:scale-[0.98] disabled:opacity-50 disabled:cursor-default {gapFilter === 'thumbs' ? 'ring-2 ring-info/60' : ''}"
+            disabled={a.needsThumb === 0}
+            title="Show only arcs with missing thumbnails — click again to clear"
+            aria-pressed={gapFilter === "thumbs"}
+            onclick={() => toggleGap("thumbs")}
+          >
             <div class="card-body p-3 gap-0.5">
               <span class="text-[0.65rem] uppercase tracking-wider opacity-60">Missing thumbnails</span>
               <span class="font-display text-2xl tabular-nums {a.needsThumb > 0 ? 'text-info' : 'text-success'}">{a.needsThumb}</span>
               <span class="text-[0.65rem] opacity-50">
-                {a.thumbUnavailable > 0 ? `${a.thumbUnavailable} unavailable` : "to generate"}
+                {a.thumbUnavailable > 0 ? `${a.thumbUnavailable} unavailable` : "to generate"} · filter ↓
               </span>
             </div>
-          </div>
+          </button>
         {/if}
       </div>
 
       {#if $coverage}
+        {#if gapFilter !== "all"}
+          <div class="flex items-center gap-2 text-xs">
+            <span class="opacity-60">Showing arcs with {gapLabel[gapFilter]} ({visibleArcs.length})</span>
+            <button class="link" onclick={() => (gapFilter = "all")}>Show all</button>
+          </div>
+        {/if}
         <div class="flex flex-col gap-1.5">
-          {#each $coverage.arcs as arc (arc.arcPart)}
+          {#each visibleArcs as arc (arc.arcPart)}
             {@const complete = arc.missing === 0 && arc.upgradeable === 0 && arc.downloading === 0}
             {@const meta = metaByArc.get(arc.arcPart)}
             {@const metaFlagged = meta ? meta.missing + meta.drifted : 0}
@@ -572,6 +622,12 @@
               {/if}
             </div>
           {/each}
+          {#if gapFilter !== "all" && visibleArcs.length === 0}
+            <div class="text-sm opacity-60 py-6 text-center">
+              No arcs with {gapLabel[gapFilter]}.
+              <button class="link" onclick={() => (gapFilter = "all")}>Show all arcs</button>
+            </div>
+          {/if}
         </div>
 
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[0.65rem] opacity-60">

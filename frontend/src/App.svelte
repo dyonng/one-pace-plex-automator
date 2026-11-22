@@ -2,6 +2,7 @@
   import { onMount } from "svelte";
   import { startPolling, startProgressPolling, initLogs, streamLogs, loadSettings, loadAuth, loadCoverage, loadMetadataAudit } from "./lib/stores";
   import Navbar from "./lib/Navbar.svelte";
+  import AttentionBanner from "./lib/AttentionBanner.svelte";
   import NewReleases from "./lib/NewReleases.svelte";
   import Controls from "./lib/Controls.svelte";
   import System from "./lib/System.svelte";
@@ -32,6 +33,7 @@
 
 <Navbar />
 <main class="p-4 sm:p-6 max-w-screen-2xl mx-auto flex flex-col gap-4">
+  <AttentionBanner />
   <Episodes />
   <NewReleases />
   <System />
