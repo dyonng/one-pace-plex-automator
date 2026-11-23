@@ -396,6 +396,7 @@ export function parseReleaseTitle(
   title: string
 ): { arcTitle: string; epNum: number; extended: boolean } | null {
   let t = title
+    .replace(/\.[A-Za-z0-9]{2,4}$/, "") // trailing file extension (feed titles are filenames)
     .replace(/\[[^\]]*\]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

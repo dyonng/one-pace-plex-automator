@@ -49,9 +49,10 @@ vi.mock("../src/metadata", () => ({
   extractResolutionFromFilename: () => "1080p",
   parseResolutionFromFilename: () => "1080p",
   isPreferredRelease: async () => true,
-  // Mirrors the real parser: strips [...] groups, trailing integer = episode.
+  // Mirrors the real parser: strips [...] groups and a trailing file extension,
+  // trailing integer = episode.
   parseReleaseTitle: (t: string) => {
-    const clean = t.replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
+    const clean = t.replace(/\.[A-Za-z0-9]{2,4}$/, "").replace(/\[[^\]]*\]/g, " ").replace(/\s+/g, " ").trim();
     const parts = clean.split(/\s+/);
     const last = parts[parts.length - 1];
     if (!/^\d+$/.test(last) || parts.length < 2) return null;

@@ -74,6 +74,13 @@ describe("bracketed RSS titles", () => {
     });
   });
 
+  it("parses feed titles that carry the .mkv extension", () => {
+    // RSS <title>s are filenames; the extension must not hide the episode number.
+    expect(parseReleaseTitle("[One Pace][1014-1015] Wano 63 [1080p][45539BC1].mkv")).toEqual({
+      arcTitle: "Wano", epNum: 63, extended: false,
+    });
+  });
+
   it("returns null for whole-arc batch titles (no episode number)", () => {
     expect(parseReleaseTitle("[One Pace][96-100] Loguetown [1080p]")).toBeNull();
     expect(parseReleaseFilename("[One Pace][1-7] Romance Dawn [1080p].mkv")).toBeNull();
