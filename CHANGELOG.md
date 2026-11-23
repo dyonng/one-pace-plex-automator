@@ -10,6 +10,36 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.58] — 2026-11-23
+
+### Fixed
+- **Provisional download works on real feed titles (fixes the missed Wano
+  63).** A brand-new release lands before the catalog lists its CRC32, so
+  the poll falls back to placing it from the title — but the parser left
+  the trailing `.mkv` in place and bailed out. The extension is now
+  stripped before parsing, with a regression test on the actual Wano 63
+  title. The entry was never marked seen, so the next poll picks it up on
+  its own.
+- **Phone layout fixed.** Closed dialogs leaked their width into the page
+  and the banner grid pushed content off-viewport at 390px. Dialogs,
+  banner, and the library header now wrap or hide correctly on small
+  screens.
+- **Download leftovers cleaned up, ours only.** Torrent deletion now takes
+  the files with it, and each cycle sweeps download entries no live
+  torrent references — scoped to top-level `[One Pace]`-named entries
+  older than an hour, standing down entirely when qBittorrent is
+  unreachable.
+
+### Added
+- **Dashboard redesign.** Episodes lead the page; a top banner aggregates
+  failed downloads, missing episodes, ready upgrades, and available
+  updates with jump links (dismisses until the underlying problems
+  change); sync buttons are named by effect; library totals toggle gap
+  filters over the arc list; static config moves to a grouped footer
+  card. Console aesthetic throughout: lit card edges, status LEDs, styled
+  scrollbars, visible focus, reduced-motion support, larger touch targets.
+- README screenshots re-captured against the live dashboard.
+
 ### Security
 - **eMudhra remediation finalized: base now on published `node:22.23.4-alpine`.**
   Docker Hub has published the fixed images, so both stages move off
