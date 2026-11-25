@@ -32,7 +32,7 @@
 </script>
 
 {#if visible}
-  <div role="alert" class="alert alert-warning gap-x-5 gap-y-1 py-2.5 flex-wrap text-sm">
+  <div role="status" class="alert alert-warning gap-x-5 gap-y-1 py-2.5 flex-wrap text-sm">
     <span class="font-display uppercase tracking-widest text-xs opacity-70">Needs attention</span>
     {#if failed > 0}
       <a href="#pipeline" class="link font-medium whitespace-nowrap">

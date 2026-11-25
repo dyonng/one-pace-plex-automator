@@ -46,9 +46,10 @@
         <input
           class="input input-xs input-bordered font-mono w-44"
           placeholder="Filter…"
+          aria-label="Filter log messages"
           bind:value={textFilter}
         />
-        <select class="select select-xs select-bordered" bind:value={levelFilter}>
+        <select class="select select-xs select-bordered" bind:value={levelFilter} aria-label="Minimum log level">
           <option value="all">All levels</option>
           <option value="info">Info+</option>
           <option value="warn">Warn+</option>
@@ -70,6 +71,9 @@
     <div
       bind:this={box}
       class="text-xs h-96 overflow-y-auto rounded-box border border-base-content/10 bg-base-300/50 p-2 font-mono leading-relaxed"
+      tabindex="0"
+      role="region"
+      aria-label="Log entries"
     >
       {#each filtered as e}
         <pre class="px-1 whitespace-pre-wrap break-words"><span class="opacity-40">{time(e.ts)}</span> <span class="{LEVEL_CLASS[e.level] ?? ''}">[{e.level.toUpperCase()}]</span> {e.msg}{e.meta ? " " + JSON.stringify(e.meta) : ""}</pre>

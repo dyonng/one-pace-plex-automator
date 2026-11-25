@@ -17,6 +17,18 @@
   let bulkBusy = $state(false);
   let bulkRemoveOpen = $state(false);
   let bulkDeleteFile = $state(false);
+  let removeDialogEl = $state<HTMLDialogElement | null>(null);
+  let bulkDialogEl = $state<HTMLDialogElement | null>(null);
+
+  // Native dialogs: focus trap, inert background, and Esc come free.
+  $effect(() => {
+    if (removeTarget) removeDialogEl?.showModal();
+    else removeDialogEl?.close();
+  });
+  $effect(() => {
+    if (bulkRemoveOpen) bulkDialogEl?.showModal();
+    else bulkDialogEl?.close();
+  });
   // Deleting files across a large selection is the one action with no undo, and a
   // select-all plus one click is enough to do it. Require the word to be typed
   // once the selection is big enough that the blast radius stops being obvious.
@@ -140,7 +152,7 @@
     <div class="flex items-center justify-between gap-2 flex-wrap">
       <div>
         <div class="eyebrow">Pipeline</div>
-        <h2 class="font-display text-lg">Episodes <span class="opacity-50 text-sm font-mono">{$status?.episodes.length ?? 0}</span></h2>
+        <h2 id="episodes-heading" class="font-display text-lg">Episodes <span class="opacity-50 text-sm font-mono">{$status?.episodes.length ?? 0}</span></h2>
       </div>
       <div class="flex items-center gap-1 flex-wrap">
         {#if selectedEpisodes.length > 0}
@@ -184,7 +196,7 @@
       </div>
     </div>
 
-    <div class="overflow-x-auto max-h-[28rem] rounded-box border border-base-content/5">
+    <div class="overflow-x-auto max-h-[28rem] rounded-box border border-base-content/5" tabindex="0" role="region" aria-labelledby="episodes-heading">
       <table class="table table-sm table-pin-rows">
         <thead>
           <tr class="text-xs uppercase tracking-wider">
@@ -304,10 +316,10 @@
 </section>
 
 <!-- Remove confirmation -->
-{#if removeTarget}
-  <div class="modal modal-open">
+<dialog bind:this={removeDialogEl} class="modal" aria-labelledby="remove-heading" onclose={() => (removeTarget = null)}>
+  {#if removeTarget}
     <div class="modal-box deck-card">
-      <h3 class="font-display text-lg">Remove episode?</h3>
+      <h3 id="remove-heading" class="font-display text-lg">Remove episode?</h3>
       <p class="py-2 text-sm">
         <span class="font-mono text-primary">S{removeTarget.arc_part}E{removeTarget.episode_num}</span>
         — {removeTarget.arc_title}. This removes it from tracking.
@@ -322,14 +334,14 @@
       </div>
     </div>
     <button class="modal-backdrop" aria-label="Close" onclick={() => (removeTarget = null)}></button>
-  </div>
-{/if}
+  {/if}
+</dialog>
 
 <!-- Bulk remove confirmation -->
-{#if bulkRemoveOpen}
-  <div class="modal modal-open">
+<dialog bind:this={bulkDialogEl} class="modal" aria-labelledby="bulk-remove-heading" onclose={closeBulkRemove}>
+  {#if bulkRemoveOpen}
     <div class="modal-box deck-card">
-      <h3 class="font-display text-lg">Remove {selectedEpisodes.length} episode{selectedEpisodes.length === 1 ? "" : "s"}?</h3>
+      <h3 id="bulk-remove-heading" class="font-display text-lg">Remove {selectedEpisodes.length} episode{selectedEpisodes.length === 1 ? "" : "s"}?</h3>
       <p class="py-2 text-sm">They will be removed from tracking. Any in-flight downloads are cancelled.</p>
 
       <div class="max-h-40 overflow-y-auto rounded-box border border-base-content/10 my-2">
@@ -383,5 +395,5 @@
       </div>
     </div>
     <button class="modal-backdrop" aria-label="Close" onclick={closeBulkRemove}></button>
-  </div>
-{/if}
+  {/if}
+</dialog>

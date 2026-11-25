@@ -83,12 +83,12 @@
   }
 </script>
 
-<dialog bind:this={dialogEl} class="modal" onclose={close}>
+<dialog bind:this={dialogEl} class="modal" aria-labelledby="settings-heading" onclose={close}>
   <div class="modal-box max-w-4xl w-full max-h-[85vh] overflow-y-auto deck-card flex flex-col gap-4">
     <div class="flex items-start justify-between">
       <div>
         <div class="eyebrow">Configuration</div>
-        <h2 class="font-display text-lg">Settings</h2>
+        <h2 id="settings-heading" class="font-display text-lg">Settings</h2>
         <p class="text-xs opacity-55">Overrides persist and win over env. Secrets &amp; paths stay env-only.</p>
       </div>
       <button class="btn btn-sm btn-circle btn-ghost" onclick={close}>✕</button>
@@ -132,6 +132,7 @@
           {#if $themePref === "other"}
             <select
               class="select select-bordered select-sm w-44 font-mono capitalize"
+              aria-labelledby="setting-label-{s.key}"
               bind:value={$customTheme}
             >
               {#each DAISYUI_THEMES as t (t)}
@@ -193,10 +194,10 @@
 </dialog>
 
 {#snippet settingRow(s: SettingView)}
-  <div class="flex flex-wrap items-center gap-3 py-3">
+  <div class="flex flex-wrap items-center gap-3 py-3" role="group" aria-labelledby="setting-label-{s.key}">
     <div class="flex-1 min-w-[12rem]">
       <div class="flex items-center gap-2">
-        <span class="text-sm">{s.label}</span>
+        <span class="text-sm" id="setting-label-{s.key}">{s.label}</span>
         {#if s.overridden}
           <span class="badge badge-warning badge-xs">override</span>
         {:else}
@@ -278,6 +279,7 @@
       <input
         class="input input-bordered input-sm w-full sm:w-72 font-mono"
         type={s.type === "int" ? "number" : "text"}
+        aria-labelledby="setting-label-{s.key}"
         bind:value={edited[s.key]}
         placeholder={s.envValue || "(empty)"}
       />

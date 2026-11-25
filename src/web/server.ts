@@ -46,6 +46,16 @@ const ACTION_IDS: ActionId[] = [
 ];
 const EPISODE_ACTIONS: EpisodeActionId[] = ["download", "retry", "resync", "remove", "upgrade", "download-source"];
 
+/** Baseline hardening headers. The dashboard is never framed, so framing is
+ * denied outright. (A full script/style CSP is deliberately skipped: the
+ * pre-paint theme bootstrap in index.html is inline by design.) */
+function setSecurityHeaders(res: http.ServerResponse): void {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+}
+
 function serveStatic(res: http.ServerResponse, urlPath: string): void {
   const file = urlPath === "/" ? "index.html" : urlPath.replace(/^\//, "");
   const full = path.join(PUBLIC_DIR, file);
@@ -367,6 +377,7 @@ export function startDashboard(): http.Server {
 
   const server = http.createServer(async (req, res) => {
     try {
+      setSecurityHeaders(res);
       const reqPath = (req.url ?? "/").split("?")[0];
 
       // Health check — unauthenticated, so Docker HEALTHCHECK works regardless of auth.

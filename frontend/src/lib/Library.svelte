@@ -367,7 +367,7 @@
       </div>
       <div class="flex gap-2 flex-wrap">
           <div
-            class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+            class="tooltip tooltip-top sm:tooltip-left before:max-w-60 sm:before:max-w-xs before:whitespace-normal"
             data-tip="Asks Plex to generate a thumbnail again for every episode missing one — including those previous attempts gave up on. Generation runs in Plex's background queue, so results show up on a later scan."
           >
             <button
@@ -381,7 +381,7 @@
           </div>
         
         <div
-          class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+          class="tooltip tooltip-top sm:tooltip-left before:max-w-60 sm:before:max-w-xs before:whitespace-normal"
           data-tip="Forgets which posters are already applied and uploads them all again. Use when Plex is missing season art the app believes it already set (e.g. a newly created Specials season)."
         >
           <button
@@ -395,7 +395,7 @@
         </div>
         {#if $metadataAudit}
           <div
-            class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+            class="tooltip tooltip-top sm:tooltip-left before:max-w-60 sm:before:max-w-xs before:whitespace-normal"
             data-tip="Pushes only the flagged fixes to Plex — missing or drifted metadata plus thumbnail generation for episodes missing one. Does not touch anything that already matches; does not download anything."
           >
             <button
@@ -409,7 +409,7 @@
           </div>
         {/if}
         <div
-          class="tooltip tooltip-top before:max-w-xs before:whitespace-normal"
+          class="tooltip tooltip-top sm:tooltip-left before:max-w-60 sm:before:max-w-xs before:whitespace-normal"
           data-tip="Reads your media folder and Plex to report coverage (have / missing / upgradeable), drifted metadata, and absent thumbnails. Reporting only — downloads and changes nothing."
         >
           <button
@@ -674,13 +674,13 @@
 {/snippet}
 
 <!-- Batch upgrade modal -->
-<dialog bind:this={batchDialogEl} class="modal" onclose={closeBatchModal}>
+<dialog bind:this={batchDialogEl} class="modal" aria-labelledby="batch-heading" onclose={closeBatchModal}>
   <div class="modal-box max-w-4xl w-full">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeBatchModal}>✕</button>
-    <h3 class="font-bold text-base">Batch Upgrade</h3>
+    <h3 id="batch-heading" class="font-bold text-base">Batch Upgrade</h3>
     <p class="text-xs opacity-50 mb-4">{upgradeNow.length} episode{upgradeNow.length === 1 ? "" : "s"} ready to upgrade</p>
 
-    <div class="overflow-x-auto max-h-[60vh] rounded-box border border-base-content/10">
+    <div class="overflow-x-auto max-h-[60vh] rounded-box border border-base-content/10" tabindex="0" role="region" aria-label="Episodes ready to upgrade">
       <table class="table table-sm table-pin-rows">
         <thead>
           <tr class="text-xs uppercase tracking-wider">
@@ -753,12 +753,12 @@
 </dialog>
 
 
-<dialog bind:this={dialogEl} class="modal" onclose={closeModal}>
+<dialog bind:this={dialogEl} class="modal" aria-labelledby="episode-heading" onclose={closeModal}>
   {#if modal}
     <div class="modal-box max-w-3xl w-full">
       <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeModal}>✕</button>
 
-      <h3 class="font-bold text-base">
+      <h3 id="episode-heading" class="font-bold text-base">
         {modal.ep.episodeTitle}
         <span class="font-mono text-sm opacity-50 ml-1">
           S{String(modal.ep.arcPart).padStart(2, "0")}E{String(modal.ep.episodeNum).padStart(2, "0")}

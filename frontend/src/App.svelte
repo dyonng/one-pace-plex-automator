@@ -32,6 +32,7 @@
 </script>
 
 <Navbar />
+<a href="#pipeline" class="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:px-3 focus:py-1.5 focus:rounded focus:bg-primary focus:text-primary-content focus:text-sm">Skip to episodes</a>
 <main class="p-4 sm:p-6 max-w-screen-2xl mx-auto flex flex-col gap-4">
   <AttentionBanner />
   <Episodes />

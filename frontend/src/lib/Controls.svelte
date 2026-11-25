@@ -159,9 +159,9 @@
 </section>
 
 <!-- Full Plex sync confirmation -->
-<dialog bind:this={syncDialogEl} class="modal" onclose={closeSyncModal}>
+<dialog bind:this={syncDialogEl} class="modal" aria-labelledby="sync-heading" onclose={closeSyncModal}>
   <div class="modal-box deck-card">
-    <h3 class="font-bold text-base">Full Plex sync?</h3>
+    <h3 id="sync-heading" class="font-bold text-base">Full Plex sync?</h3>
     <p class="text-sm opacity-70 mt-1 mb-3">
       This updates metadata for every season and episode in Plex, then checks all arc posters for changes.
       It makes a large number of requests to Plex and may take a while.
@@ -175,10 +175,10 @@
 </dialog>
 
 <!-- Normalize file naming modal -->
-<dialog bind:this={nameDialogEl} class="modal" onclose={closeNameModal}>
+<dialog bind:this={nameDialogEl} class="modal" aria-labelledby="naming-heading" onclose={closeNameModal}>
   <div class="modal-box max-w-5xl w-full">
     <button class="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onclick={closeNameModal}>✕</button>
-    <h3 class="font-bold text-base">Normalize File Naming</h3>
+    <h3 id="naming-heading" class="font-bold text-base">Normalize File Naming</h3>
     <p class="text-xs opacity-50 mb-4">
       Files whose names don't match the canonical scheme. The new name is derived from each file's CRC32.
     </p>

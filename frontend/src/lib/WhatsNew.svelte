@@ -169,12 +169,12 @@
   }
 </script>
 
-<dialog bind:this={dialogEl} class="modal" onclose={dismiss}>
+<dialog bind:this={dialogEl} class="modal" aria-labelledby="whatsnew-heading" onclose={dismiss}>
   <div class="modal-box max-w-2xl w-full deck-card">
     <div class="flex items-start justify-between gap-3">
       <div>
         <div class="eyebrow">{manual ? "Changelog" : "What's New"}</div>
-        <h3 class="font-display text-lg">
+        <h3 id="whatsnew-heading" class="font-display text-lg">
           {manual ? `v${$status?.version}` : `Updated to v${$status?.version}`}
         </h3>
         {#if !manual}
