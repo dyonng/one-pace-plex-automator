@@ -10,6 +10,24 @@ into a version heading when a GitHub release is cut.
 
 ## [Unreleased]
 
+## [1.1.59] — 2026-11-25
+
+### Fixed
+- **Dashboard is navigable by screen reader and keyboard.** Toasts
+  announce via a polite live region, the attention banner reports
+  status instead of interrupting as an alert, every dialog carries an
+  accessible name, scrollable regions are keyboard-focusable with
+  labels, settings controls and log filters have programmatic names,
+  and a skip link jumps straight to the episode pipeline.
+- **Security headers on all responses.** Every dashboard reply —
+  health probe, API 404s, and static files included — now carries
+  `X-Content-Type-Options: nosniff`, framing denial, and a strict
+  referrer policy, covered by a new end-to-end header test.
+- **Desktop scrollbar fixed.** Right-edge library tooltips opened upward
+  and spilled 83px past the viewport even while hidden, giving the page
+  a phantom horizontal scrollbar at desktop widths. They now open to
+  the left on desktop with narrower bubbles on mobile.
+
 ## [1.1.58] — 2026-11-23
 
 ### Fixed
